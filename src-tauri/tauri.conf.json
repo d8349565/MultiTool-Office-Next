@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MultiTool Office Next",
+  "version": "2026.1006.1840",
+  "identifier": "com.multitool.office.next",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MultiTool Office",
+        "width": 1240,
+        "height": 840,
+        "minWidth": 900,
+        "minHeight": 620,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "licenseFile": "../USAGE_AND_PRIVACY.txt",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
+      "target/release/WebView2Loader.dll": "WebView2Loader.dll",
+      "binaries/ocr-worker/": "ocr-worker/"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese"
+        ],
+        "displayLanguageSelector": false,
+        "template": "windows/installer.nsi"
+      }
+    }
+  }
+}

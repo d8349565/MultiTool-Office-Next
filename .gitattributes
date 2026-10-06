@@ -1,0 +1,3 @@
+# 确保批处理脚本始终使用 CRLF 行尾
+*.bat text eol=crlf
+*.cmd text eol=crlf

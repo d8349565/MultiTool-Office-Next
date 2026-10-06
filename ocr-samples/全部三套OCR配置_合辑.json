@@ -1,0 +1,393 @@
+[
+  {
+    "id": "purchase-contract",
+    "name": "采购合同",
+    "keywords": [
+      "采购合同",
+      "合同编号",
+      "PURCHASE CONTRACT"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "合同编号",
+        "prompt": "提取采购合同的唯一编号，通常以 HT 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "合同编号：",
+          "合同编号",
+          "编号："
+        ],
+        "pattern": "HT-\\d{4}-\\d{4}",
+        "stripPrefixes": [
+          "合同编号：",
+          "合同编号:",
+          "编号：",
+          "编号:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "需方名称",
+        "prompt": "选择买方、采购方、需方的企业全称，排除供方和卖方",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "需方（买方）：",
+          "需方名称",
+          "需方：",
+          "买方："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "需方（买方）：",
+          "需方（买方）:",
+          "需方名称：",
+          "需方名称:",
+          "需方：",
+          "需方:",
+          "买方：",
+          "买方:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "签订日期",
+        "prompt": "提取合同正式签订或签署日期，格式通常为年月日",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "签订日期：",
+          "签订日期",
+          "签约日期：",
+          "签约日期"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "签订日期：",
+          "签订日期:",
+          "签约日期：",
+          "签约日期:",
+          "："
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "合同金额",
+        "prompt": "提取采购合同的总金额或价税合计数值，排除单价与数量",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "合同总额",
+          "合计金额",
+          "总金额",
+          "价税合计"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "合同总额：",
+          "合同总额",
+          "："
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{签订日期}_{需方名称}_{合同编号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "产品采购合同"
+    ],
+    "noiseMarkers": [
+      "统一社会信用代码",
+      "法定代表人"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "delivery-order",
+    "name": "销售送货单",
+    "keywords": [
+      "送货单",
+      "出库送货单",
+      "DELIVERY ORDER",
+      "送货"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "送货单号",
+        "prompt": "提取销售送货单的单据编号，通常以 SH 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "送货单号：",
+          "送货单号",
+          "单号："
+        ],
+        "pattern": "SH-\\d{8}-\\d{2}",
+        "stripPrefixes": [
+          "送货单号：",
+          "送货单号:",
+          "单号：",
+          "单号:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户名称",
+        "prompt": "提取收货方、买方或客户企业名称，排除发货单位",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "客户名称：",
+          "客户名称",
+          "收货单位：",
+          "客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "客户名称：",
+          "客户名称:",
+          "收货单位：",
+          "收货单位:",
+          "客户：",
+          "客户:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "送货日期",
+        "prompt": "提取本次出库送货的具体日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "送货日期：",
+          "送货日期",
+          "发货日期：",
+          "出库日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "送货日期：",
+          "送货日期:",
+          "发货日期：",
+          "发货日期:",
+          "出库日期：",
+          "："
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "产品名称",
+        "prompt": "提取明细表格中的送货产品或物料名称，排除规格型号、单位、批号和数量",
+        "kind": "text",
+        "multiple": true,
+        "maxItems": 5,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "产品名称",
+          "物料名称",
+          "货物名称",
+          "品名"
+        ],
+        "pattern": "",
+        "stripPrefixes": [],
+        "format": ""
+      },
+      {
+        "key": "送货数量",
+        "prompt": "提取送货总数量合计",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": false,
+        "fallback": "",
+        "anchors": [
+          "合计数量",
+          "总数量",
+          "送货数量"
+        ],
+        "pattern": "",
+        "stripPrefixes": [],
+        "format": "0"
+      }
+    ],
+    "filenamePattern": "{送货日期}_{客户名称}_{送货单号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "销售出库送货单"
+    ],
+    "noiseMarkers": [
+      "仓储物流部专用",
+      "条码"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "quotation-sheet",
+    "name": "商务报价单",
+    "keywords": [
+      "报价单",
+      "Quotation",
+      "COMMERCIAL",
+      "报价"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "报价单号",
+        "prompt": "提取商务报价单的报价编号，通常以 BJ 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "报价单号：",
+          "报价单号",
+          "报价编号：",
+          "报价编号"
+        ],
+        "pattern": "BJ-\\d{8}-\\d{2}",
+        "stripPrefixes": [
+          "报价单号：",
+          "报价单号:",
+          "报价编号：",
+          "报价编号:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户单位",
+        "prompt": "提取询价方、客户单位全称，排除报价单位和供货商",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "客户单位：",
+          "客户单位",
+          "客户名称：",
+          "客户名称",
+          "客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "客户单位：",
+          "客户单位:",
+          "客户名称：",
+          "客户名称:",
+          "客户：",
+          "客户:",
+          "："
+        ],
+        "format": ""
+      },
+      {
+        "key": "报价日期",
+        "prompt": "提取报价出具日期，严格排除有效期至与截止日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "报价日期：",
+          "报价日期",
+          "制单日期：",
+          "制单日期"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "报价日期：",
+          "报价日期:",
+          "制单日期：",
+          "制单日期:",
+          "："
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "价税合计",
+        "prompt": "提取报价单的最终含税总金额或价税合计，排除单价与参考价",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "价税合计",
+          "总金额",
+          "合计金额",
+          "报价总额"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "价税合计：",
+          "价税合计",
+          "："
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{报价日期}_{客户单位}_{报价单号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "商务设备报价单"
+    ],
+    "noiseMarkers": [
+      "商机编号",
+      "版本："
+    ],
+    "extraHeaders": []
+  }
+]

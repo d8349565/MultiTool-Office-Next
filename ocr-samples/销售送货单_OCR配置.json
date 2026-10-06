@@ -1,0 +1,138 @@
+{
+  "id": "delivery-order",
+  "name": "销售送货单",
+  "keywords": [
+    "送货单",
+    "出库送货单",
+    "DELIVERY ORDER",
+    "送货"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "送货单号",
+      "prompt": "提取销售送货单的单据编号，通常以 SH 开头",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "送货单号：",
+        "送货单号",
+        "单号："
+      ],
+      "pattern": "SH-\\d{8}-\\d{2}",
+      "stripPrefixes": [
+        "送货单号：",
+        "送货单号:",
+        "单号：",
+        "单号:",
+        "："
+      ],
+      "format": ""
+    },
+    {
+      "key": "客户名称",
+      "prompt": "提取收货方、买方或客户企业名称，排除发货单位",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "客户名称：",
+        "客户名称",
+        "收货单位：",
+        "客户："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "客户名称：",
+        "客户名称:",
+        "收货单位：",
+        "收货单位:",
+        "客户：",
+        "客户:",
+        "："
+      ],
+      "format": ""
+    },
+    {
+      "key": "送货日期",
+      "prompt": "提取本次出库送货的具体日期",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "送货日期：",
+        "送货日期",
+        "发货日期：",
+        "出库日期："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "送货日期：",
+        "送货日期:",
+        "发货日期：",
+        "发货日期:",
+        "出库日期：",
+        "："
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "产品名称",
+      "prompt": "提取明细表格中的送货产品或物料名称，排除规格型号、单位、批号和数量",
+      "kind": "text",
+      "multiple": true,
+      "maxItems": 5,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "产品名称",
+        "物料名称",
+        "货物名称",
+        "品名"
+      ],
+      "pattern": "",
+      "stripPrefixes": [],
+      "format": ""
+    },
+    {
+      "key": "送货数量",
+      "prompt": "提取送货总数量合计",
+      "kind": "number",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": false,
+      "fallback": "",
+      "anchors": [
+        "合计数量",
+        "总数量",
+        "送货数量"
+      ],
+      "pattern": "",
+      "stripPrefixes": [],
+      "format": "0"
+    }
+  ],
+  "filenamePattern": "{送货日期}_{客户名称}_{送货单号}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "销售出库送货单"
+  ],
+  "noiseMarkers": [
+    "仓储物流部专用",
+    "条码"
+  ],
+  "extraHeaders": []
+}

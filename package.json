@@ -1,0 +1,42 @@
+{
+  "name": "office-next",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "2026.1006.1840",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "preview": "vite preview --host 127.0.0.1 --port 1421 --strictPort",
+    "build": "tsc -b && vite build",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 -Action package",
+    "package:keep": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 -Action package -KeepVersion",
+    "package:quick": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 -Action package -KeepVersion -NoReveal",
+    "version:stamp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-version.ps1",
+    "ocr:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-ocr.ps1"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.99.1",
+    "@earendil-works/pi-ai": "0.99.1",
+    "@fluentui/react-components": "^9.74.9",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@tanstack/react-virtual": "^3.14.13",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-clipboard-manager": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.7.2",
+    "vite": "^6"
+  }
+}

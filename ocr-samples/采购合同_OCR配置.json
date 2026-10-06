@@ -1,0 +1,126 @@
+{
+  "id": "purchase-contract",
+  "name": "采购合同",
+  "keywords": [
+    "采购合同",
+    "合同编号",
+    "PURCHASE CONTRACT"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "合同编号",
+      "prompt": "提取采购合同的唯一编号，通常以 HT 开头",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "合同编号：",
+        "合同编号",
+        "编号："
+      ],
+      "pattern": "HT-\\d{4}-\\d{4}",
+      "stripPrefixes": [
+        "合同编号：",
+        "合同编号:",
+        "编号：",
+        "编号:",
+        "："
+      ],
+      "format": ""
+    },
+    {
+      "key": "需方名称",
+      "prompt": "选择买方、采购方、需方的企业全称，排除供方和卖方",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "需方（买方）：",
+        "需方名称",
+        "需方：",
+        "买方："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "需方（买方）：",
+        "需方（买方）:",
+        "需方名称：",
+        "需方名称:",
+        "需方：",
+        "需方:",
+        "买方：",
+        "买方:",
+        "："
+      ],
+      "format": ""
+    },
+    {
+      "key": "签订日期",
+      "prompt": "提取合同正式签订或签署日期，格式通常为年月日",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "签订日期：",
+        "签订日期",
+        "签约日期：",
+        "签约日期"
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "签订日期：",
+        "签订日期:",
+        "签约日期：",
+        "签约日期:",
+        "："
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "合同金额",
+      "prompt": "提取采购合同的总金额或价税合计数值，排除单价与数量",
+      "kind": "number",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "合同总额",
+        "合计金额",
+        "总金额",
+        "价税合计"
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "￥",
+        "$",
+        "合同总额：",
+        "合同总额",
+        "："
+      ],
+      "format": "2"
+    }
+  ],
+  "filenamePattern": "{签订日期}_{需方名称}_{合同编号}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "产品采购合同"
+  ],
+  "noiseMarkers": [
+    "统一社会信用代码",
+    "法定代表人"
+  ],
+  "extraHeaders": []
+}

@@ -1,0 +1,48 @@
+# 本地依赖、工具与构建产物
+node_modules/
+.npm-cache/
+.tools/
+dist/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+src-tauri/windows/installer.original.nsi
+__pycache__/
+.pytest_cache/
+*.tsbuildinfo
+
+# 本地配置、凭据、数据与调试产物
+.env
+.env.*
+!.env.example
+*.local
+*.log
+*.sqlite
+*.sqlite-*
+settings.json
+settings.previous.json
+.codex/
+.commandcode/
+.agents/
+agents/
+.pi-evaluation/
+test-results/
+playwright-report/
+test-workspace/
+debug.md
+FORUM_POST.md
+
+# 私人业务文档只在本地保存
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.csv
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+build-exe.bat
+run.bat
