@@ -1,11 +1,14 @@
 """用户主动触发的本地只读预览；不加载链接、宏或外部资源。"""
 import base64
 import csv
-import datetime
 import io
+import json
 import posixpath
+import re
 import zipfile
 import xml.etree.ElementTree as ET
+
+from sheet_style import cell_format, cell_style, format_value, parse_styles, theme_colors
 
 MAX_FILE = 100 * 1024 * 1024
 MAX_XML = 8 * 1024 * 1024
@@ -98,14 +101,66 @@ def column_index(reference):
     return value - 1
 
 
-def date_value(value, date1904):
+def shared_string(node):
+    # 只取正文与富文本片段；拼音注音（rPh）不属于单元格显示内容。
+    parts = []
+    for child in node:
+        if child.tag == S + "t":
+            parts.append(child.text or "")
+        elif child.tag == S + "r":
+            parts.extend(text.text or "" for text in child.findall(S + "t"))
+    return "".join(parts)
+
+
+def load_styles(archive, names):
+    """样式损坏时退回无样式预览，不影响取值。"""
+    if "xl/styles.xml" not in names:
+        return dict(xfs=[], formats={}, size=11.0)
+    theme = []
     try:
-        number = float(value)
-        origin = datetime.datetime(1904, 1, 1) if date1904 else datetime.datetime(1899, 12, 30 if number >= 60 else 31)
-        date = origin + datetime.timedelta(days=number)
-        return date.strftime("%Y-%m-%d %H:%M:%S" if number % 1 else "%Y-%m-%d")
-    except (ValueError, OverflowError):
-        return value
+        if "xl/theme/theme1.xml" in names:
+            theme = theme_colors(xml_part(archive, "xl/theme/theme1.xml"))
+        return parse_styles(xml_part(archive, "xl/styles.xml"), theme)
+    except (ET.ParseError, ValueError, KeyError):
+        return dict(xfs=[], formats={}, size=11.0)
+
+
+def cell_reference(reference):
+    match = re.fullmatch(r"([A-Za-z]{1,3})(\d{1,7})", reference or "")
+    return (int(match.group(2)) - 1, column_index(match.group(1))) if match else None
+
+
+def column_widths(worksheet, count):
+    """Excel 列宽（字符）换算成像素：width * 7；默认 64px。"""
+    properties = worksheet.find(S + "sheetFormatPr")
+    try:
+        default = float(properties.get("defaultColWidth")) * 7 if properties is not None and properties.get("defaultColWidth") else 64
+    except ValueError:
+        default = 64
+    widths = [round(default)] * count
+    for node in worksheet.iterfind(f"{S}cols/{S}col"):
+        try:
+            first, last, width = int(node.get("min")) - 1, int(node.get("max")) - 1, float(node.get("width", "0"))
+        except (TypeError, ValueError):
+            continue
+        pixels = 0 if node.get("hidden") in {"1", "true"} or width <= 0 else min(600, max(8, round(width * 7)))
+        for index in range(max(first, 0), min(last, count - 1) + 1):
+            widths[index] = pixels
+    return widths
+
+
+def merged_ranges(worksheet, row_count, column_count):
+    merges = []
+    for node in list(worksheet.iterfind(f"{S}mergeCells/{S}mergeCell"))[:2000]:
+        start, _, end = node.get("ref", "").partition(":")
+        first, last = cell_reference(start), cell_reference(end)
+        if not first or not last or first[0] >= row_count or first[1] >= column_count:
+            continue
+        top, left = min(first[0], last[0]), min(first[1], last[1])
+        bottom, right = min(max(first[0], last[0]), row_count - 1), min(max(first[1], last[1]), column_count - 1)
+        if (bottom, right) != (top, left):
+            merges.append([top, left, bottom, right])
+    return merges
 
 
 def xlsx_preview(path, sheet):
@@ -123,26 +178,41 @@ def xlsx_preview(path, sheet):
         target = posixpath.normpath(target.lstrip("/") if target.startswith("/") else "xl/" + target)
         if not target.startswith("xl/") or "\\" in target:
             raise ValueError("工作表路径无效")
+        names = set(archive.namelist())
         strings = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            strings = ["".join(text.text or "" for text in node.iter(S + "t")) for node in xml_part(archive, "xl/sharedStrings.xml")]
-        date_styles = set()
-        if "xl/styles.xml" in archive.namelist():
-            styles = xml_part(archive, "xl/styles.xml")
-            # 只识别标准日期样式；其它数值保留原始缓存值。
-            cell_styles = styles.find(S + "cellXfs")
-            date_styles = {index for index, style in enumerate(cell_styles if cell_styles is not None else []) if int(style.get("numFmtId", "0")) in set(range(14, 23)) | {45, 46, 47}}
+        if "xl/sharedStrings.xml" in names:
+            strings = [shared_string(node) for node in xml_part(archive, "xl/sharedStrings.xml")]
+        styles = load_styles(archive, names)
         properties = book.find(S + "workbookPr")
         date1904 = properties is not None and properties.get("date1904") in {"1", "true"}
         worksheet = xml_part(archive, target)
-    rows = []
+    rows, ids, heights = [], [], []
+    style_list, style_index, style_cache = [{}], {"{}": 0}, {}
+
+    def style_id(xf, cls, override):
+        key = (xf, cls, override)
+        if key not in style_cache:
+            token = json.dumps(cell_style(styles, xf, cls, override), sort_keys=True, separators=(",", ":"))
+            if token not in style_index:
+                style_index[token] = len(style_list)
+                style_list.append(json.loads(token))
+            style_cache[key] = style_index[token]
+        return style_cache[key]
+
     length = 0
     truncated = len(sheets) > 32
     for row in worksheet.iter(S + "row"):
-        if len(rows) >= MAX_ROWS or length >= MAX_CHARS:
+        number = int(row.get("r")) if row.get("r", "").isdigit() else len(rows) + 1
+        if number > MAX_ROWS or length >= MAX_CHARS:
             truncated = True
             break
-        values = []
+        if number <= len(rows):
+            continue
+        while len(rows) < number - 1:
+            rows.append([])
+            ids.append([])
+            heights.append(0)
+        values, styled = [], []
         for cell in row.findall(S + "c"):
             column = column_index(cell.get("r", ""))
             if column < 0:
@@ -152,25 +222,62 @@ def xlsx_preview(path, sheet):
                 continue
             while len(values) <= column:
                 values.append("")
+                styled.append(0)
             kind = cell.get("t")
             value = cell.findtext(S + "v", "")
+            has_cached_value = bool(value) or (kind == "str" and cell.find(S + "v") is not None)
+            try:
+                xf = int(cell.get("s", "0"))
+            except ValueError:
+                xf = 0
+            override = None
             if kind == "s":
                 index = int(value) if value else -1
                 value = strings[index] if 0 <= index < len(strings) else ""
             elif kind == "inlineStr":
                 value = "".join(node.text or "" for node in cell.iter(S + "t"))
             elif kind == "b":
-                value = "是" if value == "1" else "否"
-            elif int(cell.get("s", "0")) in date_styles and kind not in {"str", "e", "d"}:
-                value = date_value(value, date1904)
-            if not value and cell.find(S + "f") is not None:
+                value = "TRUE" if value == "1" else "FALSE"
+            elif kind in {None, "n"} and value:
+                value, override = format_value(value, cell_format(styles, xf), date1904)
+            if not has_cached_value and not value and cell.find(S + "f") is not None:
                 value = "=" + cell.findtext(S + "f", "")
             limit = min(400, max(0, MAX_CHARS - length))
             truncated |= len(value) > limit
             values[column] = value[:limit]
+            styled[column] = style_id(xf, "c" if kind in {"b", "e"} else "t" if kind in {"s", "str", "inlineStr", "d"} else "n", override)
             length += len(values[column])
         rows.append(values)
-    return dict(kind="table", rows=rows, sheets=[node.get("name", "工作表") for node in sheets[:32]], sheet=sheet, truncated=truncated, notice="最多显示 120 行、24 列；公式使用已有缓存值，不计算公式或加载外部链接。")
+        ids.append(styled)
+        try:
+            height = round(float(row.get("ht", "0")) * 4 / 3, 1)
+        except ValueError:
+            height = 0
+        heights.append(-1 if row.get("hidden") in {"1", "true"} else min(height, 800) if height > 0 else 0)
+    result = dict(kind="table", rows=rows, sheets=[node.get("name", "工作表") for node in sheets[:32]], sheet=sheet, truncated=truncated, notice="最多显示 120 行、24 列；按单元格样式还原，公式使用已有缓存值，不计算公式或加载外部链接，不显示图片、图表与条件格式。")
+    if rows:
+        merges = merged_ranges(worksheet, MAX_ROWS, MAX_COLS)
+        row_count = max(len(rows), max((merge[2] + 1 for merge in merges), default=0))
+        columns = max(max(len(row) for row in rows), max((merge[3] + 1 for merge in merges), default=0))
+        while len(rows) < row_count:
+            rows.append([])
+            ids.append([])
+            heights.append(0)
+        for row, styled in zip(rows, ids):
+            row.extend([""] * (columns - len(row)))
+            styled.extend([0] * (columns - len(styled)))
+        view = worksheet.find(f"{S}sheetViews/{S}sheetView")
+        properties = worksheet.find(S + "sheetFormatPr")
+        try:
+            default_height = round(float(properties.get("defaultRowHeight")) * 4 / 3, 1) if properties is not None and properties.get("defaultRowHeight") else 20
+        except ValueError:
+            default_height = 20
+        result["grid"] = dict(
+            styles=style_list, cells=ids, cols=column_widths(worksheet, columns), rowHeights=heights, rowHeight=default_height,
+            merges=merges, gridlines=not (view is not None and view.get("showGridLines") in {"0", "false"}),
+            baseSize=styles["size"],
+        )
+    return result
 
 
 def image_preview(path, page, images):

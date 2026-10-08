@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, ArrowSquareOut, PushPin, X } from '@phosphor-ico
 import { api } from './api';
 import { MarkdownView } from './AssistantMarkdown';
 import { previewPosition, type FilePreviewData } from './filePreviewModel';
+import { SheetPreview } from './SheetPreview';
 import type { PreviewTarget } from './useFilePreview';
 import type { Entry } from './types';
 import './filePreview.css';
@@ -62,7 +63,7 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
     <div className="file-preview-body" key={key}>
       {error?<div className="file-preview-message" role="alert"><p>{error}</p><button type="button" onClick={()=>setRetry(value=>value+1)}>重试预览</button></div>:!data?<div className="file-preview-message" role="status">正在读取本地文件…</div>:
         data.kind==='image'?<div className="file-preview-image"><img src={data.image} alt={`${entry.name} 第 ${data.page||1} 页`}/></div>:
-        data.kind==='table'?data.rows?.length?<table className="file-preview-table"><thead><tr><th aria-label="行号">#</th>{Array.from({length:columns},(_,index)=><th key={index}>{String.fromCharCode(65+index)}</th>)}</tr></thead><tbody>{data.rows.map((row,index)=><tr key={index}><th scope="row">{index+1}</th>{Array.from({length:columns},(_,column)=><td key={column}>{row[column]||''}</td>)}</tr>)}</tbody></table>:<p className="file-preview-message">此工作表没有可预览的数据。</p>:
+        data.kind==='table'?data.rows?.length?data.grid?<SheetPreview rows={data.rows} grid={data.grid}/>:<table className="file-preview-table"><thead><tr><th aria-label="行号">#</th>{Array.from({length:columns},(_,index)=><th key={index}>{String.fromCharCode(65+index)}</th>)}</tr></thead><tbody>{data.rows.map((row,index)=><tr key={index}><th scope="row">{index+1}</th>{Array.from({length:columns},(_,column)=><td key={column}>{row[column]||''}</td>)}</tr>)}</tbody></table>:<p className="file-preview-message">此工作表没有可预览的数据。</p>:
         data.format==='markdown'?<MarkdownView text={data.text||''}/>:<pre className="file-preview-text">{data.text||'此文件没有可预览的文字。'}</pre>}
     </div>
     <footer className="file-preview-footer"><span>{data?.truncated?'内容已截取 · ':''}{data?.notice||'仅在本机预览'}{!pinned&&' · Ctrl＋左键可固定'}</span><button type="button" onClick={()=>onOpen(entry)}><ArrowSquareOut size={15}/>打开文件</button></footer>
