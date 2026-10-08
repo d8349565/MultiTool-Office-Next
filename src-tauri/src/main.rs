@@ -41,8 +41,11 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
 #[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{json!({"settings":state.settings.lock().unwrap().clone(),"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key("model").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"jev":ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
 #[tauri::command] async fn list_dirs(state:tauri::State<'_,Arc<AppState>>,path:String)->Result<Vec<index::Entry>,String>{let idx=state.index.clone();tauri::async_runtime::spawn_blocking(move||idx.dirs(&path)).await.map_err(|e|e.to_string())?}
 #[tauri::command] async fn search(state:tauri::State<'_,Arc<AppState>>,mut query:Query)->Result<index::Results,String>{
-    let idx=state.index.clone();if let Some(root)=&query.root{query.root=Some(idx.authorize(root)?.to_string_lossy().into_owned());}
-    tauri::async_runtime::spawn_blocking(move||Ok(idx.search(&query))).await.map_err(|e|e.to_string())?
+    let idx=state.index.clone();
+    tauri::async_runtime::spawn_blocking(move||{
+        if let Some(root)=&query.root{query.root=Some(idx.authorize(root)?.to_string_lossy().into_owned());}
+        Ok(idx.search(&query))
+    }).await.map_err(|e|e.to_string())?
 }
 #[tauri::command] fn index_status(state:tauri::State<Arc<AppState>>)->index::Status{state.index.status.lock().unwrap().clone()}
 #[tauri::command] fn reindex(state:tauri::State<Arc<AppState>>){let _=state.index.refresh.send(());}
@@ -61,8 +64,9 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
 #[tauri::command] fn import_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<settings::Settings,String>{settings::import(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] fn export_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<(),String>{settings::export(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] async fn open_path(state:tauri::State<'_,Arc<AppState>>,path:String,reveal:bool)->Result<(),String>{
-    let p=state.index.authorize(&path)?;
+    let idx=state.index.clone();
     tauri::async_runtime::spawn_blocking(move||{
+        let p=idx.authorize(&path)?;
         if reveal {let result=shell::reveal(vec![p])?;if let Some(failed)=result["groups"].as_array().and_then(|g|g.iter().find(|g|g["status"]=="failed")){return Err(failed["error"].as_str().unwrap_or("定位失败").into());}return Ok(());
         }open::that_detached(p).map_err(|e|e.to_string())
     }).await.map_err(|e|e.to_string())?

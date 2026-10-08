@@ -23,7 +23,7 @@ tokio = { version = "1", features = ["time", "macros", "sync"] }
 keyring = { version = "3", features = ["windows-native"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
-open = "5"
+open = { version = "5", features = ["shellexecute-on-windows"] }
 regex = "1"
 sha2 = "0.10"
 base64 = "0.22"

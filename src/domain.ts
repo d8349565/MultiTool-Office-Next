@@ -12,3 +12,10 @@ export function locateTrail(root: string, parent: string) {
 }
 export function relativePath(path: string, root: string) { return isWithin(path, root) ? cleanPath(path).slice(cleanPath(root).length).replace(/^\//, '') : cleanPath(path); }
 export function sizeLabel(n: number) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`; }
+
+// Local paths are case-insensitive; URL paths and query values are not.
+export function openActionKey(target: string, reveal = false) {
+  const raw = target.trim();
+  const key = /^https?:\/\//i.test(raw) ? new URL(raw).href : cleanPath(raw.replace(/^\\\\\?\\UNC\\/i, '\\\\')).toLowerCase();
+  return `${reveal ? 'reveal' : 'open'}:${key}`;
+}

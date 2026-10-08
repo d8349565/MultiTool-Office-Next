@@ -5,7 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { listen } from '@tauri-apps/api/event';
 import { api, copy, pick, demo, desktop } from './api';
 import type { Settings, Status, Bootstrap, Entry, Results, AIResult, Proposal } from './types';
-import { basename, selectLevel, locateTrail, samePath, relativePath, sizeLabel, isWithin } from './domain';
+import { basename, selectLevel, locateTrail, samePath, relativePath, sizeLabel, isWithin, openActionKey } from './domain';
 import { DirectoryPanel, Empty, IconButton, Modal, Skeleton, Splitter } from './components';
 import { ProposalDiff } from './ProposalDiff';
 import { hasPricingChange } from './assistantPricing';
@@ -25,6 +25,7 @@ const OcrWorkbench=lazy(()=>import('./OcrWorkbench'));
 const TodoWorkbench=lazy(()=>import('./TodoWorkbench'));
 const initialStatus:Status={scanning:false,count:0,scanned:0,errors:[],generation:0};
 const quickShortcutHint=desktop?'窗口内 Ctrl + K · 全局 Ctrl + Shift + Space':'窗口内 Ctrl + K';
+function storedPercent(variable:string,fallback:number){try{const value=parseFloat(localStorage.getItem(`office-${variable}`)||'');return Number.isFinite(value)?value:fallback;}catch{return fallback;}}
 function useDirs(path:string,generation:number){
   const [data,setData]=useState<{items:Entry[];busy:boolean;error:string;path:string}>({items:[],busy:false,error:'',path:''});
   const previous=useRef(path);
@@ -54,6 +55,9 @@ export default function App(){
   const [settings,setSettings]=useState<Settings|null>(null),[status,setStatus]=useState<Status>(initialStatus),[fatal,setFatal]=useState('');
   const [page,setPage]=useState('files'),[root,setRoot]=useState(''),[trail,setTrail]=useState<string[]>([]),[query,setQuery]=useState(''),[filter,setFilter]=useState(''),[recursive,setRecursive]=useState(true),[extension,setExtension]=useState(''),[after,setAfter]=useState(''),[filters,setFilters]=useState(false),[offset,setOffset]=useState(0);
   const pageRef=useRef(page);pageRef.current=page;
+  const [deepSelected,setDeepSelected]=useState<{parent:string;entry:Entry}|null>(null),[deepExpanded,setDeepExpanded]=useState(false);
+  const pendingRef=useRef(new Set<string>()),[pendingActions,setPendingActions]=useState<ReadonlySet<string>>(new Set());
+  const [filesQueryKey,setFilesQueryKey]=useState('');
   const [files,setFiles]=useState<Results>({items:[],total:0}),[fileBusy,setFileBusy]=useState(false),[fileError,setFileError]=useState(''),[selected,setSelected]=useState<Entry|null>(null);
   const [settingsTab,setSettingsTab]=useState<ModuleId|null>(null),[assistant,setAssistant]=useState(false),[quick,setQuick]=useState(false),[quickQuery,setQuickQuery]=useState(''),[quickFiles,setQuickFiles]=useState<Entry[]>([]),[quickIndex,setQuickIndex]=useState(0),[notice,setNotice]=useState(''),[proposal,setProposal]=useState<Proposal|null>(null),[proposalError,setProposalError]=useState(''),[proposalBusy,setProposalBusy]=useState(false),[systemDark,setSystemDark]=useState(matchMedia('(prefers-color-scheme: dark)').matches);
   const [about,setAbout]=useState(false);
@@ -84,14 +88,22 @@ export default function App(){
   useEffect(()=>{if(page==='ocr')setOcrVisited(true);if(page==='todo')setTodoVisited(true);},[page]);
   const workspace=useRef<HTMLDivElement>(null),columns=useRef<HTMLDivElement>(null),fileList=useRef<HTMLDivElement>(null),searchInput=useRef<HTMLInputElement>(null),quickResults=useRef<HTMLDivElement>(null);
   const q=useDebounce(query),f=useDebounce(filter),quickQ=useDebounce(quickQuery);
-  const current=trail.at(-1)||root,deepParent=trail.length>=3?current:'';
+  const browseDirectory=trail.at(-1)||root,deepParent=trail.length>=3?browseDirectory:'';
+  const current=deepSelected&&samePath(deepSelected.parent,deepParent)?deepSelected.entry.path:browseDirectory;
   const d1=useDirs(root,status.generation),d2=useDirs(trail[0]||'',status.generation),d3=useDirs(trail[1]||'',status.generation),d4=useDirs(deepParent,status.generation);
+  const showDeep=!!deepParent&&(d4.busy?deepExpanded:!!d4.error||d4.items.length>0);
+  useEffect(()=>{if(!d4.busy)setDeepExpanded(!!deepParent&&(!!d4.error||d4.items.length>0));},[deepParent,d4.busy,d4.error,d4.items.length]);
+  useEffect(()=>{
+    if(deepSelected&&samePath(deepSelected.parent,deepParent)&&!d4.busy&&!d4.error&&!d4.items.some(e=>samePath(e.path,deepSelected.entry.path))){setDeepSelected(null);setNotice('所选目录已移动或删除，已返回当前目录。');}
+  },[deepSelected,deepParent,d4.busy,d4.error,d4.items]);
   useEffect(()=>{
     const missing=[d1,d2,d3,d4].filter(data=>data.error.startsWith('路径已不存在：'));
     const removed=trail.findIndex(path=>missing.some(data=>samePath(path,data.path)));
-    if(removed>=0){setTrail(value=>value.slice(0,removed));setNotice('目录已移动或删除，已返回上级目录。');}
+    if(removed>=0){setDeepSelected(null);setTrail(value=>value.slice(0,removed));setNotice('目录已移动或删除，已返回上级目录。');}
   },[trail,d1,d2,d3,d4]);
-  const virtual=useVirtualizer({count:files.items.length,getScrollElement:()=>fileList.current,estimateSize:()=>42,overscan:8});
+  const fileQueryKey=`${root}|${current}|${q}|${f}|${recursive}|${extension}|${after}|${offset}`;
+  const resultsReady=filesQueryKey===fileQueryKey;
+  const virtual=useVirtualizer({count:resultsReady?files.items.length:0,getScrollElement:()=>fileList.current,getItemKey:index=>files.items[index]?.path||index,estimateSize:()=>54,overscan:8});
   const scrollMemory=useRef(new Map<string,number>()),fileScope=q?`search:${q}:${offset}`:`browse:${current}:${offset}`,fileInteraction=useRef(false);
   const preview=useFilePreview(page==='files'&&!settingsTab&&!about&&!quick&&!assistant,`${fileScope}|${settings?.roots.join('|')}|${f}|${recursive}|${extension}|${after}`,files.items);
   const lastQueryKey=useRef(''),selectedRef=useRef<Entry|null>(null);
@@ -99,7 +111,7 @@ export default function App(){
   useLayoutEffect(()=>{fileInteraction.current=false;},[fileScope,fileBusy]);
   useLayoutEffect(()=>{if(fileBusy)return;const value=scrollMemory.current.get(fileScope)||0;if(fileList.current)fileList.current.scrollTop=value;const frame=requestAnimationFrame(()=>{if(fileList.current)fileList.current.scrollTop=value;});return()=>cancelAnimationFrame(frame);},[fileBusy,fileScope,files.items]);
   useEffect(()=>{void api<Bootstrap>('bootstrap').then(b=>{let last:{root?:string;current?:string}={};try{last=JSON.parse(localStorage.getItem(demo?'office-demo-location':'office-location')||'{}');}catch{/* A damaged UI preference must not prevent startup. */}const restored=b.settings.roots.find(r=>typeof last.root==='string'&&samePath(r,last.root))||b.settings.roots[0]||'';setRoot(restored);if(restored&&typeof last.current==='string'&&isWithin(last.current,restored))setTrail(locateTrail(restored,last.current));setSettings(b.settings);setStatus(b.status);setRecursive(b.settings.recursive);setFilter(b.settings.filter);}).catch(e=>setFatal(String(e)));},[]);
-  useEffect(()=>{if(settings)localStorage.setItem(demo?'office-demo-location':'office-location',JSON.stringify({root,current}));},[settings,root,current]);
+  useEffect(()=>{if(settings){try{localStorage.setItem(demo?'office-demo-location':'office-location',JSON.stringify({root,current:browseDirectory}));}catch{/* Browsing remains available without preference storage. */}}},[settings,root,browseDirectory]);
   useEffect(()=>{
     let alive=true;
     const timer=setInterval(()=>{
@@ -123,8 +135,22 @@ export default function App(){
     return()=>{alive=false;clearInterval(timer);};
   },[]);
   useEffect(()=>{const m=matchMedia('(prefers-color-scheme: dark)');const fn=()=>setSystemDark(m.matches);m.addEventListener('change',fn);return()=>m.removeEventListener('change',fn);},[]);
-  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);},[notice]);
-  useEffect(()=>{const listener=(e:KeyboardEvent)=>{if(e.ctrlKey&&e.key.toLowerCase()==='k'){e.preventDefault();setQuick(s=>!s);}if(e.ctrlKey&&e.key.toLowerCase()==='f'){if(pageRef.current==='todo'&&document.querySelector('dialog[open]'))return;e.preventDefault();if(pageRef.current==='todo'){document.getElementById('todo-search')?.focus();}else{setPage('files');searchInput.current?.focus();}}if(e.key==='Escape'){setAssistant(false);setQuick(false);}};window.addEventListener('keydown',listener);const unlisten=desktop?listen('quick-open',()=>setQuick(true)):null;return()=>{window.removeEventListener('keydown',listener);void unlisten?.then(f=>f());};},[]);
+  useEffect(()=>{if(!notice||(pendingActions.size&&notice.startsWith('正在')))return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);},[notice,pendingActions]);
+  useEffect(()=>{const listener=(e:KeyboardEvent)=>{if(e.ctrlKey&&e.key.toLowerCase()==='k'){e.preventDefault();setQuick(s=>!s);}if(e.ctrlKey&&e.key.toLowerCase()==='f'){if(pageRef.current==='todo'&&document.querySelector('dialog[open]'))return;e.preventDefault();if(pageRef.current==='todo'){document.getElementById('todo-search')?.focus();}else if(pageRef.current==='tools'){document.getElementById('tools-search')?.focus();}else{setPage('files');searchInput.current?.focus();}}if(e.key==='Escape'){setAssistant(false);setQuick(false);}};window.addEventListener('keydown',listener);const unlisten=desktop?listen('quick-open',()=>setQuick(true)):null;return()=>{window.removeEventListener('keydown',listener);void unlisten?.then(f=>f());};},[]);
+  useLayoutEffect(()=>{
+    const area=workspace.current,ancestors=columns.current;if(!area||!ancestors)return;
+    const resize=()=>{
+      const width=area.getBoundingClientRect().width;if(width<1||window.innerWidth<768)return;
+      const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
+      const left=showDeep?clamp(storedPercent('--left',75),500/width*100,100-170/width*100):100;
+      area.style.setProperty('--left',`${left}%`);
+      const available=ancestors.getBoundingClientRect().width;if(available<500)return;
+      const first=clamp(storedPercent('--col-one',33),160/available*100,100-340/available*100);
+      const second=clamp(storedPercent('--col-two',66),first+170/available*100,100-170/available*100);
+      ancestors.style.setProperty('--col-one',`${first}%`);ancestors.style.setProperty('--col-two',`${second}%`);
+    };
+    const observer=new ResizeObserver(resize);observer.observe(area);observer.observe(ancestors);resize();return()=>observer.disconnect();
+  },[root,showDeep,page]);
   useEffect(()=>{
     if(!desktop)return;
     const unlisten=listen<string>('todo-reminder-open',event=>{setPage('todo');setAssistant(false);setQuick(false);setSettingsTab(null);if(typeof event.payload==='string'&&event.payload)setTodoReminder({id:event.payload});});
@@ -134,17 +160,18 @@ export default function App(){
   useEffect(()=>{
     let active=true;
     if(!root){setFiles({items:[],total:0});return;}
-    const currentQueryKey=`${root}|${current}|${q}|${f}|${recursive}|${extension}|${after}|${offset}`;
+    const currentQueryKey=fileQueryKey;
     const queryChanged=lastQueryKey.current!==currentQueryKey;
     lastQueryKey.current=currentQueryKey;
     if(queryChanged){
-      if(!files.items.length)setFileBusy(true);
+      setFileBusy(true);
       setFileError('');
       setSelected(null);
       setJevResult(null);
     }
     void api<Results>('search',{query:{query:q,root:q?undefined:current,recursive:q?true:recursive,filter:q?'':f,extension,after:after?Math.floor(new Date(`${after}T00:00:00`).getTime()/1000):undefined,offset,limit:100}}).then(result=>{
       if(!active)return;
+      setFilesQueryKey(currentQueryKey);
       setFiles(prev=>{
         if(prev.total===result.total&&prev.items.length===result.items.length&&prev.items.every((it,idx)=>{const n=result.items[idx];return n&&it.path===n.path&&it.modified===n.modified&&it.size===n.size;})){
           return prev;
@@ -157,7 +184,7 @@ export default function App(){
         if(found)setSelected(found);
       }
     }).catch(e=>{
-      if(active){setFileError(String(e));setFiles({items:[],total:0});}
+      if(active){setFileError(String(e));setFiles({items:[],total:0});setFilesQueryKey(currentQueryKey);}
     }).finally(()=>{
       if(active)setFileBusy(false);
     });
@@ -179,9 +206,19 @@ export default function App(){
   async function run(fn:()=>Promise<unknown>){try{await fn();}catch(e){setNotice(String(e));}}
   function saved(next:Settings){if(next.recursive!==settings?.recursive)setRecursive(next.recursive);if(next.filter!==settings?.filter)setFilter(next.filter);setSettings(next);if(!next.roots.some(r=>samePath(r,root))){setRoot(next.roots[0]||'');setTrail([]);}}
   async function addRoot(){if(!settings)return;const path=await pick(true);if(path){const next=await api<Settings>('save_settings',{next:{...settings,roots:[...new Set([...settings.roots,path])]}});saved(next);setRoot(path);setTrail([]);}}
-  function choose(level:number,e:Entry){setTrail(t=>selectLevel(t,level,e.path));}
-  function locate(e:Entry){const found=settings?.roots.find(r=>isWithin(e.path,r));if(!found){setNotice('文件不在当前搜索范围');return;}setRoot(found);setTrail(locateTrail(found,e.parent));setQuery('');setQuick(false);setPage('files');}
-  const openEntry=(e:Entry,reveal=false)=>void run(()=>api('open_path',{path:e.path,reveal}));
+  function browseTo(next:string[]){setDeepSelected(null);setTrail(next);setQuery('');setOffset(0);setSelected(null);}
+  function choose(level:number,e:Entry){browseTo(selectLevel(trail,level,e.path));}
+  function selectDeep(e:Entry){if(!samePath(e.parent,deepParent))return;setDeepSelected({parent:deepParent,entry:e});setQuery('');setOffset(0);setSelected(null);}
+  function enterDeep(e:Entry){if(samePath(e.parent,deepParent))browseTo([...trail,e.path]);}
+  function locate(e:Entry){const found=settings?.roots.find(r=>isWithin(e.path,r));if(!found){setNotice('文件不在当前搜索范围');return;}setRoot(found);browseTo(locateTrail(found,e.parent));setQuick(false);setPage('files');}
+  async function openAction(target:string,label:string,reveal:boolean,action:()=>Promise<unknown>){
+    const key=openActionKey(target,reveal);if(pendingRef.current.has(key))return;
+    pendingRef.current.add(key);setPendingActions(new Set(pendingRef.current));setNotice(`正在${reveal?'定位':'打开'} ${label}…`);
+    try{await action();setNotice(`已发送到系统：${label}`);}catch(e){setNotice(`无法${reveal?'定位':'打开'} ${label}：${String(e)}`);}finally{pendingRef.current.delete(key);setPendingActions(new Set(pendingRef.current));}
+  }
+  const openPath=(path:string,reveal=false)=>void openAction(path,basename(path),reveal,()=>api('open_path',{path,reveal}));
+  const openEntry=(e:Entry,reveal=false)=>openPath(e.path,reveal);
+  function launchTool(id:string,reveal=false){const launcher=settings?.launchers.find(l=>l.id===id);if(launcher)void openAction(launcher.path,launcher.name,reveal,()=>api(reveal?'reveal_launcher':'launch',{id}));}
   const copyValue=(s:string)=>void run(async()=>{await copy(s);setNotice('已复制');});
   function clearTranslation(){
     const id=translationRun.current;translationRun.current='';
@@ -216,32 +253,32 @@ export default function App(){
       <main className="main-content">
         <div className="workspace-page" hidden={page!=='files'}>
           <div className="page-heading"><div><h1>文件工作区<span className="heading-dot">/</span><span className="heading-sub">一切，就在手边。</span></h1><p>沿着熟悉的路径，让工作更快一步。</p></div><button className="index-indicator" onClick={()=>setFilters(s=>!s)} title={status.errors.join('\n')||'查看索引状态'}><span className={`status-dot ${status.scanning?'busy':''}`}/>{status.scanning?`正在索引 ${status.scanned.toLocaleString()} 个文件`:`${status.count.toLocaleString()} 个文件已就绪`}<HardDrives/></button></div>
-          <div className="toolbar"><label className="root-picker"><FolderSimple/><select aria-label="工作目录" value={root} onChange={e=>{setRoot(e.target.value);setTrail([]);}}><option value="" disabled>选择工作目录</option>{settings.roots.map(r=><option key={r} value={r}>{basename(r)}</option>)}</select><IconButton label="添加工作目录" onClick={()=>void run(addRoot)}><Plus/></IconButton></label><label className="search-field"><MagnifyingGlass/><span className="sr-only">全局搜索</span><input aria-label="全局搜索" ref={searchInput} value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索所有工作目录中的文件…"/>{query?<IconButton label="清除搜索" onClick={()=>setQuery('')}><X/></IconButton>:<kbd>Ctrl F</kbd>}</label><label className="filter-field"><FunnelSimple/><span className="sr-only">当前范围筛选</span><input value={filter} disabled={!!query} onChange={e=>setFilter(e.target.value)} placeholder="当前范围筛选"/></label><IconButton label="更多筛选与索引状态" onClick={()=>setFilters(v=>!v)}><FunnelSimple weight={filters?'fill':'regular'}/></IconButton></div>
+          <div className="toolbar"><label className="root-picker"><FolderSimple/><select aria-label="工作目录" value={root} onChange={e=>{setRoot(e.target.value);browseTo([]);}}><option value="" disabled>选择工作目录</option>{settings.roots.map(r=><option key={r} value={r}>{basename(r)}</option>)}</select><IconButton label="添加工作目录" onClick={()=>void run(addRoot)}><Plus/></IconButton></label><label className="search-field"><MagnifyingGlass/><span className="sr-only">全局搜索</span><input aria-label="全局搜索" ref={searchInput} value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索所有工作目录中的文件…"/>{query?<IconButton label="清除搜索" onClick={()=>setQuery('')}><X/></IconButton>:<kbd>Ctrl F</kbd>}</label><label className="filter-field"><FunnelSimple/><span className="sr-only">当前范围筛选</span><input value={filter} disabled={!!query} onChange={e=>setFilter(e.target.value)} placeholder="当前范围筛选"/></label><IconButton label="更多筛选与索引状态" onClick={()=>setFilters(v=>!v)}><FunnelSimple weight={filters?'fill':'regular'}/></IconButton></div>
           {filters&&<div className="filters"><label>扩展名<input value={extension} onChange={e=>setExtension(e.target.value)} placeholder="如 pdf"/></label><label>修改时间起始<input type="date" value={after} onChange={e=>setAfter(e.target.value)}/></label><Button onClick={()=>void run(()=>api('reindex'))} icon={<ArrowClockwise/>}>重新索引</Button><span>{status.scanning?'正在更新，可继续浏览':'本地索引'}{status.errors.length>0&&<details><summary>{status.errors.length} 个目录问题</summary>{status.errors.map((e,i)=><p key={i}>{e}</p>)}</details>}</span></div>}
-          <div className="breadcrumb"><button onClick={()=>setTrail([])} title={root}><HardDrives/>{root?basename(root):'尚未添加目录'}</button>{trail.map((p,i)=><span key={p}><CaretRight size={12}/><button className={i===trail.length-1?'current':''} onClick={()=>setTrail(t=>t.slice(0,i+1))} title={p}>{basename(p)}</button></span>)}<div className="breadcrumb-actions"><IconButton label="复制当前路径" disabled={!root} onClick={()=>copyValue(current)}><Copy/></IconButton><IconButton label="打开当前目录" disabled={!root} onClick={()=>void run(()=>api('open_path',{path:current,reveal:false}))}><ArrowSquareOut/></IconButton></div></div>
-          {!root?<div className="onboarding"><div className="onboarding-icon"><FolderSimple size={46} weight="thin"/></div><h2>给工作资料一个入口。</h2><p>添加常用目录，保留三级路径同时可见。<br/>所有文件信息都保存在本机。</p><Button appearance="primary" size="large" icon={<Plus/>} onClick={()=>void run(addRoot)}>添加工作目录</Button><button className="text-button" onClick={()=>openSettings('transfer')}>导入配置文件 <ArrowUpRight/></button></div>:<div className="workspace-grid" ref={workspace} style={{'--left':`${Math.max(65,Math.min(85,parseFloat(localStorage.getItem('office---left')||'76')||76))}%`,'--top':localStorage.getItem('office---top')||'47%'} as CSSProperties}>
-            <div className="upper-left" ref={columns} style={{'--col-one':localStorage.getItem('office---col-one')||'33%','--col-two':localStorage.getItem('office---col-two')||'66%'} as CSSProperties}>
+          <div className="breadcrumb"><button onClick={()=>browseTo([])} title={root}><HardDrives/>{root?basename(root):'尚未添加目录'}</button>{trail.map((p,i)=><span key={p}><CaretRight size={12}/><button className={i===trail.length-1?'current':''} onClick={()=>browseTo(trail.slice(0,i+1))} title={p}>{basename(p)}</button></span>)}<div className="breadcrumb-actions"><IconButton label="复制当前路径" disabled={!root} onClick={()=>copyValue(browseDirectory)}><Copy/></IconButton><IconButton label="打开当前目录" disabled={!root} onClick={()=>openPath(browseDirectory)}><ArrowSquareOut/></IconButton></div></div>
+          {!root?<div className="onboarding"><div className="onboarding-icon"><FolderSimple size={46} weight="thin"/></div><h2>给工作资料一个入口。</h2><p>添加常用目录，保留三级路径同时可见。<br/>所有文件信息都保存在本机。</p><Button appearance="primary" size="large" icon={<Plus/>} onClick={()=>void run(addRoot)}>添加工作目录</Button><button className="text-button" onClick={()=>openSettings('transfer')}>导入配置文件 <ArrowUpRight/></button></div>:<div className={`workspace-grid ${showDeep?'has-deep':'without-deep'}`} ref={workspace} style={{'--left':`${showDeep?storedPercent('--left',75):100}%`,'--top':`${Math.max(30,Math.min(65,storedPercent('--top',47)))}%`} as CSSProperties}>
+            <div className="upper-left" ref={columns} style={{'--col-one':`${storedPercent('--col-one',33)}%`,'--col-two':`${storedPercent('--col-two',66)}%`} as CSSProperties}>
               <DirectoryPanel title="第一级目录" level={1} parent={root} selected={trail[0]} {...d1} {...directoryProps} onSelect={e=>choose(0,e)}/>
 
               <DirectoryPanel title="第二级目录" level={2} parent={trail[0]||''} selected={trail[1]} {...d2} {...directoryProps} onSelect={e=>choose(1,e)}/>
             <DirectoryPanel title="第三级目录" level={3} parent={trail[1]||''} selected={trail[2]} {...d3} {...directoryProps} className="lower-left" onSelect={e=>choose(2,e)}/>
-              <Splitter axis="x" container={columns} variable="--col-one" min={20} max={40}/><Splitter axis="x" container={columns} variable="--col-two" min={55} max={80}/>
+              <Splitter axis="x" container={columns} variable="--col-one" min={0} max={100} minPixels={[160,160]} nextVariable="--col-two"/><Splitter axis="x" container={columns} variable="--col-two" min={0} max={100} minPixels={[160,160]} previousVariable="--col-one"/>
             </div>
-            <DirectoryPanel title={trail.length>3?`第 ${trail.length+1} 级目录`:'第四级及更深目录'} level={Math.max(4,trail.length+1)} parent={deepParent} {...d4} {...directoryProps} className="upper-right" onSelect={e=>choose(trail.length,e)} onBack={trail.length>3?()=>setTrail(t=>t.slice(0,-1)):undefined}/>
-            <section className="file-panel panel" aria-label="文件列表"><div className="panel-head"><div className="panel-title"><span className="file-heading-icon"><FileText/></span><h2>{q?'搜索结果':'文件列表'}</h2><span className="count">{files.total}</span></div><Checkbox checked={!!q||recursive} title={q?'搜索始终包含所有工作目录的子文件夹':undefined} disabled={!!q} onChange={(_,d)=>setRecursive(!!d.checked)} label="包含子文件夹"/></div><div className="file-list-top"><span>{q?`“${q}” · 所有工作目录`:current?basename(current):'文件'}</span>{q&&settings.jevEnabled&&<Button size="small" appearance="subtle" disabled={!!jevTask} icon={<Sparkle/>} onClick={()=>void evaluateJev()}>{jevTask?'正在评分':'JEV 实验评分'}</Button>}</div>
+            {showDeep&&<DirectoryPanel title={trail.length>3?`第 ${trail.length+1} 级目录`:'第四级及更深目录'} level={Math.max(4,trail.length+1)} parent={deepParent} selected={deepSelected&&samePath(deepSelected.parent,deepParent)?deepSelected.entry.path:undefined} {...d4} {...directoryProps} className="upper-right" onSelect={selectDeep} onEnter={enterDeep} onBack={trail.length>3?()=>browseTo(trail.slice(0,-1)):undefined}/>}
+            <section className="file-panel panel" aria-label="文件列表"><div className="panel-head"><div className="panel-title"><span className="file-heading-icon"><FileText/></span><h2>{q?'搜索结果':'文件列表'}</h2><span className="count">{resultsReady?files.total:'…'}</span></div><Checkbox checked={!!q||recursive} title={q?'搜索始终包含所有工作目录的子文件夹':undefined} disabled={!!q} onChange={(_,d)=>setRecursive(!!d.checked)} label="包含子文件夹"/></div><div className="file-list-top"><span>{q?`“${q}” · 所有工作目录`:current?basename(current):'文件'}</span>{q&&settings.jevEnabled&&<Button size="small" appearance="subtle" disabled={!!jevTask} icon={<Sparkle/>} onClick={()=>void evaluateJev()}>{jevTask?'正在评分':'JEV 实验评分'}</Button>}</div>
               {jevResult&&<div className="jev-result"><Check size={14}/>Jev 建议：{jevResult.answers?.intent?.choice||'已评分'}，仅供参考<IconButton label="关闭评分" onClick={()=>setJevResult(null)}><X/></IconButton></div>}
               <div className="file-list" ref={fileList} onWheel={()=>{fileInteraction.current=true;}} onPointerDown={()=>{fileInteraction.current=true;}} onKeyDown={()=>{fileInteraction.current=true;}} onScroll={e=>{if(!fileBusy&&fileInteraction.current)scrollMemory.current.set(fileScope,e.currentTarget.scrollTop);}}>
-                {fileBusy&&!files.items.length?<Skeleton/>:fileError?<div className="inline-error">{fileError}</div>:!files.items.length?<Empty title={status.scanning?'索引中，稍后显示文件':'没有匹配的文件'} detail={q||f?'试试更短的关键词或清除筛选':'可选择其他目录，或关闭范围限制'}/>:<div style={{height:virtual.getTotalSize(),position:'relative'}}>{virtual.getVirtualItems().map(v=>{const e=files.items[v.index];return <div className={`file-row ${selected?.path===e.path?'selected':''}`} data-index={v.index} ref={virtual.measureElement} key={e.path} style={{position:'absolute',top:0,left:0,width:'100%',transform:`translateY(${v.start}px)`}} tabIndex={0} role="button" aria-label={e.name} title={e.path} onPointerEnter={event=>preview.hover(e,event)} onPointerMove={event=>preview.hover(e,event)} onPointerLeave={preview.leave} onClick={event=>{setSelected(e);if(event.ctrlKey)preview.pin(e,event.currentTarget);}} onDoubleClick={event=>{if(!event.ctrlKey)openEntry(e);}} onContextMenu={event=>{event.preventDefault();openEntry(e,true);}} onKeyDown={event=>{if(event.ctrlKey&&event.key==='Enter'){event.preventDefault();preview.pin(e,event.currentTarget);return;}if(event.key==='Enter')openEntry(e);if(event.key===' '){event.preventDefault();setSelected(e);}}}>
+                {!resultsReady||fileBusy?<Skeleton/>:fileError?<div className="inline-error">{fileError}</div>:!files.items.length?<Empty title={status.scanning?'索引中，稍后显示文件':'没有匹配的文件'} detail={q||f?'试试更短的关键词或清除筛选':'可选择其他目录，或关闭范围限制'}/>:<div style={{height:virtual.getTotalSize(),position:'relative'}}>{virtual.getVirtualItems().map(v=>{const e=files.items[v.index];return <div className={`file-row ${selected?.path===e.path?'selected':''}`} data-index={v.index} ref={virtual.measureElement} key={e.path} style={{position:'absolute',top:0,left:0,width:'100%',transform:`translateY(${v.start}px)`}} tabIndex={0} role="button" aria-busy={pendingActions.has(openActionKey(e.path))} aria-label={e.name} title={e.path} onPointerEnter={event=>preview.hover(e,event)} onPointerMove={event=>preview.hover(e,event)} onPointerLeave={preview.leave} onClick={event=>{setSelected(e);if(event.ctrlKey)preview.pin(e,event.currentTarget);}} onDoubleClick={event=>{if(!event.ctrlKey)openEntry(e);}} onContextMenu={event=>{event.preventDefault();openEntry(e,true);}} onKeyDown={event=>{if(event.ctrlKey&&event.key==='Enter'){event.preventDefault();preview.pin(e,event.currentTarget);return;}if(event.key==='Enter'&&!event.repeat)openEntry(e);if(event.key===' '){event.preventDefault();setSelected(e);}}}>
                     <FileIcon extension={e.extension}/><div className="file-description"><strong>{e.name}</strong><span>{relativePath(e.parent,q?settings.roots.find(r=>isWithin(e.path,r))||root:current)||'当前目录'}</span></div><div className="file-meta"><span>{sizeLabel(e.size)}</span><span>{new Date(e.modified*1000).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'})}</span></div>{jevResult?.answers?.[`file_${v.index}`]?.score!==undefined&&<span className="score" title="仅根据名称与相对路径评分">{jevResult.answers[`file_${v.index}`].score?.toFixed(1)}</span>}
                   </div>;})}</div>}
               </div>
-              <div className="file-actions">{selected?<><span title={selected.name}>{selected.name}</span><IconButton label="复制文件名称" onClick={()=>copyValue(selected.name)}><FileText/></IconButton><IconButton label="复制文件路径" onClick={()=>copyValue(selected.path)}><Copy/></IconButton><Button size="small" onClick={event=>preview.pin(selected,event.currentTarget)}>预览文件</Button><IconButton label="打开文件" onClick={()=>openEntry(selected)}><ArrowSquareOut/></IconButton><Button size="small" onClick={()=>locate(selected)}>工作区定位</Button>{/^(pdf|png|jpe?g|bmp|tiff?)$/i.test(selected.extension)&&<Button size="small" onClick={()=>{setOcrIncoming([selected.path]);setPage('ocr');}}>送入 OCR</Button>}</>:<span>Ctrl 悬停预览 · Ctrl＋左键固定 · 双击打开</span>}{files.total>100&&<div className="pagination"><IconButton label="上一页" disabled={!offset} onClick={()=>setOffset(x=>Math.max(0,x-100))}><ArrowLeft/></IconButton><span>{Math.floor(offset/100)+1}/{Math.ceil(files.total/100)}</span><IconButton label="下一页" disabled={offset+100>=files.total} onClick={()=>setOffset(x=>x+100)}><ArrowRight/></IconButton></div>}</div>
+              <div className="file-actions">{resultsReady&&selected?<><span title={selected.name}>{selected.name}</span><IconButton label="复制文件名称" onClick={()=>copyValue(selected.name)}><FileText/></IconButton><IconButton label="复制文件路径" onClick={()=>copyValue(selected.path)}><Copy/></IconButton><Button size="small" onClick={event=>preview.pin(selected,event.currentTarget)}>预览文件</Button><IconButton label="打开文件" disabled={pendingActions.has(openActionKey(selected.path))} onClick={()=>openEntry(selected)}><ArrowSquareOut/></IconButton><Button size="small" onClick={()=>locate(selected)}>工作区定位</Button>{/^(pdf|png|jpe?g|bmp|tiff?)$/i.test(selected.extension)&&<Button size="small" onClick={()=>{setOcrIncoming([selected.path]);setPage('ocr');}}>送入 OCR</Button>}</>:<span>Ctrl 悬停预览 · Ctrl＋左键固定 · 双击打开</span>}{resultsReady&&files.total>100&&<div className="pagination"><IconButton label="上一页" disabled={!offset} onClick={()=>setOffset(x=>Math.max(0,x-100))}><ArrowLeft/></IconButton><span>{Math.floor(offset/100)+1}/{Math.ceil(files.total/100)}</span><IconButton label="下一页" disabled={offset+100>=files.total} onClick={()=>setOffset(x=>x+100)}><ArrowRight/></IconButton></div>}</div>
             </section>
-            <Splitter axis="x" container={workspace} variable="--left" min={65} max={85}/><Splitter axis="y" container={workspace} variable="--top" min={30} max={65}/>
+            {showDeep&&<Splitter axis="x" container={workspace} variable="--left" min={0} max={100} minPixels={[500,160]}/>}<Splitter axis="y" container={workspace} variable="--top" min={30} max={65}/>
           </div>}
         </div>
         <div className="translation-page" hidden={page!=='translate'}><div className="page-heading"><div><h1>文本翻译<span className="heading-dot">/</span><span className="heading-sub">让表达跨越语言。</span></h1><p>保留格式，准确传达。只处理你主动提交的文本。</p></div></div><div className="translation-grid"><TranslatePane side="source" title="原文" subtitle="自动识别语言" text={source} format={sourceFormat} blocks={sourceBlocks} scrollRef={sync.sourceScroll} docRef={sync.sourceDoc} sourceMirror={sync.sourceMirror} focusedRange={focusFor('source')} editable preview={sourcePreview} onPreviewChange={setSourcePreview} onTextChange={setSource} onInteract={()=>sync.markActive('source')} onScroll={()=>sync.handleScroll('source')} onSelection={onPaneSelection('source')} id="source" label="翻译原文" placeholder="在这里粘贴需要翻译的文字…" headerExtra={<span className={`format-badge ${sourceFormat}`}>{FORMAT_LABELS[sourceFormat]}</span>} footer={<><span>{source.length.toLocaleString()} 字符</span><Button appearance="subtle" onClick={clearTranslation}>清空</Button></>}/><TranslatePane side="target" title="译文" text={translated} format={targetFormat} blocks={targetBlocks} scrollRef={sync.targetScroll} docRef={sync.targetDoc} focusedRange={focusFor('target')} onInteract={()=>sync.markActive('target')} onScroll={()=>sync.handleScroll('target')} onSelection={onPaneSelection('target')} label="翻译结果" placeholder={translationTask?'正在翻译…':'译文将显示在这里'} headerExtra={<><span className={`format-badge ${targetFormat}`}>{FORMAT_LABELS[targetFormat]}</span><button type="button" className={`translate-toggle ${syncOn?'on':''}`} aria-pressed={syncOn} onClick={toggleSync}>同步滚动</button><select aria-label="目标语言" value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh">中文</option><option value="en">英语</option><option value="ja">日语</option></select></>} footer={<><span>{translationTask?'正在调用模型':fenceNotice?'已修正代码块围栏':'可直接复制使用'}</span><span className="translate-copy">{targetFormat==='html'&&<Button appearance="subtle" disabled={!translated} onClick={()=>copyValue(htmlToPlainText(translated))}>复制纯文本</Button>}<Button icon={<Copy/>} disabled={!translated} onClick={()=>copyValue(translated)}>复制译文</Button></span></>}/></div>{matchingNotice&&<p className="translate-notice" role="status">{matchingNotice}</p>}{fenceNotice&&<p className="translate-notice" role="status">译文中的代码块围栏未闭合，已自动补齐以便正常显示。</p>}{translationError&&<p className="inline-error" role="alert">{translationError}</p>}<div className="translation-actions"><ReasoningSelect label="翻译思考程度" value={settings.translationReasoning||'default'} disabled={!!translationTask} onChange={value=>void run(async()=>saved(await api<Settings>('save_settings',{next:{...settings,translationReasoning:value}})))}/><span>文本会发送到你配置的模型服务</span>{translationTask?<Button icon={<Stop/>} onClick={()=>void run(()=>api('cancel_task',{id:translationTask}))}>取消翻译</Button>:<Button appearance="primary" size="large" icon={<Translate/>} disabled={!source.trim()} onClick={()=>void translate()}>{translationError?'重试翻译':'开始翻译'}</Button>}</div></div>
-        <div className="tools-page" hidden={page!=='tools'}><ToolsWorkbench launchers={settings.launchers} onLaunch={id=>void run(()=>api('launch',{id}))} onOpenFolder={id=>void run(()=>api('reveal_launcher',{id}))} onCopyPath={copyValue} onOpenSettings={tab=>openSettings(tab||'tools')}/></div>
+        <div className="tools-page" hidden={page!=='tools'}><ToolsWorkbench launchers={settings.launchers} pendingActions={pendingActions} onLaunch={id=>launchTool(id)} onOpenFolder={id=>launchTool(id,true)} onCopyPath={copyValue} onOpenSettings={tab=>openSettings(tab||'tools')}/></div>
         {(ocrVisited||page==='ocr')&&<Suspense fallback={<Skeleton/>}><OcrWorkbench visible={page==='ocr'} incoming={ocrIncoming} onConsumed={done=>setOcrIncoming(current=>current.filter(path=>!done.includes(path)))} onSettings={()=>openSettings('integrations')}/></Suspense>}
         {(todoVisited||page==='todo')&&<Suspense fallback={<Skeleton/>}><TodoWorkbench visible={page==='todo'} reminderRequest={todoReminder}/></Suspense>}
       </main>
@@ -253,7 +290,7 @@ export default function App(){
       {quick&&<Modal title="快捷面板" onClose={()=>setQuick(false)}>
         <label className="quick-search"><MagnifyingGlass/><span className="sr-only">搜索文件与工具</span><input autoFocus role="combobox" aria-autocomplete="list" aria-expanded aria-controls="quick-results" aria-activedescendant={quickCount?`quick-result-${activeQuickIndex}`:undefined} value={quickQuery} onChange={e=>setQuickQuery(e.target.value)} onKeyDown={quickKeyDown} placeholder="搜索文件或常用工具…"/></label>
         <div className="quick-results" id="quick-results" role="listbox" aria-label="文件与工具候选" ref={quickResults}>
-          {quickLaunchers.map((l,index)=>{const visual=getLauncherVisual(l);const IconComp=visual.icon;return <button key={l.id} id={`quick-result-${index}`} role="option" aria-selected={activeQuickIndex===index} onMouseEnter={()=>setQuickIndex(index)} className={`quick-launcher-item ${activeQuickIndex===index?'active':''}`} onClick={()=>void run(async()=>{await api('launch',{id:l.id});setQuick(false);})}><span className="quick-launcher-icon" style={{color:visual.theme.primary,backgroundColor:visual.theme.subtle}}><IconComp size={16} weight="duotone"/></span><span><strong>{l.name}</strong><small>{visual.label} · {visual.subtitle}</small></span><span className="quick-launcher-badge" style={{color:visual.theme.badgeText,backgroundColor:visual.theme.badgeBg}}>{visual.badge}</span><ArrowUpRight size={14}/></button>;})}
+          {quickLaunchers.map((l,index)=>{const visual=getLauncherVisual(l);const IconComp=visual.icon;return <button key={l.id} id={`quick-result-${index}`} role="option" aria-selected={activeQuickIndex===index} onMouseEnter={()=>setQuickIndex(index)} className={`quick-launcher-item ${activeQuickIndex===index?'active':''}`} disabled={pendingActions.has(openActionKey(l.path))} onClick={()=>{setQuick(false);launchTool(l.id);}}><span className="quick-launcher-icon" style={{color:visual.theme.primary,backgroundColor:visual.theme.subtle}}><IconComp size={16} weight="duotone"/></span><span><strong>{l.name}</strong><small>{visual.label} · {visual.subtitle}</small></span><span className="quick-launcher-badge" style={{color:visual.theme.badgeText,backgroundColor:visual.theme.badgeBg}}>{visual.badge}</span><ArrowUpRight size={14}/></button>;})}
           {quickFiles.map((e,index)=>{const itemIndex=quickLaunchers.length+index;return <button key={e.path} id={`quick-result-${itemIndex}`} role="option" aria-selected={activeQuickIndex===itemIndex} className={activeQuickIndex===itemIndex?'active':''} onMouseEnter={()=>setQuickIndex(itemIndex)} onClick={()=>locate(e)}><FileIcon extension={e.extension}/><span>{e.name}<small>{relativePath(e.parent,root)}</small></span><CaretRight/></button>;})}
           {!quickCount&&<p className="muted">输入关键词查找文件，或前往设置添加常用工具。</p>}
         </div>

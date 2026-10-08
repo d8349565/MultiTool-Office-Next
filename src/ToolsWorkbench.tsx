@@ -14,7 +14,7 @@ import {
 } from '@phosphor-icons/react';
 import type { Launcher } from './types';
 import { getLauncherVisual, computeCategoryCounts } from './launcherVisuals';
-import { basename } from './domain';
+import { openActionKey } from './domain';
 import { Empty } from './components';
 
 export interface ToolsWorkbenchProps {
@@ -23,6 +23,7 @@ export interface ToolsWorkbenchProps {
   onOpenFolder?: (id: string) => void;
   onCopyPath: (path: string) => void;
   onOpenSettings: (tab?: string) => void;
+  pendingActions?: ReadonlySet<string>;
 }
 
 export function ToolsWorkbench({
@@ -31,15 +32,16 @@ export function ToolsWorkbench({
   onOpenFolder,
   onCopyPath,
   onOpenSettings,
+  pendingActions = new Set<string>(),
 }: ToolsWorkbenchProps) {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | string>('all');
   const [filterMode, setFilterMode] = useState<'type' | 'group'>('type');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     try {
-      return (localStorage.getItem('office-tools-view') as 'grid' | 'list') || 'grid';
+      return localStorage.getItem('office-tools-view-v2') === 'grid' ? 'grid' : 'list';
     } catch {
-      return 'grid';
+      return 'list';
     }
   });
 
@@ -52,7 +54,7 @@ export function ToolsWorkbench({
   const toggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
     try {
-      localStorage.setItem('office-tools-view', mode);
+      localStorage.setItem('office-tools-view-v2', mode);
     } catch {}
   };
 
@@ -149,6 +151,7 @@ export function ToolsWorkbench({
         <label className="tools-search-field">
           <MagnifyingGlass size={16} />
           <input
+            id="tools-search"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="按名称、类型、后缀或路径搜索…"
@@ -198,6 +201,7 @@ export function ToolsWorkbench({
               className={viewMode === 'grid' ? 'active' : ''}
               onClick={() => toggleViewMode('grid')}
               aria-label="网格视图"
+              aria-pressed={viewMode === 'grid'}
             >
               <SquaresFour size={16} weight={viewMode === 'grid' ? 'fill' : 'regular'} />
             </button>
@@ -208,6 +212,7 @@ export function ToolsWorkbench({
               className={viewMode === 'list' ? 'active' : ''}
               onClick={() => toggleViewMode('list')}
               aria-label="清单视图"
+              aria-pressed={viewMode === 'list'}
             >
               <ListBullets size={16} />
             </button>
@@ -216,10 +221,11 @@ export function ToolsWorkbench({
       </div>
 
       {/* 分类筛选胶囊标签条 */}
-      <div className="tools-pills-bar" role="tablist" aria-label="工具分类筛选">
+      <div className="tools-pills-bar" role="group" aria-label="工具分类筛选">
         <button
           type="button"
           className={`tools-pill ${activeFilter === 'all' ? 'active' : ''}`}
+          aria-pressed={activeFilter === 'all'}
           onClick={() => setActiveFilter('all')}
         >
           全部 <span>{launchers.length}</span>
@@ -231,6 +237,7 @@ export function ToolsWorkbench({
                 type="button"
                 key={tc.key}
                 className={`tools-pill ${activeFilter === tc.key ? 'active' : ''}`}
+                aria-pressed={activeFilter === tc.key}
                 onClick={() => setActiveFilter(activeFilter === tc.key ? 'all' : tc.key)}
               >
                 {tc.label} <span>{tc.count}</span>
@@ -241,11 +248,13 @@ export function ToolsWorkbench({
                 type="button"
                 key={gc.key}
                 className={`tools-pill ${activeFilter === gc.key ? 'active' : ''}`}
+                aria-pressed={activeFilter === gc.key}
                 onClick={() => setActiveFilter(activeFilter === gc.key ? 'all' : gc.key)}
               >
                 {gc.label} <span>{gc.count}</span>
               </button>
             ))}
+        <span className="tools-result-count" role="status">显示 {filteredLaunchers.length} / {launchers.length}</span>
       </div>
 
       {/* 列表主体 */}
@@ -264,6 +273,8 @@ export function ToolsWorkbench({
               const visual = getLauncherVisual(launcher);
               const IconComp = visual.icon;
               const isWeb = visual.kind === 'web';
+              const launching = pendingActions.has(openActionKey(launcher.path));
+              const revealing = pendingActions.has(openActionKey(launcher.path, true));
 
               return (
                 <div
@@ -279,6 +290,7 @@ export function ToolsWorkbench({
                     } as CSSProperties
                   }
                   title={launcher.path}
+                  aria-busy={launching || revealing}
                 >
                   {/* 卡片头部：左侧彩色徽章 + 右侧类型/分组胶囊 */}
                   <div className="tool-card-head">
@@ -288,7 +300,6 @@ export function ToolsWorkbench({
                     </div>
 
                     <div className="tool-card-tags">
-                      <span className="tool-type-tag">{visual.label}</span>
                       {launcher.group && launcher.group !== '未分组' && (
                         <span className="tool-group-tag">{launcher.group}</span>
                       )}
@@ -296,7 +307,7 @@ export function ToolsWorkbench({
                   </div>
 
                   {/* 卡片主体：标题与副标题 */}
-                  <div className="tool-card-body" onClick={() => onLaunch(launcher.id)} onKeyDown={event => launchFromKeyboard(event, launcher.id)} role="button" tabIndex={0} aria-label={`打开 ${launcher.name}`}>
+                  <div className="tool-card-body" onClick={() => { if (!launching) onLaunch(launcher.id); }} onKeyDown={event => { if (!launching) launchFromKeyboard(event, launcher.id); }} role="button" tabIndex={0} aria-disabled={launching} aria-label={`打开 ${launcher.name}`}>
                     <strong className="tool-card-title">{launcher.name}</strong>
                     <span className="tool-card-sub" title={launcher.path}>
                       {visual.subtitle}
@@ -316,6 +327,7 @@ export function ToolsWorkbench({
                               onOpenFolder(launcher.id);
                             }}
                             aria-label="打开所在目录"
+                            disabled={revealing}
                           >
                             <FolderOpen size={14} />
                           </button>
@@ -341,8 +353,9 @@ export function ToolsWorkbench({
                       className="tool-launch-btn"
                       onClick={() => onLaunch(launcher.id)}
                       aria-label={`启动 ${launcher.name}`}
+                      disabled={launching}
                     >
-                      <span>打开</span>
+                      <span>{launching ? '正在打开…' : '打开'}</span>
                       <ArrowUpRight size={14} />
                     </button>
                   </div>
@@ -352,11 +365,13 @@ export function ToolsWorkbench({
           </div>
         ) : (
           /* 紧凑清单视图 */
-          <div className="tools-list-layout">
+          <div className="tools-list-layout" role="list" aria-label="常用工具清单">
             {filteredLaunchers.map(launcher => {
               const visual = getLauncherVisual(launcher);
               const IconComp = visual.icon;
               const isWeb = visual.kind === 'web';
+              const launching = pendingActions.has(openActionKey(launcher.path));
+              const revealing = pendingActions.has(openActionKey(launcher.path, true));
 
               return (
                 <div
@@ -371,30 +386,15 @@ export function ToolsWorkbench({
                       '--tool-badge-text': visual.theme.badgeText,
                     } as CSSProperties
                   }
-                  title={launcher.path}
-                  onClick={() => onLaunch(launcher.id)}
-                  onKeyDown={event => launchFromKeyboard(event, launcher.id)}
-                  aria-label={`打开 ${launcher.name}`}
-                  role="button"
-                  tabIndex={0}
+                  role="listitem"
+                  aria-busy={launching || revealing}
                 >
-                  <div className="tool-list-icon">
-                    <IconComp size={18} weight="duotone" />
-                  </div>
-
-                  <div className="tool-list-content">
-                    <div className="tool-list-main">
-                      <strong className="tool-list-name">{launcher.name}</strong>
-                      <span className="tool-list-badge">{visual.badge}</span>
-                      <span className="tool-list-type">{visual.label}</span>
-                      {launcher.group && launcher.group !== '未分组' && (
-                        <span className="tool-list-group">{launcher.group}</span>
-                      )}
-                    </div>
-                    <span className="tool-list-path">{visual.subtitle}</span>
-                  </div>
-
-                  <div className="tool-list-actions" onClick={e => e.stopPropagation()}>
+                  <button type="button" className="tool-list-open" title={launcher.path} disabled={launching} aria-label={`打开 ${launcher.name}`} onClick={() => onLaunch(launcher.id)}>
+                    <span className="tool-list-icon"><IconComp size={17} weight="duotone" /></span>
+                    <strong className="tool-list-name">{launcher.name}</strong>
+                  </button>
+                  <div className="tool-list-meta"><span className="tool-list-type">{visual.label}</span><span className="tool-list-group">{launcher.group === '未分组' ? '' : launcher.group}</span></div>
+                  <div className="tool-list-actions">
                     {!isWeb && onOpenFolder && (
                       <Tooltip content="在资源管理器中定位" relationship="label">
                         <button
@@ -402,6 +402,7 @@ export function ToolsWorkbench({
                           className="tool-action-btn"
                           onClick={() => onOpenFolder(launcher.id)}
                           aria-label="打开所在目录"
+                          disabled={revealing}
                         >
                           <FolderOpen size={14} />
                         </button>
@@ -422,8 +423,9 @@ export function ToolsWorkbench({
                       className="tool-launch-btn-compact"
                       onClick={() => onLaunch(launcher.id)}
                       aria-label="启动"
+                      disabled={launching}
                     >
-                      <ArrowUpRight size={14} />
+                      {launching ? <span className="tool-opening-label">打开中</span> : <ArrowUpRight size={14} />}
                     </button>
                   </div>
                 </div>

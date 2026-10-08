@@ -24,13 +24,13 @@ h1,h2,h3,p{margin:0}button{color:inherit}input,textarea,select{color:var(--text)
 .workspace-grid{grid-template-columns:minmax(0,var(--left)) minmax(0,1fr);grid-template-rows:minmax(0,var(--top)) minmax(0,1fr);min-height:240px}
 .upper-left{grid-template-columns:repeat(3,minmax(0,1fr))}
 .upper-left .lower-left{grid-area:auto}.file-panel{grid-area:2/1/3/3}
-.workspace-grid>.splitter.left{bottom:calc(100% - var(--top))}
+.workspace-grid>.splitter.left{bottom:calc(100% - var(--top))}.workspace-grid.without-deep{grid-template-columns:minmax(0,1fr)}.file-panel{grid-column:1/-1}
 .app-header{height:54px}.main-content{padding:12px 18px 10px}.page-heading{margin-bottom:10px}.page-heading p{display:none}.toolbar{margin-bottom:6px}.toolbar>label{height:34px}.breadcrumb{margin-bottom:6px;min-height:28px}
 .panel-head{padding:5px 8px;min-height:32px}.panel-title{gap:5px}.panel-parent{margin:0 8px 4px;padding-bottom:4px}.panel-foot{min-height:22px;padding:3px 8px}
-.file-description{flex-direction:row;align-items:center;gap:16px}.file-description strong{flex:1}.file-description>span{flex:1}.file-meta{flex-direction:row;gap:20px;min-width:145px;justify-content:flex-end}
+.file-description{flex-direction:column;align-items:stretch;gap:2px}.file-meta{flex-direction:row;gap:20px;min-width:145px;justify-content:flex-end;align-self:flex-start;padding-top:2px;white-space:nowrap}
 }
-.directory-row{min-height:28px;height:28px;padding:3px 6px;gap:6px;margin-bottom:1px}.directory-row>svg:first-child{width:16px;height:16px}
-.file-row{min-height:42px;padding:4px 7px;gap:8px}.file-icon{width:26px;height:28px}.file-icon svg{width:18px;height:18px}
+.directory-row{min-height:30px;height:auto;padding:5px 6px;gap:6px;margin-bottom:1px;align-items:flex-start}.directory-row>span{min-width:0;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.45}.directory-row>svg{flex-shrink:0;margin-top:2px}.directory-row>svg:first-child{width:16px;height:16px}.directory-panel .panel-title h2{white-space:normal;overflow:visible;line-height:1.4}.directory-panel .panel-parent{white-space:normal;overflow-wrap:anywhere}.directory-filter{display:flex;align-items:center;gap:5px;margin:0 8px 6px;padding:0 5px;min-height:28px;border-bottom:1px solid var(--line);color:var(--muted)}.directory-filter:focus-within{border-color:var(--focus)}.directory-filter input{min-width:0;flex:1;padding:3px 0;border:0;outline:0;background:none;font-size:11px}.directory-filter button{display:grid;place-items:center;width:24px;height:24px;padding:0;border:0;background:none;color:var(--muted)}
+.file-row{min-height:54px;padding:7px;gap:8px;align-items:flex-start}.file-description strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:13px;line-height:1.45}.file-icon{width:26px;height:28px;flex-shrink:0}.file-icon svg{width:18px;height:18px}
 .assistant-links{display:flex;flex-direction:column;gap:6px;margin:8px 0}.assistant-links a{color:var(--focus);overflow-wrap:anywhere}
 .panel-title h2{overflow:hidden;text-overflow:ellipsis}.panel-actions{flex-shrink:0}
 .assistant{top:auto;bottom:46px;width:min(var(--assistant-width,520px),calc(100vw - 28px));height:min(var(--assistant-height,650px),calc(100dvh - 70px));max-width:calc(100vw - 28px)}
@@ -349,7 +349,7 @@ dialog.todo-drawer-overlay::backdrop{background:#12161266}
    常用工具工作台 (Tools Workbench) 视觉与交互规范
    Fluent UI v9 + Phosphor Icons 原生桌面现代质感
    ========================================================================== */
-.tools-workbench-page{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.tools-workbench-page{display:flex;flex-direction:column;flex:1;height:100%;min-height:0;overflow:hidden}
 .tools-header-actions{display:flex;align-items:center;gap:8px}
 
 /* 控制栏：即时搜索、维度切换、视图切换 */
@@ -391,12 +391,11 @@ dialog.todo-drawer-overlay::backdrop{background:#12161266}
 .tool-badge-icon{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:var(--tool-subtle);color:var(--tool-primary);border:1px solid var(--tool-border)}
 .tool-badge-format{font-size:9.5px;font-weight:700;letter-spacing:0.5px;color:var(--tool-primary)}
 .tool-card-tags{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.tool-type-tag{font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;background:var(--surface-alt);color:var(--muted)}
 .tool-group-tag{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface-alt);color:var(--muted)}
 
 /* 卡片主体 */
 .tool-card-body{cursor:pointer;display:flex;flex-direction:column;gap:4px;min-width:0;user-select:none}
-.tool-card-title{font-size:13px;font-weight:600;color:var(--text);line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-card-title{font-size:13px;font-weight:600;color:var(--text);line-height:1.4;white-space:normal;overflow-wrap:anywhere}
 .tool-card-sub{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
 
 /* 卡片底部操作栏 */
@@ -409,17 +408,16 @@ dialog.todo-drawer-overlay::backdrop{background:#12161266}
 .tool-launch-btn svg{color:inherit}
 
 /* 紧凑清单视图 */
-.tools-list-layout{display:flex;flex-direction:column;gap:4px}
-.tool-list-row{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .12s,border-color .12s}
-.tool-list-row:hover{background:var(--surface-alt);border-color:var(--tool-border,var(--focus))}
-.tool-list-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:6px;background:var(--tool-subtle);color:var(--tool-primary);flex-shrink:0}
-.tool-list-content{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.tool-list-main{display:flex;align-items:center;gap:8px;min-width:0}
-.tool-list-name{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tool-list-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--tool-subtle);color:var(--tool-primary);letter-spacing:0.5px}
-.tool-list-type,.tool-list-group{font-size:10px;color:var(--muted);background:var(--surface-alt);padding:1px 5px;border-radius:3px}
-.tool-list-path{font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tool-list-actions{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.tools-list-layout{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--line)}.tools-result-count{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+.tool-list-row{border-bottom:1px solid var(--line);padding:4px 8px;min-height:44px;display:grid;grid-template-columns:minmax(0,1fr) 110px 130px 94px;align-items:center;gap:14px;transition:background .12s}.tool-list-open{display:flex;align-items:center;gap:10px;min-width:0;width:100%;padding:3px 0;border:0;background:none;text-align:left;color:var(--text);cursor:pointer}.tool-list-open:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+.tool-list-row:hover{background:var(--surface-alt)}
+.tool-list-icon{display:grid;place-items:center;width:24px;height:24px;color:var(--tool-primary);flex-shrink:0}
+.tool-list-meta{display:contents}
+.tool-list-name{font-size:13px;font-weight:550;color:var(--text);white-space:normal;overflow-wrap:anywhere;line-height:1.45;min-width:0}
+.tool-list-type,.tool-list-group{font-size:11px;color:var(--muted);overflow-wrap:anywhere;line-height:1.4}.tool-opening-label{font-size:10px;white-space:nowrap}.tool-action-btn:disabled,.tool-launch-btn:disabled,.tool-list-open:disabled,.tool-launch-btn-compact:disabled{cursor:progress;opacity:.65}
+.tool-list-actions{display:flex;align-items:center;justify-content:flex-end;gap:3px;flex-shrink:0}
+@media(max-width:900px){.tool-list-row{grid-template-columns:minmax(0,1fr) 85px 95px 90px;gap:8px}}
+@media(max-width:767px){.tools-header-actions{gap:4px;flex-wrap:wrap}.tools-control-bar{flex-wrap:wrap}.tools-search-field{flex-basis:100%}.tool-list-row{grid-template-columns:minmax(0,1fr) 90px;gap:2px 8px;padding:7px 4px}.tool-list-open{grid-column:1;grid-row:1}.tool-list-meta{display:flex;gap:12px;grid-column:1;grid-row:2;padding-left:34px}.tool-list-actions{grid-column:2;grid-row:1/3}.tools-result-count{font-size:10px}.tools-workbench-page{height:auto;overflow:visible}}
 .tool-launch-btn-compact{border:0;background:var(--surface-alt);color:var(--muted);width:26px;height:26px;border-radius:6px;display:grid;place-items:center;cursor:pointer;transition:background .12s,color .12s}
 .tool-launch-btn-compact:hover{background:var(--tool-primary);color:#fff}
 
@@ -438,7 +436,6 @@ dialog.todo-drawer-overlay::backdrop{background:#12161266}
 .dark .tool-card:hover{box-shadow:0 6px 16px rgba(0,0,0,0.35)}
 .dark .tool-badge-icon{background:color-mix(in srgb, var(--tool-primary) 18%, transparent);color:color-mix(in srgb, var(--tool-primary) 85%, #fff)}
 .dark .tool-list-icon{background:color-mix(in srgb, var(--tool-primary) 18%, transparent);color:color-mix(in srgb, var(--tool-primary) 85%, #fff)}
-.dark .tool-list-badge{background:color-mix(in srgb, var(--tool-primary) 20%, transparent);color:color-mix(in srgb, var(--tool-primary) 85%, #fff)}
 
 
 /* ---- Translation page: formatted preview, block anchors and two-way sync ---- */
