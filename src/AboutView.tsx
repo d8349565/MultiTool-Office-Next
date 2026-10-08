@@ -1,15 +1,33 @@
 import { Button } from '@fluentui/react-components';
-import { Heart, QrCode, SquaresFour } from '@phosphor-icons/react';
+import { ArrowSquareOut, GithubLogo, Heart, QrCode, SquaresFour } from '@phosphor-icons/react';
 import { productName, version } from '../src-tauri/tauri.conf.json';
 import { Modal } from './components';
+import { api, desktop } from './api';
 
+const repoUrl = 'https://github.com/d8349565/MultiTool-Office-Next';
 const images = import.meta.glob<string>('./assets/sponsor/wechat.{png,jpg,jpeg,webp}', { eager: true, query: '?url', import: 'default' });
 const wechatImage = Object.values(images)[0];
 
 export function AboutView({ onClose }: { onClose: () => void }) {
+  const openRepo = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (desktop) void api('open_web_url', { url: repoUrl });
+    else window.open(repoUrl, '_blank', 'noopener,noreferrer');
+  };
+
   return <Modal title="关于" onClose={onClose}>
     <div className="about-brand"><span className="brand-mark"><SquaresFour size={26} weight="fill"/></span><div><h3>{productName}</h3><p>让日常办公更顺手。</p></div></div>
-    <dl className="about-version"><dt>当前版本</dt><dd>{version}</dd></dl>
+    <dl className="about-version">
+      <dt>当前版本</dt><dd>{version}</dd>
+      <dt>项目地址</dt>
+      <dd>
+        <a href={repoUrl} onClick={openRepo} target="_blank" rel="noreferrer" className="about-repo-link" title="在浏览器中打开项目主页">
+          <GithubLogo size={16} weight="fill" />
+          <span>https://github.com/d8349565/MultiTool-Office-Next</span>
+          <ArrowSquareOut size={13} />
+        </a>
+      </dd>
+    </dl>
     <section className="about-sponsor" aria-labelledby="about-sponsor-title">
       <h3 id="about-sponsor-title"><Heart size={18}/>赞赏项目</h3>
       <p>如果这个工作台帮到了你，欢迎支持项目的持续维护。赞赏完全自愿。</p>

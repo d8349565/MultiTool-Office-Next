@@ -46,3 +46,4 @@ Thumbs.db
 .idea/
 build-exe.bat
 run.bat
+*.mp4
