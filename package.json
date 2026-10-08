@@ -2,7 +2,7 @@
   "name": "office-next",
   "private": true,
   "license": "Apache-2.0",
-  "version": "2026.1008.2229",
+  "version": "2026.1008.2255",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
