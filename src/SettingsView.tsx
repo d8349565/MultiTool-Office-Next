@@ -9,12 +9,14 @@ import { AssistantDocuments } from './AssistantDocuments';
 import { basename } from './domain';
 import { workspaceKey } from './assistantState';
 import { getLauncherVisual } from './launcherVisuals';
+import { PricingEditor } from './PricingEditor';
 
 const modules = [
   {id:'workspace',label:'工作台',description:'设置文件搜索范围、外观和默认浏览方式。',keys:['roots','theme','recursive','filter']},
   {id:'tools',label:'常用工具',description:'整理每天需要打开的程序、文件、快捷方式和网页入口。',keys:['launchers']},
   {id:'model',label:'模型参数',description:'配置连接、回复、思考和等待时间。新参数在下一次任务生效。',keys:['modelUrl','modelId','assistantReasoning','translationReasoning','modelContextTokens','assistantOutputTokens','translationOutputTokens','modelRequestTimeoutSecs','modelFirstResponseTimeoutSecs','modelIdleTimeoutSecs','modelRetryCount','assistantTaskTimeoutSecs','assistantHistoryMessages','assistantHistoryChars','assistantToolRounds','assistantSearchLimit','assistantAutoContinue','assistantContinueTokens','modelTemperature','modelTopP']},
   {id:'assistant',label:'助理配置',description:'设置新会话的报告目录，以及助手的表达方式和工作规范。',keys:[]},
+  {id:'pricing',label:'费用计价',description:'配置模型单价、缓存价格与峰谷时段。保存后用于下一次任务。',keys:['modelPricing']},
   {id:'integrations',label:'联网与评分',description:'按需启用公开资料搜索和候选评分，并管理各自密钥。',keys:['tavilyEnabled','jevEnabled']},
   {id:'transfer',label:'导入导出',description:'导出已保存的配置，或导入配置文件并确认应用。',keys:[]},
 ] as const;
@@ -59,6 +61,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       }
       const keys:readonly string[]=module.keys;
       const next={...settings};for(const key of keys)Object.assign(next,{[key]:draft[key as keyof Settings]});
+      if(tab==='pricing'&&next.modelPricing){next.modelPricing={...next.modelPricing,rules:next.modelPricing.rules.map(r=>({...r,modelIds:r.modelIds.filter(Boolean)})),holidays:Object.fromEntries(Object.entries(next.modelPricing.holidays).map(([year,dates])=>[year,dates.filter(Boolean)]))};}
       const saved=await api<Settings>('save_settings',{next});onSaved(saved);
       setDraft(previous=>{const merged={...previous,revision:saved.revision};for(const key of keys)Object.assign(merged,{[key]:saved[key as keyof Settings]});return merged;});
       setMessage(module.label+'已保存，其他模块的草稿继续保留。');
@@ -140,6 +143,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
           <section className="settings-section"><h3>新会话的报告目录</h3><p>用于助手生成的文件核对报告。每个会话仍可另选目录。</p><div className="settings-workspace-path">{workspace||'应用数据目录中的默认报告文件夹'}</div><div className="button-row"><Button onClick={()=>void run(async()=>{const path=await pick(true);if(path)setWorkspace(path);})}>选择报告文件夹</Button><Button onClick={()=>setWorkspace('')}>使用应用默认目录</Button><Button onClick={()=>void run(async()=>{await api('assistant_workspace',{path:workspace||null,open:true});})}>打开报告目录</Button></div><p>保存此模块后，新建会话使用此目录。已有会话和报告不移动。</p></section>
           <AssistantDocuments onDirtyChange={setRoleDirty}/>
         </div>
+        <div id="settings-panel-pricing" role="tabpanel" aria-labelledby="settings-tab-pricing" hidden={tab!=='pricing'}><PricingEditor value={draft.modelPricing} modelId={draft.modelId} modelUrl={draft.modelUrl} onChange={v=>change('modelPricing',v)}/></div>
         <div id="settings-panel-integrations" role="tabpanel" aria-labelledby="settings-tab-integrations" hidden={tab!=='integrations'}>
           <section className="settings-section"><h3>公开资料搜索</h3><Switch checked={!!draft.tavilyEnabled} onChange={(_,d)=>change('tavilyEnabled',d.checked)} label="启用 Tavily 联网搜索"/><p>主动提问时按需搜索。公开搜索词发给搜索服务，结果摘要发给模型。</p></section>
           <section className="settings-section"><h3>候选评分</h3><Switch checked={draft.jevEnabled} onChange={(_,d)=>change('jevEnabled',d.checked)} label="启用 Jev 实验建议与候选评分"/><p>使用前 20 条名称和相对路径进行实验评分；精确日期和缺失核对仍使用本地规则。</p></section>

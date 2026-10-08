@@ -1,0 +1,41 @@
+{
+  "rules": [
+    {
+      "id": "deepseek-flash-cny",
+      "modelIds": ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+      "providerHost": "api.deepseek.com",
+      "currency": "CNY",
+      "inputPerMillion": 2,
+      "cachedInputPerMillion": 0.04,
+      "outputPerMillion": 8,
+      "schedule": "deepseek",
+      "offPeakDiscount": 0.5,
+      "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+      "verifiedAt": "2026-10-08"
+    },
+    {
+      "id": "deepseek-pro-cny",
+      "modelIds": ["deepseek-v4-pro"],
+      "providerHost": "api.deepseek.com",
+      "currency": "CNY",
+      "inputPerMillion": 9,
+      "cachedInputPerMillion": 0.3,
+      "outputPerMillion": 27,
+      "schedule": "deepseek",
+      "offPeakDiscount": 0.5,
+      "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+      "verifiedAt": "2026-10-08"
+    }
+  ],
+  "holidays": {
+    "2026": [
+      "2026-01-01", "2026-01-02", "2026-01-03",
+      "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-21", "2026-02-22", "2026-02-23",
+      "2026-04-04", "2026-04-05", "2026-04-06",
+      "2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05",
+      "2026-06-19", "2026-06-20", "2026-06-21",
+      "2026-09-25", "2026-09-26", "2026-09-27",
+      "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"
+    ]
+  }
+}

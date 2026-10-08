@@ -31,6 +31,7 @@ pub struct Settings {
     #[serde(default="default_continue_tokens")] pub assistant_continue_tokens: u32,
     #[serde(default)] pub model_temperature: Option<f64>,
     #[serde(default)] pub model_top_p: Option<f64>,
+    #[serde(default)] pub model_pricing: crate::pricing::PricingConfig,
 
 }
 fn default_request_timeout()->u64{45}
@@ -45,7 +46,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), jev_enabled: false, tavily_enabled: false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), jev_enabled: false, tavily_enabled: false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -63,6 +64,7 @@ pub fn launcher_target(raw: &str) -> Result<LauncherTarget, String> {
     Err("工具目标需要本地绝对路径，或以 http://、https:// 开头的网页地址".into())
 }
 pub fn validate(s: &Settings) -> Result<(), String> {
+    crate::pricing::validate(&s.model_pricing)?;
     if s.schema_version != 1 { return Err("不支持的配置版本".into()); }
     if !["light", "dark", "system"].contains(&s.theme.as_str()) { return Err("无效主题".into()); }
     for effort in [&s.assistant_reasoning,&s.translation_reasoning] {if !["default","none","minimal","low","medium","high","xhigh","max","ultra"].contains(&effort.to_ascii_lowercase().as_str()){return Err("无效思考程度".into());}}
@@ -122,7 +124,7 @@ pub fn patch(old: &Settings, changes: &Value) -> Result<Settings, String> {
     let changes = changes.as_object().ok_or("设置修改必须是对象")?;
     let mut value = serde_json::to_value(old).unwrap();
     for (key, v) in changes {
-        if !["roots", "theme", "recursive", "filter", "launchers", "assistantReasoning", "translationReasoning", "assistantOutputTokens", "translationOutputTokens", "modelRequestTimeoutSecs", "modelFirstResponseTimeoutSecs", "modelIdleTimeoutSecs", "modelRetryCount", "assistantTaskTimeoutSecs", "assistantHistoryMessages", "assistantHistoryChars", "assistantToolRounds", "assistantSearchLimit", "assistantAutoContinue", "assistantContinueTokens", "modelContextTokens", "modelTemperature", "modelTopP"].contains(&key.as_str()) { return Err(format!("助手不能修改 {key}")); }
+        if !["roots", "theme", "recursive", "filter", "launchers", "assistantReasoning", "translationReasoning", "assistantOutputTokens", "translationOutputTokens", "modelRequestTimeoutSecs", "modelFirstResponseTimeoutSecs", "modelIdleTimeoutSecs", "modelRetryCount", "assistantTaskTimeoutSecs", "assistantHistoryMessages", "assistantHistoryChars", "assistantToolRounds", "assistantSearchLimit", "assistantAutoContinue", "assistantContinueTokens", "modelContextTokens", "modelTemperature", "modelTopP", "modelPricing"].contains(&key.as_str()) { return Err(format!("助手不能修改 {key}")); }
         value[key] = v.clone();
     }
     if changes.get("modelRetryCount").and_then(Value::as_u64).is_some_and(|n|n>2){return Err("重试最多2次".into());}
@@ -146,6 +148,17 @@ pub fn export(path: &Path, current: &Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pricing_patch_is_a_draft_until_saved_and_rejects_stale_revision(){
+        let dir=tempfile::tempdir().unwrap();let current=Settings::default();
+        atomic_write(&dir.path().join("settings.json"),&serde_json::to_vec(&current).unwrap()).unwrap();
+        let mut pricing=current.model_pricing.clone();pricing.rules[0].output_per_million=10.0;
+        let next=patch(&current,&json!({"modelPricing":pricing})).unwrap();
+        assert_eq!(load(dir.path()).unwrap(),current);
+        let saved=save(dir.path(),&current,next.clone()).unwrap();assert_eq!(saved.model_pricing.rules[0].output_per_million,10.0);
+        assert!(save(dir.path(),&saved,next).is_err());
+        let mut old=serde_json::to_value(&current).unwrap();old.as_object_mut().unwrap().remove("modelPricing");assert_eq!(serde_json::from_value::<Settings>(old).unwrap().model_pricing,current.model_pricing);
+    }
 
     #[test]
     fn configuration_export_import_round_trip() {
@@ -164,7 +177,7 @@ mod tests {
             model_first_response_timeout_secs: 30, model_idle_timeout_secs: 20, model_retry_count: 1,
             assistant_task_timeout_secs: 360, assistant_history_messages: 6, assistant_history_chars: 1800,
             assistant_tool_rounds: 7, assistant_search_limit: 3, assistant_auto_continue: false, assistant_continue_tokens: 1024,
-            model_temperature: Some(0.3), model_top_p: Some(0.7),
+            model_temperature: Some(0.3), model_top_p: Some(0.7), model_pricing: Default::default(),
         };
         export(&path, &source).unwrap();
         let bytes = fs::read(&path).unwrap();

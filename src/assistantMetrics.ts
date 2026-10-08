@@ -23,7 +23,7 @@ export function withTaskScope(usage:unknown,scope:string):unknown{
   return usage.map(entry=>{const item=record(entry);if(!('round' in item)&&!('kind' in item)&&!('requests' in item)&&!('roundLabel' in item))return entry;
     return {...item,roundLabel:`${roundLabel(item)}@${scope}`};});
 }
-export function tokenMetrics(raw:unknown):TokenMetrics{
+export function usageRequests(raw:unknown):RecordValue[]{
   const requests:RecordValue[]=[];
   // requests 是同一轮内的多次请求（截断续写会多出几项），轮次归属必须继承外层标记。
   function visit(value:unknown,parent?:string){if(Array.isArray(value)){value.forEach(item=>visit(item,parent));return;}const item=record(value);
@@ -32,6 +32,10 @@ export function tokenMetrics(raw:unknown):TokenMetrics{
     requests.push(parent?{usage:value,roundLabel:parent}:{usage:value});
   }
   if(raw!==undefined&&raw!==null)visit(raw);
+  return requests;
+}
+export function tokenMetrics(raw:unknown):TokenMetrics{
+  const requests=usageRequests(raw);
   const rows=requests.map(item=>{
     const row:RecordValue&{read:number|null;written:number|null;cached:number|null;ms:number|null;validUsage:boolean;hasCachedField:boolean}=item as never;
     if(item.usage===null||item.usage===undefined||typeof item.usage!=='object'){

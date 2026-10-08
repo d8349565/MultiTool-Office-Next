@@ -1,4 +1,6 @@
 export type ReasoningEffort = 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+export interface PricingRule { id:string; modelIds:string[]; providerHost:string; currency:'CNY'|'USD'; inputPerMillion:number; cachedInputPerMillion:number; outputPerMillion:number; schedule:'flat'|'deepseek'; offPeakDiscount:number; source:string; verifiedAt:string }
+export interface PricingConfig { rules:PricingRule[]; holidays:Record<string,string[]> }
 export interface Entry { path: string; name: string; parent: string; extension: string; size: number; modified: number; created?: number | null; isDir: boolean; businessDate?: string | null; dateSource?: string; matchReason?: string }
 export interface Launcher { id: string; name: string; path: string; group: string }
 export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; jevEnabled: boolean; tavilyEnabled?: boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
@@ -7,6 +9,7 @@ export interface Settings { schemaVersion: number; revision: number; roots: stri
   modelContextTokens?: number;
   modelFirstResponseTimeoutSecs?: number; modelIdleTimeoutSecs?: number;
   modelTemperature?: number | null; modelTopP?: number | null;
+  modelPricing?: PricingConfig;
 }
 export interface Status { scanning: boolean; count: number; scanned: number; errors: string[]; generation: number }
 export interface Query { query?: string; kind?: 'file' | 'directory'; root?: string; recursive?: boolean; filter?: string; extension?: string; after?: number; before?: number; offset?: number; limit?: number }

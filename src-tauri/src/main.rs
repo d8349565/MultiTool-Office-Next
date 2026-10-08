@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod settings;
+mod pricing;
 mod index;
 mod ai;
 mod pi_runtime;
