@@ -1,12 +1,16 @@
 # 🏢 MultiTool Office Next
 
-> 面向 Windows 的文件管理与办公工作台，集成本地检索、AI 助手、OCR、翻译和待办。
+### 找文件、整理资料、批量处理单据，一个窗口完成。
 
-[![Tauri 2](https://img.shields.io/badge/Platform-Tauri_2_%7C_Windows-blue?logo=tauri)](https://v2.tauri.app/)
+面向 Windows 的免费开源办公工作台：**本地文件检索 + AI 资料整理 + OCR 批量命名**，还有快捷启动、翻译和待办。
+
+[**⬇️ 下载 Windows 安装包**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [功能演示](#功能与演示) · [快速上手](#快速上手)
+
+![Windows](https://img.shields.io/badge/平台-Windows_x64-0078D4?logo=windows) ![License](https://img.shields.io/badge/License-Apache--2.0-blue) ![Privacy](https://img.shields.io/badge/文件检索-本地处理-239867)[![Tauri 2](https://img.shields.io/badge/Platform-Tauri_2_%7C_Windows-blue?logo=tauri)](https://v2.tauri.app/)
 [![React 19](https://img.shields.io/badge/Frontend-React_19_%7C_TypeScript-61dafb?logo=react)](https://react.dev/)
 [![Rust](https://img.shields.io/badge/Backend-Rust-orange?logo=rust)](https://www.rust-lang.org/)
 [![Privacy First](https://img.shields.io/badge/Privacy-Metadata_First_Local_OCR-success)](#隐私与数据边界)
-[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
+
 
 把多层目录浏览、文件搜索和日常办公操作集中到一个窗口：查找资料、核对配套文件、识别合同字段、批量命名，或随时唤出常用工具。
 
