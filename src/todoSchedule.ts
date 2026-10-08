@@ -1,10 +1,10 @@
 import type { TodoItem } from './types';
 
-export type TodoTimeFilter = 'all' | 'today' | 'week' | 'overdue' | 'unscheduled' | 'completed';
+export type TodoTimeFilter = 'active' | 'all' | 'today' | 'week' | 'overdue' | 'unscheduled' | 'completed';
 export type TodoDateGroup = 'overdue' | 'today' | 'upcoming' | 'unscheduled' | 'completed';
 
 export const timeFilters: { value: TodoTimeFilter; label: string }[] = [
-  { value: 'all', label: '全部' }, { value: 'today', label: '今天到期' },
+  { value: 'active', label: '未完成' }, { value: 'today', label: '今天到期' },
   { value: 'week', label: '近七天' }, { value: 'overdue', label: '已逾期' },
   { value: 'unscheduled', label: '未排期' }, { value: 'completed', label: '已完成' },
 ];
@@ -46,6 +46,7 @@ export function dateGroup(item: TodoItem, now: number): TodoDateGroup {
 
 export function matchesTimeFilter(item: TodoItem, filter: TodoTimeFilter, now: number): boolean {
   if (filter === 'all') return true;
+  if (filter === 'active') return !item.completed;
   if (filter === 'completed') return item.completed;
   if (item.completed) return false;
   const due = dueTimestamp(item);

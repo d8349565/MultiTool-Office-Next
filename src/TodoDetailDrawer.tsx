@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@fluentui/react-components';
 import { Check, Trash, X } from '@phosphor-icons/react';
 import { IconButton } from './components';
-import { normalizeTodos } from './todoData';
+import { normalizeTodos, todoQuadrants } from './todoData';
 import { formatTimestamp, localDate } from './todoSchedule';
 import type { TodoItem, TodoQuadrant } from './types';
 
@@ -52,7 +52,7 @@ export default function TodoDetailDrawer({ item, initialTitle, saving, onSave, o
           onClick={() => update({ completed: !draft.completed, completedAt: !draft.completed ? Date.now() : undefined })}>
           {draft.completed && <Check size={12} weight="bold"/>}
         </button>
-        <strong>{draft.type === 'idea' ? '灵感闪念' : ['收集箱', '第Ⅰ象限', '第Ⅱ象限', '第Ⅲ象限', '第Ⅳ象限'][draft.quadrant]}</strong>
+        <strong>{draft.type === 'idea' ? '灵感详情' : '待办详情'}</strong>
         <div className="todo-drawer-actions">
           <Button size="small" disabled={saving} onClick={() => update({ type: draft.type === 'todo' ? 'idea' : 'todo' })}>{draft.type === 'idea' ? '转为待办' : '转为灵感'}</Button>
           <IconButton label="关闭详情" disabled={saving} onClick={close}><X size={15}/></IconButton>
@@ -66,22 +66,11 @@ export default function TodoDetailDrawer({ item, initialTitle, saving, onSave, o
             value={draft.title} onChange={e => update({ title: e.target.value })}/>
         </div>
         <div className="todo-drawer-section">
-          <span>所属象限</span><div className="todo-date-shortcuts" role="group" aria-label="详情所属象限">
-            {(['收集箱', 'Ⅰ 马上执行', 'Ⅱ 重点聚焦', 'Ⅲ 快速响应', 'Ⅳ 闲暇清理'] as const).map((label, q) =>
-              <button type="button" key={q} disabled={saving} aria-pressed={draft.quadrant === q} onClick={() => update({ quadrant: q as TodoQuadrant })}>{label}</button>)}
-          </div>
-        </div>
-        <div className="todo-drawer-section">
-          <label htmlFor="todo-detail-notes">详细备忘与长说明</label>
-          <textarea id="todo-detail-notes" className="todo-drawer-notes" value={draft.notes || ''} disabled={saving}
-            onChange={e => update({ notes: e.target.value })}/>
-        </div>
-        <div className="todo-drawer-section">
           <span>截止日期与具体时间</span><div className="todo-date-fields">
-            <input type="date" aria-label="详情截止日期" value={draft.dueDate || ''} disabled={saving}
-              onChange={e => update({ dueDate: e.target.value || undefined, dueTime: e.target.value ? draft.dueTime : undefined })}/>
-            <input type="time" aria-label="详情截止时间" value={draft.dueTime || ''} disabled={!draft.dueDate || saving}
-              onChange={e => update({ dueTime: e.target.value || undefined })}/>
+            <label>截止日期<input type="date" aria-label="详情截止日期" value={draft.dueDate || ''} disabled={saving}
+              onChange={e => update({ dueDate: e.target.value || undefined, dueTime: e.target.value ? draft.dueTime : undefined })}/></label>
+            <label>时间（可选）<input type="time" aria-label="详情截止时间" value={draft.dueTime || ''} disabled={!draft.dueDate || saving}
+              onChange={e => update({ dueTime: e.target.value || undefined })}/></label>
           </div><div className="todo-date-shortcuts">
             <button type="button" disabled={saving} onClick={() => update({ dueDate: localDate(Date.now()) })}>今天</button>
             <button type="button" disabled={saving} onClick={() => update({ dueDate: localDate(Date.now(), 1) })}>明天</button>
@@ -89,26 +78,39 @@ export default function TodoDetailDrawer({ item, initialTitle, saving, onSave, o
           </div>
         </div>
         <div className="todo-drawer-section">
+          <span>所属象限</span><div className="todo-drawer-quadrants" role="group" aria-label="详情所属象限">
+            {todoQuadrants.map(q => <button type="button" key={q.value} disabled={saving} aria-pressed={draft.quadrant === q.value}
+              onClick={() => update({ quadrant: q.value as TodoQuadrant })}>
+              <span>{q.numeral} {q.label}</span><small>{q.description}</small>
+            </button>)}
+          </div>
+        </div>
+        <div className="todo-drawer-section">
           <span>分步推进清单（{draft.subtasks?.length || 0}）</span><div className="todo-drawer-steps-list">
             {(draft.subtasks || []).map(step => <div className="todo-drawer-step-row" key={step.id}>
               <input type="checkbox" aria-label={`完成步骤：${step.title}`} disabled={saving} checked={step.completed}
                 onChange={() => update({ subtasks: draft.subtasks?.map(s => s.id === step.id ? { ...s, completed: !s.completed } : s) })}/>
-              <input type="text" aria-label={`步骤内容：${step.id}`} disabled={saving} value={step.title}
+              <input type="text" aria-label={`步骤内容：${step.title}`} disabled={saving} value={step.title}
                 onChange={e => update({ subtasks: draft.subtasks?.map(s => s.id === step.id ? { ...s, title: e.target.value } : s) })}/>
               <IconButton label={`删除步骤：${step.title}`} disabled={saving} onClick={() => update({ subtasks: draft.subtasks?.filter(s => s.id !== step.id) })}><X size={12}/></IconButton>
             </div>)}
             <form onSubmit={e => { e.preventDefault(); addStep(); }} className="todo-detail-add-step">
               <input type="text" aria-label="详情新步骤内容" placeholder="输入新步骤，按回车加入草稿" disabled={saving} value={newStep} onChange={e => setNewStep(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && e.nativeEvent.isComposing) e.preventDefault(); }}/>
+                onKeyDown={e => { if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || e.repeat)) e.preventDefault(); }}/>
               <Button size="small" type="submit" disabled={saving || !newStep.trim()}>添加步骤</Button>
             </form>
           </div>
+        </div>
+        <div className="todo-drawer-section">
+          <label htmlFor="todo-detail-notes">详细备忘与长说明</label>
+          <textarea id="todo-detail-notes" className="todo-drawer-notes" value={draft.notes || ''} disabled={saving}
+            onChange={e => update({ notes: e.target.value })}/>
         </div>
       </div>
       <div className="todo-drawer-footer">
         <span>{dirty || newStep.trim() ? '有未保存的修改' : `创建于 ${formatTimestamp(item.createdAt)}`}</span>
         <div className="todo-drawer-actions">
-          {dirty || newStep.trim() ? <Button size="small" disabled={saving} onClick={onClose}>放弃修改并关闭</Button> :
+          {dirty || newStep.trim() ? <Button size="small" disabled={saving} onClick={() => { if (!pending.current) onClose(); }}>放弃修改并关闭</Button> :
             <Button size="small" disabled={saving} icon={<Trash size={12}/>} onClick={() => { void onDelete().then(ok => { if (!ok) setError('删除失败，原事项已保留。'); }); }}>删除事项</Button>}
           <Button size="small" appearance="primary" disabled={saving || (!dirty && !newStep.trim())} onClick={() => void save()}>保存修改</Button>
         </div>

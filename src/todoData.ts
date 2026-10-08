@@ -1,6 +1,14 @@
 import type { TodoItem, TodoSubtask } from './types';
 import { validSchedule } from './todoSchedule';
 
+export const todoQuadrants = [
+  { value: 0, numeral: '', label: '收集箱', description: '待办与灵感 · 暂未归类' },
+  { value: 1, numeral: 'Ⅰ', label: '马上执行', description: '重要且紧急' },
+  { value: 2, numeral: 'Ⅱ', label: '重点聚焦', description: '重要不紧急' },
+  { value: 3, numeral: 'Ⅲ', label: '快速响应', description: '紧急不重要' },
+  { value: 4, numeral: 'Ⅳ', label: '闲暇清理', description: '不重要不紧急' },
+] as const;
+
 export function matchesTodoSearch(item: TodoItem, query: string): boolean {
   const text = [item.title, item.notes, item.aiNote, ...(item.subtasks || []).map(step => step.title)].join('\n').toLocaleLowerCase();
   return query.trim().toLocaleLowerCase().split(/\s+/).every(word => text.includes(word));
