@@ -135,6 +135,7 @@ export default function App(){
     return()=>{alive=false;clearInterval(timer);};
   },[]);
   useEffect(()=>{const m=matchMedia('(prefers-color-scheme: dark)');const fn=()=>setSystemDark(m.matches);m.addEventListener('change',fn);return()=>m.removeEventListener('change',fn);},[]);
+  useEffect(()=>{if(!desktop)return;const unlisten=listen<Settings>('settings-updated',event=>setSettings(previous=>!previous||event.payload.revision>previous.revision?event.payload:previous));return()=>{void unlisten.then(stop=>stop());};},[]);
   useEffect(()=>{if(!notice||(pendingActions.size&&notice.startsWith('正在')))return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);},[notice,pendingActions]);
   useEffect(()=>{const listener=(e:KeyboardEvent)=>{if(e.ctrlKey&&e.key.toLowerCase()==='k'){e.preventDefault();setQuick(s=>!s);}if(e.ctrlKey&&e.key.toLowerCase()==='f'){if(pageRef.current==='todo'&&document.querySelector('dialog[open]'))return;e.preventDefault();if(pageRef.current==='todo'){document.getElementById('todo-search')?.focus();}else if(pageRef.current==='tools'){document.getElementById('tools-search')?.focus();}else{setPage('files');searchInput.current?.focus();}}if(e.key==='Escape'){setAssistant(false);setQuick(false);}};window.addEventListener('keydown',listener);const unlisten=desktop?listen('quick-open',()=>setQuick(true)):null;return()=>{window.removeEventListener('keydown',listener);void unlisten?.then(f=>f());};},[]);
   useLayoutEffect(()=>{

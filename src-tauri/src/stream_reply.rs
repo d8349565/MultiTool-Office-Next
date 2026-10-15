@@ -21,6 +21,7 @@ impl StreamReply {
         if data=="[DONE]"{self.complete=true;return Ok(())}
         let v:Value=serde_json::from_str(data).map_err(|_|"流式回复格式无效")?;
         if !v["error"].is_null(){return Err("模型流式回复返回错误".into());}
+        if v["base_resp"]["status_code"].as_i64().is_some_and(|code|code!=0){return Err(format!("模型流式回复返回服务错误码 {}，请检查模型权限和账户余额",v["base_resp"]["status_code"]));}
         if !v["model"].is_null(){self.model=v["model"].clone();}
         if !v["usage"].is_null(){self.usage=v["usage"].clone();}
         let Some(choice)=v["choices"].as_array().and_then(|c|c.iter().find(|c|c["index"].as_u64().unwrap_or(0)==0)) else{return Ok(())};

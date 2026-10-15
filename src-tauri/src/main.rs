@@ -4,6 +4,7 @@ mod pricing;
 mod index;
 mod ai;
 mod pi_runtime;
+mod model_profiles;
 mod model_adapter;
 mod assistant_work;
 mod assistant_context;
@@ -38,7 +39,7 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
     let id=uuid::Uuid::new_v4().to_string();let value=json!({"id":id,"before":settings::redacted(old),"after":settings::redacted(&next)});
     let mut proposals=state.proposals.lock().unwrap();if proposals.len()>50{proposals.clear();}proposals.insert(id,next);value
 }
-#[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{json!({"settings":state.settings.lock().unwrap().clone(),"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key("model").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"jev":ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
+#[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{let settings=state.settings.lock().unwrap().clone();let model_key=model_profiles::credential(settings.active_model_profile_id.as_deref());json!({"settings":settings,"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key(&model_key).and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"jev":ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
 #[tauri::command] async fn list_dirs(state:tauri::State<'_,Arc<AppState>>,path:String)->Result<Vec<index::Entry>,String>{let idx=state.index.clone();tauri::async_runtime::spawn_blocking(move||idx.dirs(&path)).await.map_err(|e|e.to_string())?}
 #[tauri::command] async fn search(state:tauri::State<'_,Arc<AppState>>,mut query:Query)->Result<index::Results,String>{
     let idx=state.index.clone();
@@ -56,11 +57,7 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
     let next=state.proposals.lock().unwrap().remove(&id).ok_or("提案已失效")?;
     if approve {save_settings(state,next)}else{Ok(state.settings.lock().unwrap().clone())}
 }
-#[tauri::command] fn set_key(provider:String,secret:String)->Result<(),String>{let entry=ai::key(&provider)?;if secret.is_empty(){match entry.delete_credential(){Ok(())|Err(keyring::Error::NoEntry)=>Ok(()),Err(e)=>Err(e.to_string())}}else{entry.set_password(&secret).map_err(|e|e.to_string())}}
-#[tauri::command] async fn model_test(state:tauri::State<'_,Arc<AppState>>,model_url:String,model_id:String)->Result<Value,String>{
-    let mut s=state.settings.lock().unwrap().clone();s.model_url=model_url;s.model_id=model_id;
-    settings::validate(&s)?;ai::test_connection(&s).await
-}
+#[tauri::command] fn set_key(provider:String,secret:String)->Result<(),String>{if provider!="tavily"&&provider!="jev"{return Err("模型密钥请在模型连接中测试并保存".into());}let entry=ai::key(&provider)?;if secret.is_empty(){match entry.delete_credential(){Ok(())|Err(keyring::Error::NoEntry)=>Ok(()),Err(e)=>Err(e.to_string())}}else{entry.set_password(&secret).map_err(|e|e.to_string())}}
 #[tauri::command] fn import_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<settings::Settings,String>{settings::import(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] fn export_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<(),String>{settings::export(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] async fn open_path(state:tauri::State<'_,Arc<AppState>>,path:String,reveal:bool)->Result<(),String>{
@@ -199,6 +196,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![file_preview::file_preview,file_preview::cancel_file_preview,model_test,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,reveal_paths,launch,reveal_launcher,assistant_workspace,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
+        .invoke_handler(tauri::generate_handler![file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,reveal_paths,launch,reveal_launcher,assistant_workspace,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

@@ -9,7 +9,7 @@ pub fn capability(tool:&str)->Result<Capability,String>{
         "settings_read"|"app_get_state"|"pricing_read"=>Capability::AppState,
         "web_search"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
-        "settings_propose_change"|"pricing_propose_change"=>Capability::SettingsProposal,
+        "settings_propose_change"|"pricing_propose_change"|"model_config_add"=>Capability::SettingsProposal,
         "files_reveal"|"path_open"|"launcher_run"|"clipboard_copy"|"index_refresh"|"text_translate"=>Capability::UserAction,
         "task_clarify"=>Capability::Control,
         _=>return Err("工具不存在或未授权".into()),
@@ -30,6 +30,7 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
     if capability==Capability::PublicSearch&&!state.settings.lock().unwrap().tavily_enabled{return Err("请先在设置中启用 Tavily 联网搜索".into());}
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}
+    if tool=="model_config_add"&&current.intent.operation!="config"{return Err("只有用户要求配置模型接口时才能新增模型配置".into());}
     if tool=="path_open"{state.index.authorize(args["path"].as_str().ok_or("缺少路径")?)?;}
     if tool=="files_reveal"{for path in args["paths"].as_array().ok_or("缺少路径集合")?{state.index.authorize(path.as_str().ok_or("路径无效")?)?;}}
     Ok(())

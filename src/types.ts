@@ -3,6 +3,7 @@ export interface PricingRule { id:string; modelIds:string[]; providerHost:string
 export interface PricingConfig { rules:PricingRule[]; holidays:Record<string,string[]> }
 export interface Entry { path: string; name: string; parent: string; extension: string; size: number; modified: number; created?: number | null; isDir: boolean; businessDate?: string | null; dateSource?: string; matchReason?: string }
 export interface Launcher { id: string; name: string; path: string; group: string }
+export interface ModelProfile {id:string;name:string;modelUrl:string;modelId:string;testedAt?:number|null;credentialRevision?:number}
 export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; jevEnabled: boolean; tavilyEnabled?: boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
   assistantOutputTokens?: number; translationOutputTokens?: number; modelRequestTimeoutSecs?: number; modelRetryCount?: number; assistantTaskTimeoutSecs?: number;
   assistantHistoryMessages?: number; assistantHistoryChars?: number; assistantToolRounds?: number; assistantSearchLimit?: number; assistantAutoContinue?: boolean; assistantContinueTokens?: number;
@@ -10,6 +11,8 @@ export interface Settings { schemaVersion: number; revision: number; roots: stri
   modelFirstResponseTimeoutSecs?: number; modelIdleTimeoutSecs?: number;
   modelTemperature?: number | null; modelTopP?: number | null;
   modelPricing?: PricingConfig;
+  modelProfiles?: ModelProfile[]; activeModelProfileId?:string|null;
+  modelConnectionRevision?:number;
 }
 export interface Status { scanning: boolean; count: number; scanned: number; errors: string[]; generation: number }
 export interface Query { query?: string; kind?: 'file' | 'directory'; root?: string; recursive?: boolean; filter?: string; extension?: string; after?: number; before?: number; offset?: number; limit?: number }

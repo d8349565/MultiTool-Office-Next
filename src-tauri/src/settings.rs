@@ -8,10 +8,29 @@ pub struct Launcher { pub id: String, pub name: String, pub path: String, pub gr
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelProfile {
+    pub id: String, pub name: String, pub model_url: String, pub model_id: String,
+    #[serde(default)] pub tested_at: Option<u64>,
+    #[serde(default)] pub credential_revision:u64,
+}
+pub fn validate_model_profile(profile:&ModelProfile)->Result<(),String>{
+    if profile.id.is_empty() || profile.id.len()>80 || !profile.id.bytes().all(|c|c.is_ascii_alphanumeric()||c==b'-') {return Err("模型配置 ID 无效".into());}
+    if profile.name.trim().is_empty() || profile.name.len()>200 || profile.model_id.trim().is_empty() || profile.model_id.len()>200 {return Err("请填写配置名称和模型 ID".into());}
+    let url=reqwest::Url::parse(&profile.model_url).map_err(|_|"模型地址无效")?;
+    if url.host_str().is_none() || (url.scheme()!="https" && !(url.scheme()=="http" && matches!(url.host_str(),Some("localhost"|"127.0.0.1"|"[::1]")))){return Err("远程模型地址必须使用 HTTPS".into());}
+    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some(){return Err("地址不得包含凭据、查询参数或片段".into());}
+    Ok(())
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub schema_version: u32, pub revision: u64, pub roots: Vec<String>, pub theme: String,
     pub recursive: bool, pub filter: String, pub launchers: Vec<Launcher>,
     pub model_url: String, pub model_id: String, pub jev_enabled: bool,
+    #[serde(default)] pub model_profiles: Vec<ModelProfile>,
+    #[serde(default)] pub active_model_profile_id: Option<String>,
+    #[serde(default)] pub model_connection_revision:u64,
     #[serde(default)] pub tavily_enabled: bool,
     #[serde(default="default_reasoning")] pub assistant_reasoning: String,
     #[serde(default="default_reasoning")] pub translation_reasoning: String,
@@ -46,7 +65,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), jev_enabled: false, tavily_enabled: false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, tavily_enabled: false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -87,6 +106,13 @@ pub fn validate(s: &Settings) -> Result<(), String> {
         if u.scheme() != "https" && !(u.scheme() == "http" && matches!(u.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))) { return Err("远程模型地址必须使用 HTTPS".into()); }
         if !u.username().is_empty() || u.password().is_some() || u.query().is_some() || u.fragment().is_some() { return Err("地址不得包含凭据、查询参数或片段".into()); }
     }
+    if s.model_profiles.len()>50 {return Err("最多保存 50 份模型配置".into());}
+    let mut ids=std::collections::HashSet::new();
+    for profile in &s.model_profiles {validate_model_profile(profile)?;if !ids.insert(&profile.id){return Err("模型配置 ID 重复".into());}}
+    if let Some(id)=&s.active_model_profile_id {
+        let profile=s.model_profiles.iter().find(|p|&p.id==id).ok_or("当前模型配置不存在")?;
+        if profile.model_url!=s.model_url || profile.model_id!=s.model_id {return Err("当前模型连接与所选配置不一致".into());}
+    }
     Ok(())
 }
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -111,6 +137,9 @@ fn settings_lock(dir: &Path) -> Result<fs::File, String> {
 }
 pub fn save(dir: &Path, old: &Settings, mut next: Settings) -> Result<Settings, String> {
     if next.revision != old.revision { return Err("配置已发生变化，请刷新后重新确认".into()); }
+    for profile in &mut next.model_profiles{if let Some(previous)=old.model_profiles.iter().find(|p|p.id==profile.id){profile.credential_revision=profile.credential_revision.max(previous.credential_revision);}}
+    let connection=|s:&Settings|{let id=s.active_model_profile_id.as_deref().unwrap_or("legacy");let credential=s.model_profiles.iter().find(|p|p.id==id).map_or(0,|p|p.credential_revision);(s.model_url.clone(),s.model_id.clone(),s.active_model_profile_id.clone(),credential)};
+    next.model_connection_revision=if connection(old)!=connection(&next){old.model_connection_revision.checked_add(1).ok_or("模型连接版本超出范围")?}else{old.model_connection_revision};
     validate(&next)?;
     let lock = settings_lock(dir)?;
     if load(dir)? != *old { return Err("配置已发生变化，请刷新后重新确认".into()); }
@@ -131,7 +160,7 @@ pub fn patch(old: &Settings, changes: &Value) -> Result<Settings, String> {
     let next = serde_json::from_value(value).map_err(|e| format!("配置结构无效：{e}"))?;
     validate(&next)?; Ok(next)
 }
-pub fn redacted(s: &Settings) -> Value { let mut v=serde_json::to_value(s).unwrap();let map=v.as_object_mut().unwrap();map.remove("modelUrl");map.remove("modelId");v["modelConfigured"]=json!(!s.model_url.is_empty());v }
+pub fn redacted(s: &Settings) -> Value { let mut v=serde_json::to_value(s).unwrap();let map=v.as_object_mut().unwrap();map.remove("modelUrl");map.remove("modelId");map.remove("modelProfiles");v["modelConfigured"]=json!(!s.model_url.is_empty());v }
 
 pub fn import(path: &Path, current: &Settings) -> Result<Settings, String> {
     let mut next: Settings = serde_json::from_slice(&fs::read(path).map_err(|e| format!("无法读取配置文件：{e}"))?).map_err(|e| format!("配置文件格式无效：{e}"))?;
@@ -172,6 +201,8 @@ mod tests {
                 Launcher { id: "web".into(), name: "工作门户".into(), path: "https://example.com/office".into(), group: "网页".into() },
             ],
             model_url: "https://example.com/v1".into(), model_id: "办公模型".into(), jev_enabled: true, tavily_enabled: true,
+            model_profiles:vec![], active_model_profile_id:None,
+            model_connection_revision:0,
             assistant_reasoning: "medium".into(), translation_reasoning: "low".into(), model_context_tokens: 32000,
             assistant_output_tokens: 8192, translation_output_tokens: 4096, model_request_timeout_secs: 90,
             model_first_response_timeout_secs: 30, model_idle_timeout_secs: 20, model_retry_count: 1,
@@ -190,7 +221,7 @@ mod tests {
         let expected = Settings { revision: 42, ..source };
         assert_eq!(imported, expected);
         let saved = save(dir.path(), &current, imported).unwrap();
-        assert_eq!(saved, Settings { revision: 43, ..expected });
+        assert_eq!(saved, Settings { revision: 43, model_connection_revision:1, ..expected });
         assert_eq!(load(dir.path()).unwrap(), saved);
     }
 
