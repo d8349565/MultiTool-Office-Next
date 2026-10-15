@@ -937,12 +937,14 @@ pub fn extract(lines:&[OcrLine],p:&OcrProfile,response:Option<&Value>,plan:Optio
     logs.push("===== Jev Debug End =====".into());
     (out,decisions)
 }
-pub fn filename(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResult>,path:&str)->String{
+pub fn filename(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResult>,path:&str)->String{filename_with_warning(p,fields,path).0}
+pub fn filename_with_warning(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResult>,path:&str)->(String,String){
     let path=Path::new(path);let stem=path.file_stem().unwrap_or_default().to_string_lossy();let mut name=p.filename_pattern.replace("{原文件名}",&stem);
     for(k,v)in fields{name=name.replace(&format!("{{{k}}}"),&v.value);}
     let ext=path.extension().unwrap_or_default().to_string_lossy();if name.to_lowercase().ends_with(&format!(".{}",ext.to_lowercase())){name.truncate(name.len()-ext.len()-1);}
+    let mut warnings=vec![];if name.chars().any(|c|c.is_control()||"\\/:*?\"<>|".contains(c)){warnings.push("非法文件名字符已替换为下划线");}if name.chars().count()>140{warnings.push("生成名称超过 140 字符，已截断；请核对关键信息");}
     name=name.chars().map(|c|if c.is_control()||"\\/:*?\"<>|".contains(c){'_'}else{c}).collect::<String>();name=name.trim_matches([' ','.']).chars().take(140).collect();
-    let base=name.split('.').next().unwrap_or("").to_uppercase();if name.is_empty(){name="未命名".into();}if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"].contains(&base.as_str()){name.insert(0,'_');}format!("{}.{}",name.trim_end_matches([' ','.']),ext)
+    let base=name.split('.').next().unwrap_or("").to_uppercase();if name.is_empty(){name="未命名".into();}if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"].contains(&base.as_str()){name.insert(0,'_');}(format!("{}.{}",name.trim_end_matches([' ','.']),ext),warnings.join("；"))
 }
 
 pub fn match_profile<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->Option<&'a OcrProfile>{let text=lines.iter().map(|l|l.text.to_lowercase()).collect::<Vec<_>>().join("\n");profiles.iter().enumerate().filter_map(|(i,p)|{let score=p.keywords.iter().filter(|k|text.contains(&k.to_lowercase())).count();(score>0).then_some((score,i,p))}).max_by_key(|(s,i,_)|(*s,std::cmp::Reverse(*i))).map(|(_,_,p)|p)}

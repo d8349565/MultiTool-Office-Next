@@ -102,11 +102,43 @@ pub struct OcrBootstrap {pub profiles:Vec<OcrProfile>,pub tasks:Vec<OcrTask>,pub
 pub struct OcrImportResult {pub files:Vec<String>,pub errors:Vec<String>}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrRenameItem {pub file_id:String,pub original:String,pub target:String,pub status:String,pub error:String,pub fingerprint:String}
+pub struct OcrRenameItem {pub file_id:String,pub original:String,pub target:String,pub status:String,pub error:String,pub fingerprint:String,#[serde(default)]pub warning:String}
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct OcrRenameSummary {pub success:usize,pub failed:usize,pub pending:usize,pub blocked:usize}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrRenameBatch {pub id:String,pub task_id:String,pub status:String,pub items:Vec<OcrRenameItem>}
+pub struct OcrRenameBatch {pub id:String,pub task_id:String,pub status:String,pub items:Vec<OcrRenameItem>,#[serde(default)]pub summary:OcrRenameSummary}
+impl OcrRenameBatch {
+    pub fn summarize(&mut self){
+        let undo=self.status.starts_with("rollback");let mut summary=OcrRenameSummary::default();
+        for item in &self.items {
+            if (undo&&item.status=="undone")||(!undo&&item.status=="done"){summary.success+=1;}
+            else if (!undo&&item.status=="failed")||(undo&&item.status=="done"&&!item.error.is_empty()){summary.failed+=1;}
+            else if (!undo&&["pending","applying"].contains(&item.status.as_str()))||(undo&&["done","undoing"].contains(&item.status.as_str())){summary.pending+=1;}
+            else{summary.blocked+=1;}
+        }
+        if undo{self.status=if summary.failed+summary.pending>0{if summary.success>0{"rollback_partial"}else{"rollback_failed"}}else{"rollback"}.into();}
+        else if self.status!="preview"{self.status=if summary.failed+summary.pending+summary.blocked==0{"executed"}else if summary.success>0{"partial"}else{"failed"}.into();}
+        self.summary=summary;
+    }
+}
 pub fn now()->u64{std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()}
+#[cfg(test)]
+mod rename_summary_tests {
+    use super::*;
+    #[test]
+    fn old_partial_batches_and_failed_undo_never_report_full_success(){
+        let mut batch:OcrRenameBatch=serde_json::from_value(serde_json::json!({"id":"old","taskId":"task","status":"executed","items":[
+            {"fileId":"one","original":"one.pdf","target":"renamed.pdf","status":"done","error":"","fingerprint":"one"},
+            {"fileId":"two","original":"two.pdf","target":"blocked.pdf","status":"failed","error":"目标被占用","fingerprint":"two"}
+        ]})).unwrap();
+        batch.summarize();assert_eq!(batch.status,"partial");assert_eq!((batch.summary.success,batch.summary.failed),(1,1));
+        batch.status="rollback".into();batch.items[0].error="原名称被占用".into();batch.summarize();
+        assert_eq!(batch.status,"rollback_failed");assert_eq!((batch.summary.success,batch.summary.failed),(0,1));
+        batch.items[0].status="undone".into();batch.items[0].error.clear();batch.summarize();
+        assert_eq!(batch.status,"rollback");assert_eq!((batch.summary.success,batch.summary.failed),(1,0));
+    }
+}
 pub fn defaults()->Vec<OcrProfile>{
     let text=OcrProfile{id:"text".into(),name:"仅识别文字".into(),pages:"all".into(),..Default::default()};
     let field=|key:&str,prompt:&str,anchors:Vec<&str>,kind:&str|OcrFieldDefinition{key:key.into(),prompt:prompt.into(),kind:kind.into(),anchors:anchors.iter().map(|s|s.to_string()).collect(),strip_prefixes:anchors.iter().map(|s|s.to_string()).collect(),format:if kind=="date"{"%Y%m%d".into()}else{String::new()},..Default::default()};

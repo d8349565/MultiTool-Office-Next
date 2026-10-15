@@ -8,6 +8,7 @@ import { basename, dirname } from './domain';
 import { newField, newProfile, updateProfileField, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask } from './ocrTypes';
 import './ocr.css';
 import { OcrRegions } from './OcrRegions';
+import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
 
 const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',jev:'Jev',manual:'人工修正',missing:'未识别'};
 const active=(t?:OcrTask)=>!!t&&['running','queued'].includes(t.status);
@@ -19,7 +20,7 @@ const exportOptions=[
 ] as const;
 export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onSettings:()=>void}){
   const [data,setData]=useState<OcrBootstrap>({profiles:[],tasks:[],batches:[],engineReady:false,jevReady:false});
-  const [reviewOnly,setReviewOnly]=useState(false);
+  const [resultFilter,setResultFilter]=useState('all');
   const [paths,setPaths]=useState<string[]>([]),[profileId,setProfileId]=useState(''),[useJev,setUseJev]=useState<boolean>(()=>{
     try{return localStorage.getItem('ocr_use_jev')==='true';}catch{return false;}
   });
@@ -62,13 +63,13 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
   useEffect(()=>{if(!desktop)return;let disposed=false;let cleanup:(()=>void)|undefined;void import('@tauri-apps/api/webviewWindow').then(async({getCurrentWebviewWindow})=>{const fn=await getCurrentWebviewWindow().onDragDropEvent(e=>{if(visible&&e.payload.type==='drop')void importPaths(e.payload.paths).catch(e=>setError(String(e)));});if(disposed)fn();else cleanup=fn;});return()=>{disposed=true;cleanup?.();};},[visible,importPaths]);
   useEffect(()=>{let disposed=false;let unlisten:(()=>void)|undefined;let timer:ReturnType<typeof setTimeout>|undefined;const pending=new Set<string>();const update=(id:string)=>{pending.add(id);if(timer)return;timer=setTimeout(()=>{timer=undefined;const ids=[...pending];pending.clear();for(const taskId of ids)void refreshTask(taskId).catch(e=>setError(String(e)));},300);};if(desktop)void listen<{id:string;status:string}>('ocr-progress',event=>{if(tasksRef.current.some(t=>t.id===event.payload.id))update(event.payload.id);}).then(fn=>{if(disposed)fn();else unlisten=fn;});const poll=setInterval(()=>{for(const t of tasksRef.current.filter(active))update(t.id);},2000);return()=>{disposed=true;unlisten?.();clearInterval(poll);if(timer)clearTimeout(timer);};},[refreshTask]);
   async function pickFiles(directory:boolean){if(!desktop){await importPaths(['D:/演示工作区/单据示例/报价单/演示商品报价单-20251226.pdf','D:/演示工作区/单据示例/合同/演示年度采购合同-已签署.pdf','D:/演示工作区/单据示例/对账单/演示2025年11月对账单.pdf','D:/演示工作区/单据示例/送货单/演示商品送货单-20251229.jpg']);return;}const {open}=await import('@tauri-apps/plugin-dialog');const values=await open({directory,multiple:!directory,filters:directory?undefined:[{name:'PDF 与图片',extensions:['pdf','png','jpg','jpeg','bmp','tif','tiff']}]});if(values)await importPaths(Array.isArray(values)?values:[values]);}
-  async function start(targetPaths?:string[],retryId?:string){
+  async function start(targetPaths?:string[],retryId?:string,retryFileIds?:string[]){
     const toRun=targetPaths||paths;
     if(!profileId||!data.profiles.some(p=>p.id===profileId)){
       setError('请先在上方选择一个具体的识别配置模板再开始识别');
       return;
     }
-    const id=await api<string>('ocr_start_task',{paths:toRun,profileId,useJev,retryId:retryId||null});
+    const id=await api<string>('ocr_start_task',{paths:toRun,profileId,useJev,retryId:retryId||null,retryFileIds:retryFileIds||null});
     setTaskId(id);setFileId('');setChecked([]);if(!retryId)setPaths([]);await refresh();
   }
   function triggerStart(targetPaths?:string[]){
@@ -82,9 +83,10 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     }
   }
   function selectTask(t:OcrTask){setTaskId(t.id);setFileId('');setChecked([]);}
-  async function exportTask(format:string){
-    if(!task)return;
+  async function exportTask(format:string,failuresOnly=false,batchId?:string){
+    const exportTaskId=batchId?batch?.taskId:task?.id;if(!exportTaskId)return;
     if(!desktop){
+      if(!task)return;
       let text='';
       if(format==='json'){
         text=JSON.stringify(task,null,2);
@@ -100,12 +102,12 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
       return;
     }
     const {save}=await import('@tauri-apps/plugin-dialog');
-    const path=await save({defaultPath:`OCR-${task.id.slice(0,8)}.${format}`,filters:[{name:format.toUpperCase(),extensions:[format]}]});
-    if(path){await api('ocr_export',{taskId:task.id,format,path});setNotice('结果已导出');}
+    const path=await save({defaultPath:`OCR-${failuresOnly?'异常-':''}${exportTaskId.slice(0,8)}.${format}`,filters:[{name:format.toUpperCase(),extensions:[format]}]});
+    if(path){await api('ocr_export',{taskId:exportTaskId,format,path,failuresOnly,batchId:batchId||null});setNotice('结果已导出');}
   }
   async function importProfiles(file:File){const list=await api<OcrProfile[]>('ocr_import_profiles',{text:await file.text()});if(!list.length)throw new Error('配置文件中没有模板');const known=[...data.profiles];for(const p of list){const existing=known.find(x=>x.id===p.id)||known.find(x=>x.name===p.name);const saved={...p,id:existing?.id||p.id};await api('ocr_save_profile',{profile:saved});const index=known.findIndex(x=>x.id===saved.id);if(index>=0)known[index]=saved;else known.push(saved);}await refresh();setNotice(`已导入 ${list.length} 个配置，请编辑核对字段类型与本地规则`);}
   const canRename=task&&!active(task)&&checked.length>0;
-  const visibleFiles=task?.files.filter(f=>!reviewOnly||f.status==='review'&&!f.reviewed)||[];
+  const visibleFiles=task?.files.filter(f=>resultFilter==='all'||resultFilter==='review'&&f.status==='review'&&!f.reviewed||resultFilter==='failed'&&f.status==='failed'||resultFilter==='interrupted'&&['cancelled','interrupted'].includes(f.status))||[];
   const eligible=visibleFiles.filter(f=>f.status==='ready'||f.status==='review'&&f.reviewed).map(f=>f.id)||[];
   return <div className="ocr-page" hidden={!visible}>
     <div className="page-heading"><div><h1>文档 OCR<span className="heading-dot">/</span><span className="heading-sub">从文字，到有序的资料。</span></h1></div><Button icon={<ArrowCounterClockwise/>} onClick={()=>setHistory(true)}>改名记录</Button></div>
@@ -160,7 +162,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
         <section className="ocr-results" aria-label="OCR 结果">
           <header><div><h2>{labels[task.status]} <span className="muted">{task.files.length} 个文件</span></h2>{active(task)&&<progress aria-label="OCR 进度" max={task.files.length} value={task.files.filter(f=>!['queued','running'].includes(f.status)).length}/>}</div><div className="ocr-buttons">{active(task)?<Button icon={<Stop/>} onClick={()=>void run(async()=>{await api('ocr_cancel_task',{id:task.id});await refresh();})}>取消任务</Button>:<><Button icon={<ArrowCounterClockwise/>} disabled={busy} onClick={()=>triggerStart(task.files.map(f=>f.path))}>再次识别全部</Button><Button disabled={busy||!task.files.some(f=>['failed','cancelled','interrupted'].includes(f.status))} onClick={()=>void run(()=>start(undefined,task.id))}>重试未完成项</Button></>}</div></header>
         <div className="ocr-table-filter-bar">
-          <Checkbox label="只显示需复核" checked={reviewOnly} onChange={(_,v)=>{setReviewOnly(!!v.checked);setChecked([]);setFileId('');}}/>
+          <label className="ocr-result-filter">结果范围 <select value={resultFilter} onChange={e=>{setResultFilter(e.target.value);setChecked([]);setFileId('');}}><option value="all">全部结果</option><option value="review">待复核</option><option value="failed">识别失败</option><option value="interrupted">中断或取消</option></select></label>
           <span className="ocr-spacer"/>
           <Checkbox label="规整等高视图" title="锁定每行绝对等高，治愈强迫症" checked={uniformRows} onChange={(_,v)=>{const c=!!v.checked;setUniformRows(c);try{localStorage.setItem('ocr_uniform_rows',String(c));}catch{}}}/>
         </div>
@@ -176,7 +178,9 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
               </tr>
             </thead>
             <tbody>
-              {visibleFiles.map(f=><tr key={f.id} className={f.id===fileId?'selected':''}>
+              {visibleFiles.map(f=>{
+                const issue=f.error||f.warning||(f.status==='review'&&!f.reviewed?'需要核对：'+Object.entries(f.fields).filter(([key,v])=>v.review||!v.value&&f.profile?.fields.some(def=>def.key===key&&def.required)).map(([key])=>key).join('、'):'');
+                return <tr key={f.id} className={f.id===fileId?'selected':''}>
                 <td><Checkbox aria-label={`选择 ${f.originalName}`} checked={checked.includes(f.id)} disabled={!['ready','review'].includes(f.status)||f.status==='review'&&!f.reviewed} onChange={(_,v)=>setChecked(ids=>v.checked?[...ids,f.id]:ids.filter(id=>id!==f.id))}/></td>
                 <td>
                   <button className="ocr-file-button" onClick={()=>setFileId(f.id)} title={`点击查看识别详情：${f.originalName}`}>
@@ -190,14 +194,14 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
                     <span className="ocr-cell-scrollable">{f.proposedName||'—'}</span>
                   </div>
                 </td>
-                <td><span className={`ocr-status ${f.status}`}>{f.reviewed?'已复核':labels[f.status]}</span></td>
-              </tr>)}
+                <td><div className="ocr-row-status"><span className={`ocr-status ${f.status}`}>{f.reviewed?'已复核':labels[f.status]}</span>{['failed','cancelled','interrupted'].includes(f.status)&&<Button size="small" disabled={busy||active(task)} onClick={()=>void run(()=>start(undefined,task.id,[f.id]))}>仅重试此项</Button>}</div>{issue&&<small className="ocr-row-issue" title={issue}>{issue}</small>}</td>
+              </tr>;})}
             </tbody>
           </table>
         </div>
           <footer>
             <div className="ocr-buttons ocr-export-group">
-              <span className="ocr-export-label">导出结果：</span>
+              <span className="ocr-export-label">导出结果：</span><Button size="small" disabled={busy||active(task)||!task.files.some(f=>['failed','cancelled','interrupted'].includes(f.status))} onClick={()=>void run(()=>exportTask('csv',true))}>异常项 CSV</Button>
               {exportOptions.map(opt => (
                 <Button
                   key={opt.format}
@@ -220,8 +224,8 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     </div>
     {editor&&<ProfileEditor value={editor} busy={busy} error={error} onChange={setEditor} onClose={()=>{setEditor(null);setError('');}} onSave={()=>void run(async()=>{await api('ocr_save_profile',{profile:editor});await refresh();setProfileId(editor.id);setEditor(null);setNotice('配置已保存');})} onDelete={()=>void run(async()=>{await api('ocr_delete_profile',{id:editor.id});const rem=data.profiles.filter(p=>p.id!==editor.id);setProfileId(rem[0]?.id||'');setEditor(null);await refresh();})} onAI={description=>void run(async()=>{const next=await api<OcrProfile>('ocr_generate_profile',{description,profile:editor});setEditor(next);setNotice(editor.fields.length?'AI 针对性微调完成，已锁定保护其余已有字段与画框':'AI 草稿已生成，请核对并保存');})} onExport={()=>void run(async()=>{if(!desktop){download(`${editor.name}.json`,JSON.stringify(editor,null,2));return;}const {save}=await import('@tauri-apps/plugin-dialog');const path=await save({defaultPath:'OCR配置.json',filters:[{name:'JSON',extensions:['json']}]});if(path)await api('ocr_export_profile',{profile:editor,path});})}/ >}
     {recheckPrompt&&<Modal title="再次识别提醒" onClose={()=>setRecheckPrompt(null)}><p>所选的 <strong>{recheckPrompt.total}</strong> 个文件中，有 <strong>{recheckPrompt.duplicateCount}</strong> 个文件之前已经识别过。</p><p className="muted" style={{margin:'8px 0 16px',fontSize:12}}>再次识别将基于当前选择的配置【<strong>{profile?.name||'未选择配置'}</strong>】重新执行 OCR 提取与命名规整，并生成一份全新的任务记录，原记录不会被覆盖。</p><div className="dialog-actions"><Button onClick={()=>setRecheckPrompt(null)}>取消</Button><Button appearance="primary" disabled={busy} onClick={()=>{const toRun=recheckPrompt.paths;setRecheckPrompt(null);void run(()=>start(toRun));}}>确认再次识别</Button></div></Modal>}
-    {batch&&<Modal title={undo?'撤销该批次改名':'确认批量重命名'} wide onClose={()=>!busy&&setBatch(null)}><p>{batch.status==='executed'?'批次改名已执行完成。':batch.status==='rollback'?'批次改名已成功撤销。':'逐项检查文件身份与目标路径，不覆盖已有文件。'}</p><div className="ocr-rename-list">{batch.items.map((r,i)=><div key={i}><span>{basename(undo?r.target:r.original)} → <strong>{basename(undo?r.original:r.target)}</strong></span><small>{labels[r.status]||r.status} {r.error}</small></div>)}</div>{error&&<p className="inline-error" role="alert">{error}</p>}<div className="dialog-actions"><Button disabled={busy} onClick={()=>setBatch(null)}>{(batch.status==='executed'||batch.status==='rollback')?'完成并关闭':'关闭'}</Button>{batch.status!=='executed'&&batch.status!=='rollback'&&<Button appearance="primary" disabled={busy||(!undo&&batch.status!=='preview')} onClick={()=>void run(async()=>{const res=await api<OcrRenameBatch>('ocr_apply_rename',{batchId:batch.id,undo});setBatch(res);await refresh();setChecked([]);setNotice(undo?'已成功撤销该批次改名':'批量改名已完成');})}>{undo?'确认撤销':'执行改名'}</Button>}</div></Modal>}
-    {history&&<Modal title="改名记录" wide onClose={()=>setHistory(false)}>{data.batches.filter(b=>b.status!=='preview').length===0?<p>还没有执行过重命名。</p>:data.batches.filter(b=>b.status!=='preview').map(b=><div className="ocr-history-row" key={b.id}><span>{b.items.length} 个文件 · {b.items.filter(i=>i.status==='done').length} 项可撤销<small>{b.id.slice(0,8)}</small></span><Button disabled={!b.items.some(i=>i.status==='done')} onClick={()=>{setUndo(true);setBatch(b);setHistory(false);}}>查看与撤销</Button></div>)}</Modal>}
+    {batch&&<OcrRenameDialog batch={batch} undo={undo} busy={busy} error={error} onClose={()=>setBatch(null)} onApply={()=>void run(async()=>{const res=await api<OcrRenameBatch>('ocr_apply_rename',{batchId:batch.id,undo});setBatch(res);await refresh();setChecked([]);setNotice(renameMessage(res,undo));})} onRecheck={ids=>void run(async()=>{setUndo(false);setBatch(await api<OcrRenameBatch>('ocr_preview_rename',{taskId:batch.taskId,fileIds:ids}));})} onExport={()=>void run(()=>exportTask('csv',true,batch.id))}/>}
+    {history&&<Modal title="改名记录" wide onClose={()=>setHistory(false)}>{data.batches.filter(b=>b.status!=='preview').length===0?<p>还没有执行过重命名。</p>:data.batches.filter(b=>b.status!=='preview').map(b=><div className="ocr-history-row" key={b.id}><span>{renameMessage(b,b.status.startsWith('rollback'))}<small>{b.id.slice(0,8)}</small></span><Button onClick={()=>{setUndo(b.status.startsWith('rollback')||b.items.some(i=>i.status==='done'));setBatch(b);setHistory(false);}}>查看结果与恢复</Button></div>)}</Modal>}
   </div>;
 }
 

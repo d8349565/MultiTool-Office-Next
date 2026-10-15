@@ -275,7 +275,7 @@
   width: 90px;
 }
 .ocr-results th:last-child {
-  width: 72px;
+  width: 160px;
 }
 .ocr-results td,
 .ocr-results th {
@@ -289,11 +289,24 @@
 .ocr-table-filter-bar {
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
-  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  gap: 8px 12px;
+  border-bottom: 1px solid var(--line);
 }
 .ocr-table-filter-bar .ocr-spacer {
   flex: 1;
+}
+.ocr-result-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ocr-result-filter select {
+  max-width: 100%;
+  padding: 5px 8px;
 }
 
 /* 规整等高视图：锁定每行绝对等高，治愈强迫症 */
@@ -945,3 +958,8 @@
 .ocr-lines-full-table th, .ocr-lines-full-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; }
 .ocr-lines-full-table th { background: var(--surface-alt); font-weight: 600; position: sticky; top: 0; z-index: 1; }
 .ocr-lines-full-table tr:hover { background: var(--selection); }
+
+.ocr-row-status{display:flex;align-items:center;gap:6px}.ocr-row-status>.ocr-status,.ocr-row-status>.fui-Button{flex-shrink:0}
+.ocr-row-issue{display:block;color:var(--muted);line-height:1.55;max-width:100%;white-space:normal;overflow-wrap:anywhere;margin-top:4px}
+.uniform-rows .ocr-row-issue{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ocr-rename-list small{white-space:normal;overflow-wrap:anywhere;line-height:1.6}

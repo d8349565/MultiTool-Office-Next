@@ -140,3 +140,85 @@ fn replay_stored_contract_task() {
     assert_eq!(fields["合同编号"].evidence,vec![2]);
     println!("{} 行任务重放通过：公司名称={}（第6行），合同编号={}（第3行）",file.lines.len(),fields["公司名称"].value,fields["合同编号"].value);
 }
+
+#[test]
+#[ignore = "仅对仓库虚构样例调用真实离线 OCR；需要已构建的 ocr-worker"]
+fn checked_in_demo_files_match_expected_results() {
+    use std::{fs, sync::atomic::AtomicBool, time::Instant};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let samples = root.join("samples");
+    let expected: Value = serde_json::from_slice(&fs::read(samples.join("expected.json")).unwrap()).unwrap();
+    assert_eq!(expected["origin"], "MTO_TEST_ONLY");
+    // Build an isolated index from real sample-file metadata; never load the user's application data.
+    {
+        use crate::index::{Entry, Index, Query, SearchProvider};
+        let temporary = tempfile::tempdir().unwrap();
+        let (index, _refresh) = Index::open(temporary.path()).unwrap();
+        let workspace = samples.join("workspace").canonicalize().unwrap();
+        index.configure(&[workspace.to_string_lossy().into_owned()]);
+        *index.entries.write().unwrap() = walkdir::WalkDir::new(&workspace).into_iter()
+            .map(|entry| entry.unwrap()).filter_map(|entry| Entry::from_path(entry.path())).collect();
+        for (query, count) in [("合同", 3), ("扫描件", 4), ("报价", 1)] {
+            let result = index.search(&Query { query: query.into(), limit: 200, ..Default::default() });
+            assert_eq!(result.total, count, "sample search: {query}");
+            println!("PASS search: {query} -> {count}");
+        }
+        let mut missing = index.entries.read().unwrap().iter()
+            .filter(|e| e.name == expected["missingCompanion"]["sourceName"].as_str().unwrap()
+                && !Path::new(&e.parent).join(expected["missingCompanion"]["companionName"].as_str().unwrap()).is_file())
+            .map(|e| Path::new(&e.parent).file_name().unwrap().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        missing.sort();
+        assert_eq!(serde_json::json!(missing), expected["missingCompanion"]["directories"]);
+        println!("PASS companion layout: {missing:?}");
+    }
+    let profiles = crate::ocr::ocr_import_profiles(fs::read_to_string(samples.join("ocr-profiles.json")).unwrap()).unwrap();
+    let cancel = AtomicBool::new(false);
+    let mut worker = crate::ocr::worker::Worker::spawn(
+        &root.join("src-tauri/binaries/ocr-worker/ocr-worker.exe")).unwrap();
+    for case in expected["ocrCases"].as_array().unwrap() {
+        let relative = case["path"].as_str().unwrap();
+        let path = samples.join(relative);
+        let profile = profiles.iter().find(|p| p.id == case["profileId"].as_str().unwrap()).unwrap();
+        let file = OcrFileResult {
+            id: "synthetic-demo".into(), path: path.to_string_lossy().into_owned(),
+            original_name: path.file_name().unwrap().to_string_lossy().into_owned(),
+            status: "queued".into(), error: String::new(), profile: Some(profile.clone()),
+            lines: vec![], fields: BTreeMap::new(), proposed_name: String::new(),
+            reviewed: false, elapsed_ms: 0, warning: String::new(), fingerprint: String::new(),
+            diagnostics: None,
+        };
+        let mut lines = vec![];
+        worker.recognize(&file, profile, &[], &cancel, |page| { lines.extend(page); Ok(()) }).unwrap();
+        assert!(!lines.is_empty(), "{relative}: empty OCR result");
+        assert_eq!(match_profile(&profiles, &lines).unwrap().id, profile.id, "{relative}: auto profile");
+        let (fields, _) = extract(&lines, profile, None, None, &mut vec![]);
+        for (key, value) in case["fields"].as_object().unwrap() {
+            assert_eq!(fields[key].value, value.as_str().unwrap(), "{relative}: {key}; OCR={lines:?}");
+            assert_eq!(fields[key].source, "local", "{relative}: {key}");
+            assert!(!fields[key].review, "{relative}: {key} requires review");
+        }
+        assert_eq!(filename(profile, &fields, &file.path), case["renamed"].as_str().unwrap(), "{relative}");
+        println!("PASS OCR: {relative} -> {}", case["renamed"]);
+    }
+    for case in expected["previewChecks"].as_array().unwrap() {
+        let path = samples.join(case["path"].as_str().unwrap());
+        let preview = worker.file_preview(&path.to_string_lossy(), 1,
+            case["sheet"].as_u64().unwrap_or(0) as u32, &cancel, Instant::now())
+            .unwrap_or_else(|e| panic!("{}: {}", path.display(), e.message()));
+        assert_eq!(preview["kind"], case["kind"], "{}", path.display());
+        if let Some(count) = case.get("pageCount") {
+            assert_eq!(&preview["pageCount"], count, "{}", path.display());
+        }
+        if let Some(sheets) = case.get("sheets") {
+            assert_eq!(&preview["sheets"], sheets, "{}", path.display());
+        }
+        if let Some(items) = case["contains"].as_array() {
+            let rendered = preview.to_string();
+            for item in items {
+                assert!(rendered.contains(item.as_str().unwrap()), "{} missing {item}", path.display());
+            }
+        }
+        println!("PASS preview: {} (sheet {})", case["path"], case["sheet"].as_u64().unwrap_or(0));
+    }
+}

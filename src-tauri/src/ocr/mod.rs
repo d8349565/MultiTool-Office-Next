@@ -159,7 +159,7 @@ fn merge_profile(orig: OcrProfile, desc: &str, mut generated: OcrProfile) -> Ocr
     }let mut d=state.ocr.data.lock().unwrap();d.grants.extend(files.iter().cloned());Ok(OcrImportResult{files,errors})}).await.map_err(|e|e.to_string())?}
 fn persist(state:&AppState,task:&OcrTask,app:&tauri::AppHandle,file_index:Option<usize>)->Result<(),String>{if let Some(i)=file_index{state.ocr.save_task_file(task,i)?;}else{state.ocr.save_task_header(task)?;}state.ocr.data.lock().unwrap().tasks.insert(task.id.clone(),task.clone());let _=app.emit("ocr-progress",json!({"id":task.id,"status":task.status}));Ok(())}
 #[tauri::command]pub fn ocr_get_task(state:tauri::State<Arc<AppState>>,id:String)->Result<OcrTask,String>{state.ocr.data.lock().unwrap().tasks.get(&id).cloned().ok_or("任务不存在".into())}
-#[tauri::command]pub fn ocr_start_task(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle,paths:Vec<String>,profile_id:String,use_jev:bool,retry_id:Option<String>)->Result<String,String>{
+#[tauri::command]pub fn ocr_start_task(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle,paths:Vec<String>,profile_id:String,use_jev:bool,retry_id:Option<String>,retry_file_ids:Option<Vec<String>>)->Result<String,String>{
     if !state.ocr.exe.exists(){return Err("OCR 引擎尚未打包，请运行 npm run ocr:build".into());}
     let mut d=state.ocr.data.lock().unwrap();if d.queue.len()>=20{return Err("排队任务过多".into());}
     let selected_profile=d.profiles.iter().find(|p|p.id==profile_id).or_else(||d.profiles.first()).ok_or("请选择具体的识别配置模板")?.clone();
@@ -170,7 +170,7 @@ fn persist(state:&AppState,task:&OcrTask,app:&tauri::AppHandle,file_index:Option
         t.id=uuid::Uuid::new_v4().to_string();
         t.created=now();
         t.status="queued".into();
-        t.files.retain(|f|["failed","cancelled","interrupted"].contains(&f.status.as_str()));
+        t.files.retain(|f|["failed","cancelled","interrupted"].contains(&f.status.as_str())&&retry_file_ids.as_ref().is_none_or(|ids|ids.contains(&f.id)));
         t.profiles=vec![selected_profile.clone()];
         t.use_jev=use_jev;
         for f in &mut t.files{
@@ -363,43 +363,77 @@ fn valid_name(name:&str,source:&str)->Result<(),String>{
 }
 #[tauri::command]pub async fn ocr_preview_rename(state:tauri::State<'_,Arc<AppState>>,task_id:String,file_ids:Vec<String>)->Result<OcrRenameBatch,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||{
     let mut d=state.ocr.data.lock().unwrap();let task=d.tasks.get(&task_id).ok_or("任务不存在")?;if ["queued","running"].contains(&task.status.as_str()){return Err("任务尚未结束".into());}
-    let mut reserved=HashSet::new();let mut items=vec![];for f in task.files.iter().filter(|f|file_ids.contains(&f.id)){
-        if !["ready","review"].contains(&f.status.as_str())||f.status=="review"&&!f.reviewed{return Err(format!("请先复核：{}",f.original_name));}
-        valid_name(&f.proposed_name,&f.path)?;let original=store::safe_file(Path::new(&f.path))?;let fingerprint=store::fingerprint(&original)?;if fingerprint!=f.fingerprint{return Err(format!("文件已变化，请重新识别：{}",f.original_name));}
-        let parent=original.parent().ok_or("路径无父目录")?;let mut target=parent.join(&f.proposed_name);let stem=Path::new(&f.proposed_name).file_stem().unwrap().to_string_lossy();let ext=Path::new(&f.proposed_name).extension().unwrap().to_string_lossy();let mut suffix=1;
-        while (target.exists()&&target!=original)||reserved.contains(&target.to_string_lossy().to_lowercase()){target=parent.join(format!("{stem}_{suffix:02}.{ext}"));suffix+=1;}
-        if target.as_os_str().to_string_lossy().encode_utf16().count()>240{return Err("目标完整路径超过 240 字符，请缩短名称或移动到较短目录".into());}
-        reserved.insert(target.to_string_lossy().to_lowercase());items.push(OcrRenameItem{file_id:f.id.clone(),original:original.to_string_lossy().into_owned(),target:target.to_string_lossy().into_owned(),status:"pending".into(),error:String::new(),fingerprint});
+    let mut reserved=HashSet::new();let mut items=vec![];
+    for f in task.files.iter().filter(|f|file_ids.contains(&f.id)){
+        let mut item=OcrRenameItem{file_id:f.id.clone(),original:f.path.clone(),target:f.path.clone(),status:"pending".into(),error:String::new(),fingerprint:String::new(),warning:String::new()};
+        let checked=(||->Result<(),String>{
+            if !["ready","review"].contains(&f.status.as_str())||f.status=="review"&&!f.reviewed{return Err("请先完成字段复核".into());}
+            valid_name(&f.proposed_name,&f.path)?;let original=store::safe_file(Path::new(&f.path))?;let fingerprint=store::fingerprint(&original)?;
+            if fingerprint!=f.fingerprint{return Err("文件身份或内容已变化，请重新识别".into());}
+            let parent=original.parent().ok_or("路径无父目录")?;let mut target=parent.join(&f.proposed_name);
+            let stem=Path::new(&f.proposed_name).file_stem().ok_or("文件名无效")?.to_string_lossy();let ext=Path::new(&f.proposed_name).extension().ok_or("缺少扩展名")?.to_string_lossy();let mut suffix=1;
+            while (target.exists()&&target!=original)||reserved.contains(&target.to_string_lossy().to_lowercase()){target=parent.join(format!("{stem}_{suffix:02}.{ext}"));suffix+=1;}
+            if target.as_os_str().to_string_lossy().encode_utf16().count()>240{return Err("目标完整路径超过 240 字符，请缩短名称或移到较短目录后重新识别".into());}
+            if suffix>1{item.warning="目标名称重复，已自动添加序号".into();}
+            if let Some(profile)=&f.profile{let (generated,warning)=rules::filename_with_warning(profile,&f.fields,&f.path);if generated==f.proposed_name&&!warning.is_empty(){if !item.warning.is_empty(){item.warning.push_str("；");}item.warning.push_str(&warning);}}
+            reserved.insert(target.to_string_lossy().to_lowercase());item.original=original.to_string_lossy().into_owned();item.target=target.to_string_lossy().into_owned();item.fingerprint=fingerprint;Ok(())
+        })();
+        if let Err(error)=checked{item.status="blocked".into();item.error=error;}items.push(item);
     }
-    if items.is_empty(){return Err("请选择需要改名的结果".into());}let batch=OcrRenameBatch{id:uuid::Uuid::new_v4().to_string(),task_id,status:"preview".into(),items};state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());Ok(batch)
+    if items.is_empty(){return Err("请选择需要改名的结果".into());}
+    let mut batch=OcrRenameBatch{id:uuid::Uuid::new_v4().to_string(),task_id,status:"preview".into(),items,summary:Default::default()};batch.summarize();state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());Ok(batch)
 }).await.map_err(|e|e.to_string())?}
 #[tauri::command]pub async fn ocr_apply_rename(state:tauri::State<'_,Arc<AppState>>,batch_id:String,undo:bool)->Result<OcrRenameBatch,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||{
     let mut d=state.ocr.data.lock().unwrap();let mut batch=d.batches.get(&batch_id).cloned().ok_or("改名批次不存在")?;
     if !undo&&batch.status!="preview"{return Err("此预览已经执行，请重新生成预览".into());}if undo&&batch.status=="preview"{return Err("此批次尚未执行".into());}
+    if !batch.items.iter().any(|i|i.status==if undo{"done"}else{"pending"}){return Err("没有可执行的项目".into());}
+    if undo{batch.status="rollback".into();}
     let indices:Vec<_>=if undo{(0..batch.items.len()).rev().collect()}else{(0..batch.items.len()).collect()};
     for i in indices{
         let item=batch.items[i].clone();if undo&&item.status!="done"||!undo&&item.status!="pending"{continue;}
         let(from,to)=if undo{(&item.target,&item.original)}else{(&item.original,&item.target)};
-        if from==to{batch.items[i].status=if undo{"undone"}else{"done"}.into();continue;}
-        let result=(||->Result<(),String>{if store::fingerprint(Path::new(from))?!=item.fingerprint{return Err("文件身份或内容已变化，未操作".into());}
+        let result=(||->Result<(),String>{
+            if store::fingerprint(Path::new(from))?!=item.fingerprint{return Err("文件身份或内容已变化，未操作".into());}
             if !undo{let task=d.tasks.get(&batch.task_id).ok_or("任务已不存在")?;let f=task.files.iter().find(|f|f.id==item.file_id).ok_or("结果不存在")?;if f.path!=item.original||f.status=="review"&&!f.reviewed{return Err("结果已变化，请重新生成预览".into());}}
             batch.items[i].status=if undo{"undoing"}else{"applying"}.into();state.ocr.save_batch(&batch)?;
-            store::move_no_replace(Path::new(from),Path::new(to))?;Ok(())})();
-        match result{Ok(())=>{batch.items[i].status=if undo{"undone"}else{"done"}.into();batch.items[i].error.clear();if let Some(t)=d.tasks.get_mut(&batch.task_id){if let Some(index)=t.files.iter().position(|f|f.id==item.file_id){t.files[index].path=to.clone();state.ocr.save_task_file(t,index)?;}}d.grants.insert(to.clone());},Err(e)=>{batch.items[i].status=if undo{"done"}else{"failed"}.into();batch.items[i].error=e;}}
+            if from!=to{store::move_no_replace(Path::new(from),Path::new(to))?;}Ok(())
+        })();
+        match result{
+            Ok(())=>{batch.items[i].status=if undo{"undone"}else{"done"}.into();batch.items[i].error.clear();},
+            Err(e)=>{batch.items[i].status=if undo{"done"}else{"failed"}.into();batch.items[i].error=e;}
+        }
+        // 文件操作结果先持久化，后更新识别结果路径；记录更新失败也不能丢失撤销依据。
         state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());
+        if batch.items[i].error.is_empty(){
+            if let Some(t)=d.tasks.get_mut(&batch.task_id){if let Some(index)=t.files.iter().position(|f|f.id==item.file_id){t.files[index].path=to.clone();if let Err(e)=state.ocr.save_task_file(t,index){batch.items[i].warning=format!("文件操作已完成，但识别记录保存失败：{e}");}}}
+            d.grants.insert(to.clone());
+        }
     }
-    batch.status=if undo{"rollback"}else{"executed"}.into();state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());let _=state.index.refresh.send(());Ok(batch)
+    batch.status=if undo{"rollback"}else{"executed"}.into();batch.summarize();state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());let _=state.index.refresh.send(());Ok(batch)
 }).await.map_err(|e|e.to_string())?}
 
+fn export_status(s:&str)->&str{match s{"ready"=>"已就绪","review"=>"需复核","failed"=>"失败","cancelled"=>"已取消","interrupted"=>"已中断","pending"=>"待执行","done"=>"已改名","undone"=>"已撤销","blocked"=>"已排除","conflict"=>"冲突","running"=>"处理中","queued"=>"排队中",_=>s}}
 fn csv_cell(s:&str)->String{let prefix=if s.trim_start().starts_with(['=','+','-','@','\t','\r']){"'"}else{""};format!("\"{prefix}{}\"",s.replace('"',"\"\""))}
-#[tauri::command]pub async fn ocr_export(state:tauri::State<'_,Arc<AppState>>,task_id:String,format:String,path:String)->Result<String,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||{
-    let task=state.ocr.data.lock().unwrap().tasks.get(&task_id).cloned().ok_or("任务不存在")?;let bytes=match format.as_str(){
+#[tauri::command]pub async fn ocr_export(state:tauri::State<'_,Arc<AppState>>,task_id:String,format:String,path:String,failures_only:Option<bool>,batch_id:Option<String>)->Result<String,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||{
+    if let Some(id)=batch_id{
+        if format!="csv"{return Err("改名异常记录请导出为 CSV".into());}
+        let d=state.ocr.data.lock().unwrap();let batch=d.batches.get(&id).filter(|b|b.task_id==task_id).ok_or("改名记录不存在")?;
+        let mut rows=vec![["原路径","目标路径","状态","失败原因","提示"].map(csv_cell).join(",")];
+        for item in batch.items.iter().filter(|i|!i.error.is_empty()){rows.push([item.original.as_str(),item.target.as_str(),export_status(&item.status),item.error.as_str(),item.warning.as_str()].map(csv_cell).join(","));}
+        return write_export(&format,&path,format!("\u{feff}{}",rows.join("\r\n")).as_bytes());
+    }
+    let mut task=state.ocr.data.lock().unwrap().tasks.get(&task_id).cloned().ok_or("任务不存在")?;
+    if failures_only.unwrap_or(false){task.files.retain(|f|["failed","cancelled","interrupted"].contains(&f.status.as_str()));}
+    let bytes=match format.as_str(){
         "json"=>serde_json::to_vec_pretty(&task).map_err(|e|e.to_string())?,
         "txt"=>task.files.iter().map(|f|format!("{}\n{}\n",f.original_name,f.lines.iter().map(|l|format!("[第 {} 页] {}",l.page,l.text)).collect::<Vec<_>>().join("\n"))).collect::<Vec<_>>().join("\n").into_bytes(),
-        "csv"=>{let keys:std::collections::BTreeSet<_>=task.files.iter().flat_map(|f|f.fields.keys().cloned()).collect();let mut rows=vec![std::iter::once("文件名".to_owned()).chain(keys.iter().cloned()).map(|s|csv_cell(&s)).collect::<Vec<_>>().join(",")];for f in &task.files{rows.push(std::iter::once(f.original_name.clone()).chain(keys.iter().map(|k|f.fields.get(k).map(|v|v.value.clone()).unwrap_or_default())).map(|s|csv_cell(&s)).collect::<Vec<_>>().join(","));}format!("\u{feff}{}",rows.join("\r\n")).into_bytes()},_=>return Err("不支持的导出格式".into())};
-    if Path::new(&path).extension().and_then(|v|v.to_str())!=Some(&format){return Err("导出扩展名不匹配".into());}
-    use std::io::Write;let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e|format!("无法创建导出文件（不会覆盖已有文件）：{e}"))?;file.write_all(&bytes).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;Ok(path)
+        "csv"=>{let keys:std::collections::BTreeSet<_>=task.files.iter().flat_map(|f|f.fields.keys().cloned()).collect();let extras=["状态","失败原因","提示","当前文件名"];let mut rows=vec![std::iter::once("文件名".to_owned()).chain(keys.iter().cloned()).chain(extras.map(String::from)).map(|s|csv_cell(&s)).collect::<Vec<_>>().join(",")];for f in &task.files{rows.push(std::iter::once(f.original_name.clone()).chain(keys.iter().map(|k|f.fields.get(k).map(|v|v.value.clone()).unwrap_or_default())).chain([export_status(&f.status).into(),f.error.clone(),f.warning.clone(),Path::new(&f.path).file_name().unwrap_or_default().to_string_lossy().into_owned()]).map(|s|csv_cell(&s)).collect::<Vec<_>>().join(","));}format!("\u{feff}{}",rows.join("\r\n")).into_bytes()},_=>return Err("不支持的导出格式".into())};
+    write_export(&format,&path,&bytes)
 }).await.map_err(|e|e.to_string())?}
+fn write_export(format:&str,path:&str,bytes:&[u8])->Result<String,String>{
+    if !Path::new(path).is_absolute()||Path::new(path).extension().and_then(|v|v.to_str())!=Some(format){return Err("请选择扩展名匹配的绝对路径".into());}
+    use std::io::Write;let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|e|format!("无法创建导出文件（不会覆盖已有文件）：{e}"))?;file.write_all(bytes).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;Ok(path.into())
+}
 #[tauri::command]pub async fn ocr_open_file(state:tauri::State<'_,Arc<AppState>>,task_id:String,file_id:String,reveal:bool)->Result<(),String>{
     let path={let d=state.ocr.data.lock().unwrap();let task=d.tasks.get(&task_id).ok_or("任务不存在")?;task.files.iter().find(|f|f.id==file_id).ok_or("文件不存在")?.path.clone()};
     tauri::async_runtime::spawn_blocking(move||{let p=store::safe_file(Path::new(&path))?;if reveal{crate::shell::reveal(vec![p])?;}else{open::that_detached(p).map_err(|e|e.to_string())?;}Ok(())}).await.map_err(|e|e.to_string())?

@@ -38,8 +38,8 @@ export interface OcrFileResult {
   diagnostics?: OcrFileDiagnostics | null;
 }
 export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[] }
-export interface OcrRenameItem { fileId: string; original: string; target: string; status: string; error: string }
-export interface OcrRenameBatch { id: string; taskId: string; status: string; items: OcrRenameItem[] }
+export interface OcrRenameItem { fileId: string; original: string; target: string; status: string; error: string; warning?:string }
+export interface OcrRenameBatch { id: string; taskId: string; status: string; items: OcrRenameItem[]; summary?:{success:number;failed:number;pending:number;blocked:number} }
 export interface OcrBootstrap { profiles: OcrProfile[]; tasks: OcrTask[]; batches: OcrRenameBatch[]; engineReady: boolean; jevReady: boolean; unavailableReason?: string | null }
 export const newField = (): OcrFieldDefinition => ({key:'',prompt:'',kind:'text',multiple:false,maxItems:5,separator:'、',required:true,fallback:'',anchors:[],pattern:'',stripPrefixes:[],format:''});
 export const newProfile = (): OcrProfile => ({id:crypto.randomUUID(),name:'新配置',keywords:[],pages:'1',dpi:200,fields:[],filenamePattern:'{原文件名}',threshold:.75});
