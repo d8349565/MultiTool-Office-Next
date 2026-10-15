@@ -501,6 +501,16 @@ LangString officeUninstall ${LANG_SIMPCHINESE} "卸载当前版本"
 LangString officeDowngrade ${LANG_SIMPCHINESE} "覆盖降级（可能不兼容新版数据）"
 LangString officeDowngradeBlocked ${LANG_SIMPCHINESE} "已安装的版本比此安装包更新。为保护用户数据，已停止安装，请使用同版或新版安装包。"
 
+LangString officeWebviewDownloadHelp ${LANG_SIMPCHINESE} "无法下载 WebView2 运行时。请检查网络或代理，也可从微软官网下载 x64 独立安装包，安装后重新运行本安装包。"
+LangString officeWebviewInstallHelp ${LANG_SIMPCHINESE} "WebView2 运行时不可用，安装或更新未成功（返回码：$1）。请从微软官网下载 x64 独立安装包，安装后重新运行本安装包。此提示不能判断运行时是否损坏。"
+
+Function OfficeWebviewHelp
+  Pop $R9
+  MessageBox MB_ICONEXCLAMATION|MB_YESNO "$R9$\r$\n$\r$\n是否打开微软官方 WebView2 下载页面？$\r$\nhttps://developer.microsoft.com/en-us/microsoft-edge/webview2/" IDNO office_webview_help_done
+  ExecShell "open" "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+  office_webview_help_done:
+FunctionEnd
+
 Function OfficePreventDowngrade
   !if "${ALLOWDOWNGRADES}" == "false"
     ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
@@ -611,7 +621,9 @@ Section WebView2
           DetailPrint "$(webview2DownloadSuccess)"
         ${Else}
           DetailPrint "$(webview2DownloadError)"
-          Abort "$(webview2AbortError)"
+          Push "$(officeWebviewDownloadHelp)"
+          Call OfficeWebviewHelp
+          Abort "$(officeWebviewDownloadHelp)"
         ${EndIf}
         StrCpy $6 "$TEMP\MicrosoftEdgeWebview2Setup.exe"
         Goto install_webview2
@@ -638,12 +650,14 @@ Section WebView2
       install_webview2:
         DetailPrint "$(installingWebview2)"
         ; $6 holds the path to the webview2 installer
-        ExecWait "$6 ${WEBVIEW2INSTALLERARGS} /install" $1
+        ExecWait `"$6" ${WEBVIEW2INSTALLERARGS} /install` $1
         ${If} $1 = 0
           DetailPrint "$(webview2InstallSuccess)"
         ${Else}
           DetailPrint "$(webview2InstallError)"
-          Abort "$(webview2AbortError)"
+          Push "$(officeWebviewInstallHelp)"
+          Call OfficeWebviewHelp
+          Abort "$(officeWebviewInstallHelp)"
         ${EndIf}
       webview2_done:
     ${EndIf}
@@ -668,7 +682,7 @@ Section WebView2
             ${If} $1 = 0
               DetailPrint "$(webview2InstallSuccess)"
             ${Else}
-              MessageBox MB_ICONEXCLAMATION|MB_ABORTRETRYIGNORE "$(webview2InstallError)" IDIGNORE ignore IDRETRY update_webview
+              MessageBox MB_ICONEXCLAMATION|MB_ABORTRETRYIGNORE "$(webview2InstallError)$\r$\n$(officeWebviewInstallHelp)$\r$\nhttps://developer.microsoft.com/en-us/microsoft-edge/webview2/" IDIGNORE ignore IDRETRY update_webview
               Quit
               ignore:
             ${EndIf}
