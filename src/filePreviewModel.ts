@@ -16,8 +16,9 @@ export interface FilePreviewData {
 }
 
 export interface PreviewAnchor { left:number; right:number; top:number; bottom:number }
-export function previewPosition(anchor:PreviewAnchor, width:number, height:number) {
-  const panelWidth=Math.min(520,width-24),panelHeight=Math.min(420,height-24);
+export interface PreviewSize { width:number; height:number }
+export function previewPosition(anchor:PreviewAnchor, width:number, height:number, size:PreviewSize={width:520,height:420}) {
+  const panelWidth=Math.min(Math.max(320,size.width),Math.max(1,width-24)),panelHeight=Math.min(Math.max(240,size.height),Math.max(1,height-24));
   // 尽量放在文件行旁边；空间不足时靠边，始终保留关闭按钮。
   const left=anchor.right+8+panelWidth<=width-12?anchor.right+8:anchor.left-8-panelWidth>=12?anchor.left-8-panelWidth:width-panelWidth-12;
   const top=Math.max(12,Math.min(anchor.top,height-panelHeight-12));
