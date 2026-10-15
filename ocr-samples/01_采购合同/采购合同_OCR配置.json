@@ -1,0 +1,149 @@
+{
+  "id": "purchase-contract",
+  "name": "采购合同",
+  "keywords": [
+    "采购合同",
+    "合同编号",
+    "标准采购",
+    "PURCHASE CONTRACT",
+    "协议"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "合同编号",
+      "prompt": "提取采购合同的唯一编号，通常以 HT、SW、BC、CG 开头",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "合同编号：",
+        "合同编号",
+        "协议编号：",
+        "补充协议号：",
+        "编号："
+      ],
+      "pattern": "(?:HT|SW|BC|CG)-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_/]{3,39}",
+      "stripPrefixes": [
+        "合同编号：",
+        "合同编号:",
+        "协议编号：",
+        "协议编号:",
+        "补充协议号：",
+        "编号：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "需方名称",
+      "prompt": "选择买方、采购方、需方的企业全称，严格排除供方和卖方",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "需方（买方）：",
+        "需方名称：",
+        "需方：",
+        "买方：",
+        "甲方(采购人)：",
+        "买方单位：",
+        "买方名称："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "需方（买方）：",
+        "需方（买方）:",
+        "需方名称：",
+        "需方名称:",
+        "需方：",
+        "需方:",
+        "买方：",
+        "买方:",
+        "甲方(采购人)：",
+        "买方单位：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "签订日期",
+      "prompt": "提取合同正式签订或签署日期，格式通常为年月日",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "签订日期：",
+        "签订日期",
+        "签约日期：",
+        "签署日期：",
+        "签约时间：",
+        "合同签订于："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "签订日期：",
+        "签订日期:",
+        "签约日期：",
+        "签约日期:",
+        "签署日期：",
+        "签约时间：",
+        "合同签订于：",
+        "：",
+        ":"
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "合同金额",
+      "prompt": "提取采购合同的总金额或价税合计数值，排除单价与数量",
+      "kind": "number",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "合同总额",
+        "合计金额",
+        "总金额",
+        "价税合计",
+        "本次增补金额",
+        "合同含税总价"
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "￥",
+        "$",
+        "合同总额：",
+        "合计金额：",
+        "：",
+        ":"
+      ],
+      "format": "2"
+    }
+  ],
+  "filenamePattern": "{签订日期}_{需方名称}_{合同编号}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "产品采购合同",
+    "软件采购框架协议"
+  ],
+  "noiseMarkers": [
+    "统一社会信用代码",
+    "法定代表人"
+  ],
+  "extraHeaders": []
+}

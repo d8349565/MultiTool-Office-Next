@@ -1,0 +1,127 @@
+{
+  "id": "vat-invoice",
+  "name": "增值税发票",
+  "keywords": [
+    "发票",
+    "普通发票",
+    "专用发票",
+    "电子发票",
+    "行程报销单",
+    "增值税"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "发票号码",
+      "prompt": "提取8位普通发票号码、20位数电发票号码或行程单号",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "发票号码：",
+        "发票号码",
+        "行程单号：",
+        "No."
+      ],
+      "pattern": "\\d{20}|\\d{8}|DD-[A-Za-z0-9\\-]+|[A-Za-z0-9\\-_]{8,24}",
+      "stripPrefixes": [
+        "发票号码：",
+        "发票号码:",
+        "行程单号：",
+        "No.",
+        "NO.",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "买方名称",
+      "prompt": "提取购买方企业全称或个人姓名，严格排除销售方",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "购买方名称：",
+        "购买方名称及身份证号码/组织机构代码：",
+        "申请人/企业客户：",
+        "购买方："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "购买方名称：",
+        "购买方名称及身份证号码/组织机构代码：",
+        "申请人/企业客户：",
+        "购买方：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "开票日期",
+      "prompt": "提取发票正式开具日期",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "开票日期：",
+        "开票日期",
+        "申请日期："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "开票日期：",
+        "开票日期:",
+        "申请日期：",
+        "：",
+        ":"
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "发票金额",
+      "prompt": "提取发票最终含税价税合计金额",
+      "kind": "number",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "价税合计（小写）",
+        "金额合计",
+        "价税合计"
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "￥",
+        "$",
+        "：",
+        ":"
+      ],
+      "format": "2"
+    }
+  ],
+  "filenamePattern": "{开票日期}_{买方名称}_{发票号码}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "增值税电子普通发票",
+    "电子发票（增值税专用发票）"
+  ],
+  "noiseMarkers": [
+    "统一信用代码",
+    "销售方"
+  ],
+  "extraHeaders": []
+}

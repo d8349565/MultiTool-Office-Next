@@ -1,0 +1,137 @@
+{
+  "id": "reconciliation-statement",
+  "name": "财务对账单",
+  "keywords": [
+    "对账单",
+    "结算对账单",
+    "月结对账",
+    "结算清单",
+    "往来账款"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "对账单号",
+      "prompt": "提取财务对账单或结算单编号，通常以 DZ、GYS、WL、JS 开头",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "对账单号：",
+        "对账单号",
+        "单据编号：",
+        "结算单号：",
+        "结算单据号："
+      ],
+      "pattern": "(?:DZ|GYS|WL|JS)-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_]{3,39}",
+      "stripPrefixes": [
+        "对账单号：",
+        "单据编号：",
+        "结算单号：",
+        "结算单据号：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "客户名称",
+      "prompt": "提取合作客户、商户或供应商名称，排除出具对账方",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "客户名称：",
+        "合作供应商：",
+        "托运客户：",
+        "商户名称：",
+        "客户："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "客户名称：",
+        "合作供应商：",
+        "托运客户：",
+        "商户名称：",
+        "客户：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "对账日期",
+      "prompt": "提取对账正式确认日期或出具日期",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "对账确认日期：",
+        "确认签署日期：",
+        "制表日期：",
+        "结算出具日：",
+        "确认日期：",
+        "对账日期："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "对账确认日期：",
+        "确认签署日期：",
+        "制表日期：",
+        "结算出具日：",
+        "确认日期：",
+        "对账日期：",
+        "：",
+        ":"
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "结算金额",
+      "prompt": "提取本期应收或实际应付结算金额总计",
+      "kind": "number",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "本期应收账款总额",
+        "价税合计应付",
+        "累计应结运费",
+        "实付代销净额",
+        "结算金额合计",
+        "结算总额"
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "￥",
+        "$",
+        "：",
+        ":"
+      ],
+      "format": "2"
+    }
+  ],
+  "filenamePattern": "{对账日期}_{客户名称}_{对账单号}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "客户往来账款结算对账单",
+    "供应商应付货款月结对账确认函"
+  ],
+  "noiseMarkers": [
+    "对账期间",
+    "开户银行"
+  ],
+  "extraHeaders": []
+}

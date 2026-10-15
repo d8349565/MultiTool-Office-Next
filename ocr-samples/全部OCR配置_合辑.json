@@ -1,0 +1,849 @@
+[
+  {
+    "id": "purchase-contract",
+    "name": "采购合同",
+    "keywords": [
+      "采购合同",
+      "合同编号",
+      "标准采购",
+      "PURCHASE CONTRACT",
+      "协议"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "合同编号",
+        "prompt": "提取采购合同的唯一编号，通常以 HT、SW、BC、CG 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "合同编号：",
+          "合同编号",
+          "协议编号：",
+          "补充协议号：",
+          "编号："
+        ],
+        "pattern": "(?:HT|SW|BC|CG)-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_/]{3,39}",
+        "stripPrefixes": [
+          "合同编号：",
+          "合同编号:",
+          "协议编号：",
+          "协议编号:",
+          "补充协议号：",
+          "编号：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "需方名称",
+        "prompt": "选择买方、采购方、需方的企业全称，严格排除供方和卖方",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "需方（买方）：",
+          "需方名称：",
+          "需方：",
+          "买方：",
+          "甲方(采购人)：",
+          "买方单位：",
+          "买方名称："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "需方（买方）：",
+          "需方（买方）:",
+          "需方名称：",
+          "需方名称:",
+          "需方：",
+          "需方:",
+          "买方：",
+          "买方:",
+          "甲方(采购人)：",
+          "买方单位：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "签订日期",
+        "prompt": "提取合同正式签订或签署日期，格式通常为年月日",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "签订日期：",
+          "签订日期",
+          "签约日期：",
+          "签署日期：",
+          "签约时间：",
+          "合同签订于："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "签订日期：",
+          "签订日期:",
+          "签约日期：",
+          "签约日期:",
+          "签署日期：",
+          "签约时间：",
+          "合同签订于：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "合同金额",
+        "prompt": "提取采购合同的总金额或价税合计数值，排除单价与数量",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "合同总额",
+          "合计金额",
+          "总金额",
+          "价税合计",
+          "本次增补金额",
+          "合同含税总价"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "合同总额：",
+          "合计金额：",
+          "：",
+          ":"
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{签订日期}_{需方名称}_{合同编号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "产品采购合同",
+      "软件采购框架协议"
+    ],
+    "noiseMarkers": [
+      "统一社会信用代码",
+      "法定代表人"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "delivery-order",
+    "name": "销售送货单",
+    "keywords": [
+      "送货单",
+      "出库送货单",
+      "DELIVERY",
+      "送货",
+      "出库交接单",
+      "送货清单"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "送货单号",
+        "prompt": "提取销售送货单的单据编号，通常以 SH 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "送货单号：",
+          "送货单号",
+          "单号：",
+          "送货单编号：",
+          "单据条码："
+        ],
+        "pattern": "(?:SH|KD)-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_]{3,39}",
+        "stripPrefixes": [
+          "送货单号：",
+          "送货单号:",
+          "单号：",
+          "单号:",
+          "送货单编号：",
+          "单据条码：",
+          "*",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户名称",
+        "prompt": "提取收货方、买方或客户企业名称，排除发货单位",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "客户名称：",
+          "客户名称",
+          "收货单位：",
+          "客户：",
+          "收货客户：",
+          "工程项目客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "客户名称：",
+          "客户名称:",
+          "收货单位：",
+          "收货单位:",
+          "客户：",
+          "客户:",
+          "收货客户：",
+          "工程项目客户：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "送货日期",
+        "prompt": "提取本次出库送货的具体日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "送货日期：",
+          "送货日期",
+          "发货日期：",
+          "出库日期：",
+          "发货时间：",
+          "送达日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "送货日期：",
+          "送货日期:",
+          "发货日期：",
+          "出库日期：",
+          "发货时间：",
+          "送达日期：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "产品名称",
+        "prompt": "提取明细表格中的送货产品或物料名称，排除规格型号与数量",
+        "kind": "text",
+        "multiple": true,
+        "maxItems": 5,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "产品名称",
+          "物料名称",
+          "货物名称",
+          "品名",
+          "主要药品"
+        ],
+        "pattern": "",
+        "stripPrefixes": [],
+        "format": ""
+      },
+      {
+        "key": "送货数量",
+        "prompt": "提取送货总数量合计",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": false,
+        "fallback": "",
+        "anchors": [
+          "合计数量",
+          "总数量",
+          "发货件数",
+          "送货数量"
+        ],
+        "pattern": "",
+        "stripPrefixes": [],
+        "format": "0"
+      }
+    ],
+    "filenamePattern": "{送货日期}_{客户名称}_{送货单号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "销售出库送货单",
+      "仓储物流出库交接单"
+    ],
+    "noiseMarkers": [
+      "仓储物流专联",
+      "条码"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "quotation-sheet",
+    "name": "商务报价单",
+    "keywords": [
+      "报价单",
+      "Quotation",
+      "COMMERCIAL",
+      "报价",
+      "报价清单"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "报价单号",
+        "prompt": "提取商务报价单的报价编号，通常以 BJ 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "报价单号：",
+          "报价单号",
+          "报价编号：",
+          "单据编号："
+        ],
+        "pattern": "BJ-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_]{3,39}",
+        "stripPrefixes": [
+          "报价单号：",
+          "报价单号:",
+          "报价编号：",
+          "单据编号：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户单位",
+        "prompt": "提取询价方、客户单位全称，严格排除报价单位与供应商",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "客户单位：",
+          "客户单位",
+          "客户名称：",
+          "询价客户：",
+          "买方客户：",
+          "客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "客户单位：",
+          "客户单位:",
+          "客户名称：",
+          "询价客户：",
+          "买方客户：",
+          "客户：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "报价日期",
+        "prompt": "提取报价出具日期，严格排除有效期至与截止日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "报价日期：",
+          "报价日期",
+          "制单日期：",
+          "出具日期：",
+          "制单时间：",
+          "日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "报价日期：",
+          "报价日期:",
+          "制单日期：",
+          "出具日期：",
+          "制单时间：",
+          "日期：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "价税合计",
+        "prompt": "提取报价单的最终含税总金额或价税合计，排除单价与参考价",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "价税合计",
+          "总金额",
+          "合计金额",
+          "报价总额",
+          "整线含税总报价",
+          "优惠折后价税合计",
+          "年维保总金额"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "价税合计：",
+          "：",
+          ":"
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{报价日期}_{客户单位}_{报价单号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "商务设备报价单",
+      "商务报价清单"
+    ],
+    "noiseMarkers": [
+      "商机编号",
+      "版本：",
+      "市场参考"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "reconciliation-statement",
+    "name": "财务对账单",
+    "keywords": [
+      "对账单",
+      "结算对账单",
+      "月结对账",
+      "结算清单",
+      "往来账款"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "对账单号",
+        "prompt": "提取财务对账单或结算单编号，通常以 DZ、GYS、WL、JS 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "对账单号：",
+          "对账单号",
+          "单据编号：",
+          "结算单号：",
+          "结算单据号："
+        ],
+        "pattern": "(?:DZ|GYS|WL|JS)-[A-Za-z0-9\\-]+|[A-Za-z0-9][A-Za-z0-9\\-_]{3,39}",
+        "stripPrefixes": [
+          "对账单号：",
+          "单据编号：",
+          "结算单号：",
+          "结算单据号：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户名称",
+        "prompt": "提取合作客户、商户或供应商名称，排除出具对账方",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "客户名称：",
+          "合作供应商：",
+          "托运客户：",
+          "商户名称：",
+          "客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "客户名称：",
+          "合作供应商：",
+          "托运客户：",
+          "商户名称：",
+          "客户：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "对账日期",
+        "prompt": "提取对账正式确认日期或出具日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "对账确认日期：",
+          "确认签署日期：",
+          "制表日期：",
+          "结算出具日：",
+          "确认日期：",
+          "对账日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "对账确认日期：",
+          "确认签署日期：",
+          "制表日期：",
+          "结算出具日：",
+          "确认日期：",
+          "对账日期：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "结算金额",
+        "prompt": "提取本期应收或实际应付结算金额总计",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "本期应收账款总额",
+          "价税合计应付",
+          "累计应结运费",
+          "实付代销净额",
+          "结算金额合计",
+          "结算总额"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "：",
+          ":"
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{对账日期}_{客户名称}_{对账单号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "客户往来账款结算对账单",
+      "供应商应付货款月结对账确认函"
+    ],
+    "noiseMarkers": [
+      "对账期间",
+      "开户银行"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "acceptance-certificate",
+    "name": "工程验收单",
+    "keywords": [
+      "验收单",
+      "验收合格报告",
+      "验收证明书",
+      "验收交接书",
+      "检验合格报告",
+      "验收报告"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "验收编号",
+        "prompt": "提取工程验收单号或检验报告编号，通常以 YS 开头",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "验收编号：",
+          "验收编号",
+          "单据编号：",
+          "验收单号：",
+          "验收案号：",
+          "报告号："
+        ],
+        "pattern": "YS-[A-Za-z0-9\\-_/（）()\\u4e00-\\u9fa5]+|[A-Za-z0-9][A-Za-z0-9\\-_/]{3,39}",
+        "stripPrefixes": [
+          "验收编号：",
+          "单据编号：",
+          "验收单号：",
+          "验收案号：",
+          "报告号：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "客户名称",
+        "prompt": "提取建设单位、业主、使用客户或收货单位全称",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "建设单位（业主）：",
+          "建设单位：",
+          "使用客户：",
+          "医疗机构单位：",
+          "收货单位：",
+          "客户："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "建设单位（业主）：",
+          "建设单位：",
+          "使用客户：",
+          "医疗机构单位：",
+          "收货单位：",
+          "客户：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "验收日期",
+        "prompt": "提取验收合格或签署通过的日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "验收评审通过日期：",
+          "初验日期：",
+          "签字验收日期：",
+          "勘验日期：",
+          "验收日期：",
+          "通过日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "验收评审通过日期：",
+          "初验日期：",
+          "签字验收日期：",
+          "勘验日期：",
+          "验收日期：",
+          "通过日期：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "产品名称",
+        "prompt": "提取已验收设备、系统模块或交付项目名称",
+        "kind": "text",
+        "multiple": true,
+        "maxItems": 5,
+        "separator": "、",
+        "required": false,
+        "fallback": "",
+        "anchors": [
+          "已验收设备",
+          "设备名称",
+          "项目名称",
+          "交付分项"
+        ],
+        "pattern": "",
+        "stripPrefixes": [],
+        "format": ""
+      }
+    ],
+    "filenamePattern": "{验收日期}_{客户名称}_{验收编号}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "信息化系统建设工程最终验收合格报告",
+      "初步验收交接书"
+    ],
+    "noiseMarkers": [
+      "验收结论",
+      "质保期限"
+    ],
+    "extraHeaders": []
+  },
+  {
+    "id": "vat-invoice",
+    "name": "增值税发票",
+    "keywords": [
+      "发票",
+      "普通发票",
+      "专用发票",
+      "电子发票",
+      "行程报销单",
+      "增值税"
+    ],
+    "pages": "1",
+    "dpi": 200,
+    "fields": [
+      {
+        "key": "发票号码",
+        "prompt": "提取8位普通发票号码、20位数电发票号码或行程单号",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "发票号码：",
+          "发票号码",
+          "行程单号：",
+          "No."
+        ],
+        "pattern": "\\d{20}|\\d{8}|DD-[A-Za-z0-9\\-]+|[A-Za-z0-9\\-_]{8,24}",
+        "stripPrefixes": [
+          "发票号码：",
+          "发票号码:",
+          "行程单号：",
+          "No.",
+          "NO.",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "买方名称",
+        "prompt": "提取购买方企业全称或个人姓名，严格排除销售方",
+        "kind": "text",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "购买方名称：",
+          "购买方名称及身份证号码/组织机构代码：",
+          "申请人/企业客户：",
+          "购买方："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "购买方名称：",
+          "购买方名称及身份证号码/组织机构代码：",
+          "申请人/企业客户：",
+          "购买方：",
+          "：",
+          ":"
+        ],
+        "format": ""
+      },
+      {
+        "key": "开票日期",
+        "prompt": "提取发票正式开具日期",
+        "kind": "date",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "开票日期：",
+          "开票日期",
+          "申请日期："
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "开票日期：",
+          "开票日期:",
+          "申请日期：",
+          "：",
+          ":"
+        ],
+        "format": "%Y%m%d"
+      },
+      {
+        "key": "发票金额",
+        "prompt": "提取发票最终含税价税合计金额",
+        "kind": "number",
+        "multiple": false,
+        "maxItems": 1,
+        "separator": "、",
+        "required": true,
+        "fallback": "",
+        "anchors": [
+          "价税合计（小写）",
+          "金额合计",
+          "价税合计"
+        ],
+        "pattern": "",
+        "stripPrefixes": [
+          "￥",
+          "$",
+          "：",
+          ":"
+        ],
+        "format": "2"
+      }
+    ],
+    "filenamePattern": "{开票日期}_{买方名称}_{发票号码}",
+    "threshold": 0.75,
+    "extraTitles": [
+      "增值税电子普通发票",
+      "电子发票（增值税专用发票）"
+    ],
+    "noiseMarkers": [
+      "统一信用代码",
+      "销售方"
+    ],
+    "extraHeaders": []
+  }
+]

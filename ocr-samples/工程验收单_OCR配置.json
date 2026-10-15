@@ -1,0 +1,135 @@
+{
+  "id": "acceptance-certificate",
+  "name": "工程验收单",
+  "keywords": [
+    "验收单",
+    "验收合格报告",
+    "验收证明书",
+    "验收交接书",
+    "检验合格报告",
+    "验收报告"
+  ],
+  "pages": "1",
+  "dpi": 200,
+  "fields": [
+    {
+      "key": "验收编号",
+      "prompt": "提取工程验收单号或检验报告编号，通常以 YS 开头",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "验收编号：",
+        "验收编号",
+        "单据编号：",
+        "验收单号：",
+        "验收案号：",
+        "报告号："
+      ],
+      "pattern": "YS-[A-Za-z0-9\\-_/（）()\\u4e00-\\u9fa5]+|[A-Za-z0-9][A-Za-z0-9\\-_/]{3,39}",
+      "stripPrefixes": [
+        "验收编号：",
+        "单据编号：",
+        "验收单号：",
+        "验收案号：",
+        "报告号：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "客户名称",
+      "prompt": "提取建设单位、业主、使用客户或收货单位全称",
+      "kind": "text",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "建设单位（业主）：",
+        "建设单位：",
+        "使用客户：",
+        "医疗机构单位：",
+        "收货单位：",
+        "客户："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "建设单位（业主）：",
+        "建设单位：",
+        "使用客户：",
+        "医疗机构单位：",
+        "收货单位：",
+        "客户：",
+        "：",
+        ":"
+      ],
+      "format": ""
+    },
+    {
+      "key": "验收日期",
+      "prompt": "提取验收合格或签署通过的日期",
+      "kind": "date",
+      "multiple": false,
+      "maxItems": 1,
+      "separator": "、",
+      "required": true,
+      "fallback": "",
+      "anchors": [
+        "验收评审通过日期：",
+        "初验日期：",
+        "签字验收日期：",
+        "勘验日期：",
+        "验收日期：",
+        "通过日期："
+      ],
+      "pattern": "",
+      "stripPrefixes": [
+        "验收评审通过日期：",
+        "初验日期：",
+        "签字验收日期：",
+        "勘验日期：",
+        "验收日期：",
+        "通过日期：",
+        "：",
+        ":"
+      ],
+      "format": "%Y%m%d"
+    },
+    {
+      "key": "产品名称",
+      "prompt": "提取已验收设备、系统模块或交付项目名称",
+      "kind": "text",
+      "multiple": true,
+      "maxItems": 5,
+      "separator": "、",
+      "required": false,
+      "fallback": "",
+      "anchors": [
+        "已验收设备",
+        "设备名称",
+        "项目名称",
+        "交付分项"
+      ],
+      "pattern": "",
+      "stripPrefixes": [],
+      "format": ""
+    }
+  ],
+  "filenamePattern": "{验收日期}_{客户名称}_{验收编号}",
+  "threshold": 0.75,
+  "extraTitles": [
+    "信息化系统建设工程最终验收合格报告",
+    "初步验收交接书"
+  ],
+  "noiseMarkers": [
+    "验收结论",
+    "质保期限"
+  ],
+  "extraHeaders": []
+}

@@ -40,6 +40,28 @@ FORUM_POST.md
 *.xlsx
 *.csv
 
+# 仅允许经固定虚构数据生成、在 expected.json 中登记的演示样例入库
+/samples/**
+!/samples/README.md
+!/samples/expected.json
+!/samples/ocr-profiles.json
+!/samples/workspace/
+!/samples/workspace/01_项目甲_配套齐全/
+!/samples/workspace/01_项目甲_配套齐全/合同.docx
+!/samples/workspace/01_项目甲_配套齐全/合同.pdf
+!/samples/workspace/01_项目甲_配套齐全/报价明细.xlsx
+!/samples/workspace/02_项目乙_缺少配套/
+!/samples/workspace/02_项目乙_缺少配套/合同.docx
+!/samples/workspace/03_待命名单据/
+!/samples/workspace/03_待命名单据/扫描件_001.pdf
+!/samples/workspace/03_待命名单据/扫描件_002.pdf
+!/samples/workspace/03_待命名单据/扫描件_003.pdf
+!/samples/workspace/03_待命名单据/扫描件_004.png
+!/samples/workspace/04_文本资料/
+!/samples/workspace/04_文本资料/项目说明.md
+!/samples/workspace/04_文本资料/物料清单.csv
+!/samples/workspace/04_文本资料/使用说明.txt
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db
