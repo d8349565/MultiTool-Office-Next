@@ -10,6 +10,8 @@ import { basename } from './domain';
 import { getLauncherVisual } from './launcherVisuals';
 import { PricingEditor } from './PricingEditor';
 import { ModelConnections } from './ModelConnections';
+import { TavilyConnection } from './TavilyConnection';
+import { NetworkSettings, openSetup } from './NetworkControls';
 import { rebaseSettings, settingsEqual } from './settingsDraft';
 import { AssistantWorkspaceSettings } from './AssistantWorkspaceSettings';
 
@@ -20,6 +22,7 @@ const modules = [
   {id:'assistant',label:'助理配置',description:'选择助理工作目录，确认文件读写权限，并设置表达方式和工作规范。',keys:[]},
   {id:'pricing',label:'费用计价',description:'配置模型单价、缓存价格与峰谷时段。保存后用于下一次任务。',keys:['modelPricing']},
   {id:'integrations',label:'联网与评分',description:'按需启用公开资料搜索和候选评分，并管理各自密钥。',keys:['tavilyEnabled','jevEnabled']},
+  {id:'privacy',label:'隐私与联网',description:'管理首次联网授权、仅本地模式与活动记录。',keys:[]},
   {id:'transfer',label:'导入导出',description:'导出已保存的配置，或导入配置文件并确认应用。',keys:[]},
 ] as const;
 export type ModuleId=typeof modules[number]['id'];
@@ -30,9 +33,9 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const [savedSettings,setSavedSettings]=useState(settings),baseline=useRef(settings);
   function acceptSaved(saved:Settings,keys:readonly string[]=[]){const before=baseline.current;baseline.current=saved;setSavedSettings(saved);setDraft(previous=>rebaseSettings(previous,before,saved,keys));setClosing(false);onSaved(saved);}
   useEffect(()=>{const before=baseline.current;if(settingsEqual(before,settings))return;baseline.current=settings;setSavedSettings(settings);setDraft(previous=>rebaseSettings(previous,before,settings));},[settings]);
-  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[secret,setSecret]=useState(''),[provider,setProvider]=useState(initialTab==='integrations'?'tavily':'model'),[message,setMessage]=useState('');
+  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[secret,setSecret]=useState(''),[provider,setProvider]=useState('jev'),[message,setMessage]=useState('');
   const [closing,setClosing]=useState(false),[roleDirty,setRoleDirty]=useState(false);
-  const [connectionDirty,setConnectionDirty]=useState(false);
+  const [connectionDirty,setConnectionDirty]=useState(false),[searchDirty,setSearchDirty]=useState(false);
   const [pendingSecretAction,setPendingSecretAction]=useState<(()=>void)|null>(null);
   const closeWarning=useRef<HTMLDivElement>(null);
   function revealCloseWarning(){closeWarning.current?.scrollIntoView({block:'center'});closeWarning.current?.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});}
@@ -40,7 +43,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const [workspaceGrantDirty,setWorkspaceGrantDirty]=useState(false);
   const [imported,setImported]=useState<Settings|null>(null);
   const module=modules.find(m=>m.id===tab)!;
-  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]))||(m.id==='model'&&connectionDirty)||(m.id==='assistant'&&(workspaceGrantDirty||roleDirty))||(m.id==='transfer'&&imported!==null));
+  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]))||(m.id==='model'&&connectionDirty)||(m.id==='integrations'&&searchDirty)||(m.id==='assistant'&&(workspaceGrantDirty||roleDirty))||(m.id==='transfer'&&imported!==null));
   const moduleFieldsDirty=module.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]));
   const canSave=tab==='assistant'?false:tab==='transfer'?!!imported:moduleFieldsDirty;
   useEffect(()=>{if(!dirtyModules.length&&!secret.trim())setClosing(false);},[dirtyModules.length,secret]);
@@ -49,7 +52,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const change=<K extends keyof Settings>(key:K,value:Settings[K])=>setDraft(d=>({...d,[key]:value}));
   const run=async(fn:()=>Promise<void>)=>{setError('');setMessage('');setBusy(true);try{await fn();}catch(e){setError(String(e));}finally{setBusy(false);}};
   function guardSecret(action:()=>void){if(secret.trim()){setClosing(false);setPendingSecretAction(()=>action);}else action();}
-  function switchTab(next:ModuleId){if(next===tab)return;guardSecret(()=>{setClosing(false);setTab(next);setError('');setMessage('');setSecret('');setProvider(next==='integrations'?'tavily':'model');});}
+  function switchTab(next:ModuleId){if(next===tab)return;guardSecret(()=>{setClosing(false);setTab(next);setError('');setMessage('');setSecret('');setProvider('jev');});}
   async function addRoot(){const path=await pick(true);if(path&&!draft.roots.includes(path))change('roots',[...draft.roots,path]);}
   async function addLauncher(){const path=await pick(false);if(path)change('launchers',[...draft.launchers,{id:crypto.randomUUID(),name:basename(path),path,group:'常用工具'}]);}
   function addWebLauncher(){change('launchers',[...draft.launchers,{id:crypto.randomUUID(),name:'',path:'https://',group:'网页入口'}]);}
@@ -85,7 +88,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       </TabList>
       {closing&&<div ref={closeWarning} className="settings-close-warning" role="alert"><p>未保存：{[...dirtyModules.map(m=>m.label),...(secret.trim()?['服务密钥']:[])].join('、')}。{connectionDirty&&'模型连接草稿或密钥需要在连接区域测试并保存。'}已保存的设置会保留。</p><div className="button-row"><Button type="button" onClick={()=>setClosing(false)}>继续配置</Button><Button type="button" onClick={onClose}>放弃未保存修改并关闭</Button></div></div>}
       {pendingSecretAction&&<div ref={closeWarning} className="settings-close-warning" role="alert"><p>切换设置页或密钥服务会清空未保存的密钥输入。</p><div className="button-row"><Button type="button" onClick={()=>setPendingSecretAction(null)}>保留密钥输入</Button><Button type="button" onClick={()=>{const action=pendingSecretAction;setPendingSecretAction(null);action();}}>放弃密钥输入并继续</Button></div></div>}
-      <div className="settings-module-heading"><div><h3>{module.label}</h3><p>{module.description}</p></div><span>{dirty?'未保存修改':'已保存配置'}</span></div>
+      <div className="settings-module-heading"><div><h3>{module.label}</h3><p>{module.description}</p></div><div className="settings-heading-actions"><span>{dirty?'未保存修改':'已保存配置'}</span><Button type="button" size="small" appearance="subtle" disabled={busy} onClick={()=>openSetup()}>配置引导</Button></div></div>
       <fieldset className="settings-content" disabled={busy}><div className="settings-panels">
         <div id="settings-panel-workspace" role="tabpanel" aria-labelledby="settings-tab-workspace" hidden={tab!=='workspace'}>
           <section className="settings-section"><h3>文件搜索范围</h3><p>只索引目录下的文件信息，不读取文档正文。</p>
@@ -148,9 +151,10 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
         </div>
         <div id="settings-panel-pricing" role="tabpanel" aria-labelledby="settings-tab-pricing" hidden={tab!=='pricing'}><PricingEditor value={draft.modelPricing} modelId={draft.modelId} modelUrl={draft.modelUrl} onChange={v=>change('modelPricing',v)}/></div>
         <div id="settings-panel-integrations" role="tabpanel" aria-labelledby="settings-tab-integrations" hidden={tab!=='integrations'}>
-          <section className="settings-section"><h3>公开资料搜索</h3><Switch checked={!!draft.tavilyEnabled} onChange={(_,d)=>change('tavilyEnabled',d.checked)} label="启用 Tavily 联网搜索"/><p>主动提问时按需搜索。公开搜索词发给搜索服务，结果摘要发给模型。</p></section>
+          <TavilyConnection settings={savedSettings} onSaved={acceptSaved} onDirtyChange={setSearchDirty} onBusyChange={setBusy} disabled={busy}/>
           <section className="settings-section"><h3>候选评分</h3><Switch checked={draft.jevEnabled} onChange={(_,d)=>change('jevEnabled',d.checked)} label="启用 Jev 实验建议与候选评分"/><p>使用前 20 条名称和相对路径进行实验评分；精确日期和缺失核对仍使用本地规则。</p></section>
         </div>
+        <div id="settings-panel-privacy" role="tabpanel" aria-labelledby="settings-tab-privacy" hidden={tab!=='privacy'}><NetworkSettings/></div>
         <div id="settings-panel-transfer" role="tabpanel" aria-labelledby="settings-tab-transfer" hidden={tab!=='transfer'}>
           <section className="settings-section"><h3>导出当前配置</h3><p>导出已保存的搜索目录、常用工具、外观、模型参数和联网开关。API 密钥、助理角色文件、报告目录和业务记录不包含在内。</p><Button type="button" icon={<DownloadSimple/>} onClick={()=>void run(exportSettings)}>导出配置</Button></section>
           <section className="settings-section"><h3>导入配置文件</h3><p>选择本应用导出的 JSON 配置文件。确认后将替换工作台、常用工具、模型参数与联网设置，并清除这些模块中未保存的草稿。</p><Button type="button" icon={<UploadSimple/>} onClick={()=>void run(importSettings)}>选择配置文件</Button>
@@ -158,9 +162,9 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
           </section>
         </div>
       </div>
-      {tab==='integrations'&&<section className="settings-section settings-credentials"><h3>服务密钥</h3><p>密钥单独保存到系统凭据管理器，保存模块时不会提交密钥。</p><div className="credential-form"><label>密钥服务<select value={provider} disabled={busy} onChange={e=>{const next=e.target.value;guardSecret(()=>{setProvider(next);setSecret('');});}}><option value="tavily">Tavily 联网搜索</option><option value="jev">TypeSafe / Jev</option></select></label><label>API 密钥<input type="password" autoComplete="off" disabled={busy} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="保存在系统凭据管理器"/></label><Button type="button" icon={<Key/>} disabled={!secret||busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret});setSecret('');setMessage('密钥已保存到系统凭据管理器');})}>保存密钥</Button><Button type="button" disabled={busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret:''});setMessage('密钥已删除');})}>清除密钥</Button></div></section>}
+      {tab==='integrations'&&<section className="settings-section settings-credentials"><h3>服务密钥</h3><p>密钥单独保存到系统凭据管理器，保存模块时不会提交密钥。</p><div className="credential-form"><label>密钥服务<select value={provider} disabled={busy} onChange={e=>{const next=e.target.value;guardSecret(()=>{setProvider(next);setSecret('');});}}><option value="jev">TypeSafe / Jev</option></select></label><label>API 密钥<input type="password" autoComplete="off" disabled={busy} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="保存在系统凭据管理器"/></label><Button type="button" icon={<Key/>} disabled={!secret||busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret});setSecret('');setMessage('密钥已保存到系统凭据管理器');})}>保存密钥</Button><Button type="button" disabled={busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret:''});setMessage('密钥已删除');})}>清除密钥</Button></div></section>}
       </fieldset>{message&&<p className="notice" role="status">{message}</p>}{error&&<p className="inline-error" role="alert">{error}</p>}
-      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&<><Button type="button" disabled={busy||!canSave} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
+      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&tab!=='privacy'&&<><Button type="button" disabled={busy||!canSave} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
     </form>
   </Modal>;
 }

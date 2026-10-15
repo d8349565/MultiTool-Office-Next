@@ -33,6 +33,9 @@ pub async fn search(enabled: bool, args: &Value, cancel: &AtomicBool) -> Result<
     let body=body(args)?;
     if cancel.load(Ordering::Relaxed) { return Err("任务已取消".into()); }
     let secret=crate::ai::key("tavily")?.get_password().map_err(|_|"尚未设置 Tavily 密钥，请在设置中保存")?;
+    perform(body,&secret,cancel,crate::network::Feature::Search).await
+}
+async fn perform(body:Value,secret:&str,cancel:&AtomicBool,feature:crate::network::Feature)->Result<Value,String>{
     let client=reqwest::Client::builder().timeout(Duration::from_secs(45)).redirect(reqwest::redirect::Policy::none()).build().map_err(|_|"无法初始化搜索连接")?;
     let request=async {
         let mut response=client.post("https://api.tavily.com/search").bearer_auth(secret).json(&body).send().await.map_err(|e|if e.is_timeout(){"搜索请求超过 45 秒，请重试"}else{"无法连接 Tavily，请检查网络"})?;
@@ -47,5 +50,23 @@ pub async fn search(enabled: bool, args: &Value, cancel: &AtomicBool) -> Result<
         }
         normalize(&serde_json::from_slice::<Value>(&data).map_err(|_|"搜索服务返回无效 JSON")?)
     };
-    tokio::select! { result=request=>result, _=async {while !cancel.load(Ordering::Relaxed){tokio::time::sleep(Duration::from_millis(80)).await;}}=>Err("任务已取消".into()) }
+    let categories=crate::network::request_categories(feature,&body);
+    crate::network::request(feature,"https://api.tavily.com/search",secret,"",cancel,categories,request).await
+}
+
+#[tauri::command]
+pub async fn tavily_test_connection(secret:Option<String>)->Result<Value,String>{
+    let entry=crate::ai::key("tavily")?;
+    let previous=match entry.get_password(){Ok(value)=>Some(value),Err(keyring::Error::NoEntry)=>None,Err(_)=>return Err("无法读取原 Tavily 凭据状态，请检查 Windows 凭据管理器".into())};
+    let supplied=secret.as_deref().map(str::trim).filter(|s|!s.is_empty());
+    let key=supplied.or(previous.as_deref()).ok_or("请先填写 Tavily API Key；它与模型服务的 Key 不同")?;
+    if key.starts_with("sk-"){return Err("这看起来是模型服务的 Key。请在 Tavily 官方平台复制 Tavily API Key，两者不能通用".into());}
+    let cancel=AtomicBool::new(false);
+    let body=body(&json!({"query":"Microsoft WebView2","max_results":1}))?;
+    let start=std::time::Instant::now();
+    let result=perform(body,key,&cancel,crate::network::Feature::SearchTest).await?;
+    if supplied.is_some(){entry.set_password(key).map_err(|_|"搜索测试成功，但密钥保存失败，原配置未主动删除")?;}
+    let tested=match crate::network::tavily_tested(key){Ok(time)=>time,Err(error)=>{if supplied.is_some(){let restored=if let Some(old)=previous.as_deref(){entry.set_password(old)}else{entry.delete_credential()};if restored.is_err(){return Err("测试记录保存失败，且密钥恢复失败，请重新测试并保存".into());}}return Err(error);}};
+    if supplied.is_some()&&previous.as_deref()!=Some(key){crate::network::invalidate_feature("search")?;}
+    Ok(json!({"testedAt":tested,"elapsedMs":start.elapsed().as_millis(),"resultCount":result["results"].as_array().map_or(0,Vec::len)}))
 }

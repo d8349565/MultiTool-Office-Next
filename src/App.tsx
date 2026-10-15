@@ -12,6 +12,8 @@ import { hasPricingChange } from './assistantPricing';
 import { ReasoningSelect } from './ReasoningSelect';
 import { SettingsView, type ModuleId } from './SettingsView';
 import { AboutView } from './AboutView';
+import { NetworkConsent, NetworkIndicator, openSetup } from './NetworkControls';
+import { SetupWizard } from './SetupWizard';
 import { ToolsWorkbench } from './ToolsWorkbench';
 import { TranslatePane, useTranslationSync, type BlockRange, type PaneSide } from './TranslatePane';
 import { alignTranslationBlocks, balanceFences, detectFormat, mapBlockRange, segmentBlocks, FORMAT_LABELS, type SourceFormat } from './translateFormat';
@@ -61,7 +63,7 @@ export default function App(){
   const [files,setFiles]=useState<Results>({items:[],total:0}),[fileBusy,setFileBusy]=useState(false),[fileError,setFileError]=useState(''),[selected,setSelected]=useState<Entry|null>(null);
   const [settingsTab,setSettingsTab]=useState<ModuleId|null>(null),[assistant,setAssistant]=useState(false),[quick,setQuick]=useState(false),[quickQuery,setQuickQuery]=useState(''),[quickFiles,setQuickFiles]=useState<Entry[]>([]),[quickIndex,setQuickIndex]=useState(0),[notice,setNotice]=useState(''),[proposal,setProposal]=useState<Proposal|null>(null),[proposalError,setProposalError]=useState(''),[proposalBusy,setProposalBusy]=useState(false),[systemDark,setSystemDark]=useState(matchMedia('(prefers-color-scheme: dark)').matches);
   const [about,setAbout]=useState(false);
-  const openSettings=(target?:ModuleId|string)=>{const validModules:ModuleId[]=['workspace','tools','model','assistant','pricing','integrations','transfer'];const resolved=(target&&validModules.includes(target as ModuleId))?(target as ModuleId):(pageModuleMap[page]||'workspace');setSettingsTab(resolved);};
+  const openSettings=(target?:ModuleId|string)=>{const validModules:ModuleId[]=['workspace','tools','model','assistant','pricing','integrations','privacy','transfer'];const resolved=(target&&validModules.includes(target as ModuleId))?(target as ModuleId):(pageModuleMap[page]||'workspace');setSettingsTab(resolved);};
   const [source,setSource]=useState(''),[translated,setTranslated]=useState(''),[language,setLanguage]=useState('zh'),[translationTask,setTranslationTask]=useState(''),[translationError,setTranslationError]=useState('');
   const translationRun=useRef('');
   const [translationSource,setTranslationSource]=useState<string|null>(null);
@@ -249,6 +251,7 @@ export default function App(){
   const viewContext={page,root,currentDirectory:current,selectedDirectories:trail,query,filter,recursive,selectedFile:selected?{name:selected.name,path:selected.path}:null};
   return <FluentProvider theme={theme} className={`office-app ${dark?'dark':''}`}><IconContext.Provider value={{size:18,weight:'regular'}}>
     <header className="app-header"><div className="wordmark"><span className="brand-mark"><SquaresFour size={22} weight="fill"/></span><span>MultiTool <strong>Office</strong></span></div><nav aria-label="主导航">{[{id:'files',label:'文件工作区',icon:<FolderSimple/>},{id:'translate',label:'文本翻译',icon:<Translate/>},{id:'tools',label:'常用工具',icon:<SquaresFour/>},{id:'ocr',label:'文档 OCR',icon:<FileText/>},{id:'todo',label:'待办事项',icon:<CheckSquare/>}].map(t=><button className={page===t.id?'active':''} onClick={()=>setPage(t.id)} key={t.id} title={t.label} aria-label={t.label}>{t.icon}{page===t.id&&<span>{t.label}</span>}</button>)}</nav><div className="header-actions"><button className="quick-trigger" onClick={()=>setQuick(true)} aria-label="快捷面板" title={quickShortcutHint}><Command/><kbd>Ctrl K</kbd></button><IconButton label="关于" onClick={()=>setAbout(true)}><Info/></IconButton><IconButton label="设置" onClick={()=>openSettings()}><GearSix/></IconButton><Button appearance="primary" className="assistant-toggle" aria-label="助手" icon={<Sparkle weight="fill"/>} onClick={()=>setAssistant(a=>!a)}>助手</Button></div></header>
+    <div className="network-status-bar"><NetworkIndicator onOpen={()=>openSettings('privacy')}/><span>本地文件整理 · 外部服务按需授权</span><Button type="button" size="small" appearance="subtle" onClick={()=>openSetup()}>配置引导</Button></div>
     {demo&&<div className="demo-banner">交互预览 · 当前为示例文件，系统操作请使用桌面版</div>}
     {fatal?<div className="fatal"><h2>无法加载工作台</h2><p>{fatal}</p><Button onClick={()=>location.reload()}>重新加载</Button></div>:!settings?<Skeleton/>:<>
       <main className="main-content">
@@ -286,6 +289,7 @@ export default function App(){
       <footer className="statusbar"><span><span className="status-dot"/>本地工作台</span><span>{root?basename(root):'添加目录即可开始'}<span className="status-divider"/>{status.scanning?'正在同步索引':'文件信息保存在本机'}</span><span className="statusbar-right"><button onClick={()=>setQuick(true)} title={quickShortcutHint}>快捷面板 <kbd>Ctrl K</kbd></button><IconButton label={dark?'切换浅色':'切换深色'} onClick={()=>void run(async()=>saved(await api<Settings>('save_settings',{next:{...settings,theme:dark?'light':'dark'}})))}>{dark?<Sun/>:<Moon/>}</IconButton></span></footer>
       <Suspense fallback={null}><Assistant onWorkspaceSettings={()=>openSettings('assistant')} settings={settings} onPricingSettings={()=>openSettings('pricing')} onLocate={path=>{const found=settings.roots.find(r=>isWithin(path,r));if(!found){setNotice('目录不在当前搜索范围');return;}setRoot(found);setTrail(locateTrail(found,path));setQuery('');setPage('files');setAssistant(false);}} open={assistant} onClose={()=>setAssistant(false)} context={viewContext} onProposal={p=>{setProposal(p);setProposalError('');}}/></Suspense>
       {about&&<AboutView onClose={()=>setAbout(false)}/>}
+      <SetupWizard settings={settings} onSaved={saved} onAddRoot={addRoot}/>
       {settingsTab&&<SettingsView settings={settings} initialTab={settingsTab} onSaved={saved} onClose={()=>setSettingsTab(null)}/>}
       {proposal&&<Modal title={hasPricingChange(proposal)?'确认计价调整':'确认配置变更'} onClose={()=>{if(!proposalBusy)setProposal(null);}} wide><p className="proposal-confirm-hint">{hasPricingChange(proposal)?'检查下方调整建议。确认后用于下一次任务，历史费用保留原单价。':'检查下方调整建议，确认后应用。'}</p><ProposalDiff proposal={proposal}/>{proposalError&&<p className="inline-error" role="alert">{proposalError}</p>}<div className="dialog-actions"><span>需要你的确认才会生效</span><Button disabled={proposalBusy} onClick={()=>{setProposalBusy(true);void api('decide_proposal',{id:proposal.id,approve:false}).then(()=>setProposal(null)).catch(e=>setProposalError(String(e))).finally(()=>setProposalBusy(false));}}>不应用</Button><Button disabled={proposalBusy} appearance="primary" onClick={()=>{setProposalBusy(true);void api<Settings>('decide_proposal',{id:proposal.id,approve:true}).then(s=>{saved(s);setProposal(null);setNotice('配置已更新');}).catch(e=>setProposalError(String(e))).finally(()=>setProposalBusy(false));}}>{proposalBusy?'正在处理…':'确认并应用'}</Button></div></Modal>}
       {quick&&<Modal title="快捷面板" onClose={()=>setQuick(false)}>
@@ -300,6 +304,7 @@ export default function App(){
     </>}
     {preview.target&&<FilePreview key={preview.target.entry.path} target={preview.target} request={preview.request} generation={status.generation} onClose={preview.close} onPin={preview.pinPanel} onEnter={preview.enterPanel} onLeave={preview.leavePanel} onOpen={openEntry}/>}
     {notice&&<div className="toast" role="status">{notice}<IconButton label="关闭提示" onClick={()=>setNotice('')}><X/></IconButton></div>}
+    <NetworkConsent/>
   </IconContext.Provider></FluentProvider>;
 }
 

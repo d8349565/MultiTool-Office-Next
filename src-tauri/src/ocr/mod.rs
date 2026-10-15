@@ -269,7 +269,7 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                                     for batch in batches {
                                         let cancel_clone = cancel.clone();
                                         handles.push(tauri::async_runtime::spawn(async move {
-                                            crate::ai::post("https://api.typesafe.ai/v1/systemone","jev",batch.clone(),&cancel_clone).await
+                                            crate::ai::post("https://api.typesafe.ai/v1/systemone","jev",batch.clone(),&cancel_clone,crate::network::Feature::OcrJev).await
                                                 .map(|v| (batch, v))
                                         }));
                                     }

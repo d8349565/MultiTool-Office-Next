@@ -1,0 +1,15 @@
+.service-guide{margin:14px 0;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt)}
+.service-guide summary{cursor:pointer;font-weight:600;line-height:1.5}
+.service-guide p,.service-guide li{line-height:1.65}.service-guide ol{padding-left:22px}.service-guide li+li{margin-top:6px}
+.setup-steps{display:flex;gap:12px;padding:0;list-style:none;margin:24px 0}.setup-steps li{flex:1;color:var(--muted);font-size:13px;display:flex;gap:8px;align-items:center;line-height:1.5}.setup-steps li span{display:grid;place-items:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;flex-shrink:0}.setup-steps .active{font-weight:600;color:var(--focus)}.setup-steps .active span{border-color:currentColor}
+.setup-checklist{padding-left:22px}.setup-checklist li{margin:12px 0;line-height:1.6}.setup-callout{padding:12px 16px;border:1px solid var(--line);border-radius:8px;margin:12px 0}.setup-callout p{margin-top:0}
+.network-indicator{display:flex;gap:6px;align-items:center;max-width:190px;flex-shrink:0;white-space:nowrap;overflow:hidden;font:inherit;font-size:12px;border:1px solid var(--line);background:transparent;border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--muted)}.network-indicator.is-online{color:var(--focus)}.network-indicator:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+.network-grant{display:flex;justify-content:space-between;align-items:start;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}.network-grant div{display:flex;flex-direction:column;gap:4px;min-width:0}.network-grant span,.network-grant small{overflow-wrap:anywhere;line-height:1.6;color:var(--muted)}.network-grant button{flex-shrink:0}
+.network-activities{max-height:360px;overflow:auto}.network-activities article{padding:12px 0;border-bottom:1px solid var(--line)}.network-activities article header{display:flex;justify-content:space-between;gap:12px}.network-activities article p{margin:5px 0;font-size:12px;overflow-wrap:anywhere}.network-activities small{color:var(--muted);line-height:1.6}.network-consent .modal-body{line-height:1.7}.network-consent li+li{margin-top:5px}
+@media(max-width:1050px){.network-indicator{max-width:125px}.setup-steps{flex-wrap:wrap}.setup-steps li{flex-basis:40%}}
+
+.network-status-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:5px 26px;border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;font-size:12px;color:var(--muted)}.network-status-bar>span{flex:1;min-width:0;overflow-wrap:anywhere}
+
+.network-indicator-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setup-wizard .dialog-actions,.network-consent .dialog-actions,.ocr-rename-dialog .dialog-actions{flex-wrap:wrap}
+@media(max-width:767px){.network-status-bar{padding:8px 14px}.network-status-bar>span{flex-basis:100%;order:1}.setup-wizard .dialog-actions,.network-consent .dialog-actions,.ocr-rename-dialog .dialog-actions{bottom:-16px}}
