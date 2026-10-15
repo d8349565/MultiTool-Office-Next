@@ -2,13 +2,14 @@ use crate::{AppState, assistant_context::TaskContext};
 use serde_json::Value;
 
 #[derive(Clone,Copy,Debug,PartialEq)]
-pub enum Capability { Metadata, AppState, PublicSearch, Artifact, SettingsProposal, UserAction, Control }
+pub enum Capability { Metadata, AppState, PublicSearch, Artifact, WorkspaceFile, SettingsProposal, UserAction, Control }
 pub fn capability(tool:&str)->Result<Capability,String>{
     Ok(match tool{
         "files_query"|"resultset_enrich"|"directory_tree"|"files_search"|"files_analyze"|"files_list_dirs"|"files_missing_companion"=>Capability::Metadata,
         "settings_read"|"app_get_state"|"pricing_read"=>Capability::AppState,
         "web_search"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
+        "workspace_list_files"|"workspace_read_file"|"document_create"|"html_app_create"=>Capability::WorkspaceFile,
         "settings_propose_change"|"pricing_propose_change"|"model_config_add"=>Capability::SettingsProposal,
         "files_reveal"|"path_open"|"launcher_run"|"clipboard_copy"|"index_refresh"|"text_translate"=>Capability::UserAction,
         "task_clarify"=>Capability::Control,
@@ -20,6 +21,8 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
     if respond_only{return Err("本轮只整理已有资料，不允许新工具操作".into());}
     if capability==Capability::UserAction&&!current.intent.allowed_actions.iter().any(|t|t==tool){return Err("本轮用户没有授权该外部操作".into());}
     if capability==Capability::Artifact&&current.intent.delivery!="html"&&current.intent.operation!="report"{return Err("用户没有要求创建报告".into());}
+    if matches!(capability,Capability::WorkspaceFile|Capability::Artifact){crate::assistant_workspace::authorize(state,current.workspace_revision)?;}
+    if tool=="html_app_create"{if current.intent.operation!="document"||current.intent.delivery!="file"{return Err("只有用户要求制作并保存文件时才能生成交互网页".into());}crate::assistant_workspace::authorize_interactive(state,current.workspace_revision)?;}
     if tool=="files_search"&&args["query"].as_str().is_none_or(|q|q.trim().is_empty()){return Err("关键词搜索需要非空关键词；查询范围内全部项目请使用 files_query".into());}
     if capability==Capability::Metadata{
         for key in ["root","path"]{if let Some(path)=args[key].as_str(){let p=state.index.authorize(path)?;
@@ -28,6 +31,7 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
         if let Some(id)=args["resultSetId"].as_str(){crate::assistant_context::evidence(state,&current.session_id,id)?;}
     }
     if capability==Capability::PublicSearch&&!state.settings.lock().unwrap().tavily_enabled{return Err("请先在设置中启用 Tavily 联网搜索".into());}
+    if capability==Capability::PublicSearch&&current.has_workspace_file_data{return Err("本会话已接触本地工作目录资料，禁止把它们带入公开搜索；需要搜索公开资料请新建会话".into());}
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}
     if tool=="model_config_add"&&current.intent.operation!="config"{return Err("只有用户要求配置模型接口时才能新增模型配置".into());}

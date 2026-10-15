@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Button, Tooltip } from '@fluentui/react-components';
 import { ArrowUp, ArrowRight, X, Sparkle, Stop, Check, CaretDown, Plus, Trash, Copy, FolderOpen, MagnifyingGlass, ImageSquare, ChatsCircle, SlidersHorizontal, Coins, WarningCircle, ArrowsClockwise, Wrench, ChatCircle, ArrowLineDown, ArrowLineUp, Database, Lightning, Gauge, ListChecks } from '@phosphor-icons/react';
 import { listen } from '@tauri-apps/api/event';
-import { api, desktop, pick, copy } from './api';
+import { api, desktop, copy } from './api';
 import { runAssistantTask, resumeAssistantTask } from './assistantRuntime';
-import type { Activity, AIResult, Proposal, Settings, TaskAction, TaskContext } from './types';
+import type { Activity, AIResult, Proposal, Settings, TaskAction, TaskContext,AssistantWorkspace } from './types';
+import { AssistantFileApprovals } from './AssistantFileApprovals';
 import { IconButton } from './components';
 import { compactTokens, contextCapacity, percent, tokenMetrics } from './assistantMetrics';
 import { AssistantMarkdown } from './AssistantMarkdown';
@@ -15,17 +16,18 @@ import { AssistantImages } from './AssistantImageAttachments';
 import { AssistantCost } from './AssistantCost';
 import { costMetrics, hasPricingChange, money, proposalMatchesSettings } from './assistantPricing';
 import { deleteImages, imageContext, maxImages, saveImage, validateImage, type AssistantImage } from './assistantImages';
-import { conversationHistory, evidenceSummary, workspaceKey, finishActivities, upsertActivity, loadConversations, newConversation, resultLinks, sessionKey, sessionTotals, lastQuery, taskMessage, replyText, type Conversation, type Link } from './assistantState';
+import { conversationHistory, evidenceSummary, finishActivities, upsertActivity, loadConversations, newConversation, resultLinks, sessionKey, sessionTotals, lastQuery, taskMessage, replyText, type Conversation, type Link } from './assistantState';
 
 function Metric({label,children,className=''}:{label:string;children:ReactNode;className?:string}){return <Tooltip content={label} relationship="description"><span className={className} tabIndex={0} aria-label={label}>{children}</span></Tooltip>;}
 
-export default function Assistant({open,onClose,context,onProposal,onLocate,onPricingSettings,settings}:{open:boolean;onClose:()=>void;context:unknown;onProposal:(p:Proposal)=>void;onLocate:(path:string)=>void;onPricingSettings:()=>void;settings:Settings}){
+export default function Assistant({open,onClose,context,onProposal,onLocate,onPricingSettings,onWorkspaceSettings,settings}:{open:boolean;onClose:()=>void;context:unknown;onProposal:(p:Proposal)=>void;onLocate:(path:string)=>void;onPricingSettings:()=>void;onWorkspaceSettings:()=>void;settings:Settings}){
   const [store,setStore]=useState(loadConversations),[storageError,setStorageError]=useState(''),[deleteIds,setDeleteIds]=useState<string[]>([]),[clock,setClock]=useState(Date.now());
   const current=store.sessions.find(s=>s.id===store.active)||store.sessions[0];
   const [managing,setManaging]=useState(false),[sessionQuery,setSessionQuery]=useState(''),[selected,setSelected]=useState<string[]>([]);
   const [batchMode,setBatchMode]=useState(false),[deleting,setDeleting]=useState(false),[deleteError,setDeleteError]=useState(''),[costOpen,setCostOpen]=useState(false);
   const sessionSearch=useRef<HTMLInputElement>(null),sessionTrigger=useRef<HTMLButtonElement>(null);
   const [workspaceOpen,setWorkspaceOpen]=useState(false),[workspacePath,setWorkspacePath]=useState(''),[workspaceNotice,setWorkspaceNotice]=useState('');
+  const [workspacePermission,setWorkspacePermission]=useState<AssistantWorkspace>({path:'',readWrite:false,interactiveHtml:false,revision:0,needsReconfirmation:false,modelHost:''});
   const sessionRows=store.sessions.filter(s=>s.title.toLocaleLowerCase().includes(sessionQuery.toLocaleLowerCase()));
   const selectable=sessionRows.filter(s=>!s.task);
   const evidence=evidenceSummary(current.messages);
@@ -89,9 +91,11 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
     return()=>{alive=false;timers.forEach(clearTimeout);};
   },[]);
   useEffect(()=>{if(!open)return;let alive=true;setWorkspacePath('');
-    void api<{path:string}>('assistant_workspace',{path:current.workspace||null}).then(r=>{if(alive)setWorkspacePath(r.path);}).catch(e=>{if(alive)setWorkspaceNotice(String(e));});
-    return()=>{alive=false;};
-  },[open,current.workspace]);
+    const accept=(r:AssistantWorkspace)=>{if(alive){setWorkspacePath(r.path);setWorkspacePermission(r);}};
+    void api<AssistantWorkspace>('assistant_workspace').then(accept).catch(e=>{if(alive)setWorkspaceNotice(String(e));});
+    const unlisten=desktop?listen<AssistantWorkspace>('assistant-workspace-updated',e=>accept(e.payload)):null;
+    return()=>{alive=false;void unlisten?.then(stop=>stop());};
+  },[open,settings.modelUrl]);
   async function addImages(files:File[]){
     const session=current;if(!files.length||imageLoading.current||activeTasks.current.has(session.id))return;
     const saved:AssistantImage[]=[];
@@ -136,7 +140,7 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
         while(result.status==='running'&&Date.now()<deadline+15000){await new Promise(r=>setTimeout(r,2000));result=await api<AIResult>('task_status',{id});}
         if(result.status==='running')throw new Error('前后端状态暂时失联，尚不能确认任务已停止。已保留任务编号，请重新打开助手核对状态。');
       }resolve(result);}).catch(reject);},(timeoutSecs+15)*1000);});
-      const result=await Promise.race([runAssistantTask({id,kind:'agent',text,context:{sessionId:session.id,taskContextVersion:session.taskContext?.version,action,view:context,...attachments,lastQuery:lastQuery(session.messages),previousTask:[...session.messages].reverse().find(m=>m.role==='assistant')?.activityKey,reportWorkspace:session.workspace,evidence:evidenceSummary(session.messages),respondOnly,localTime:new Date().toString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),timeout]);
+      const result=await Promise.race([runAssistantTask({id,kind:'agent',text,context:{sessionId:session.id,taskContextVersion:session.taskContext?.version,action,view:context,...attachments,lastQuery:lastQuery(session.messages),previousTask:[...session.messages].reverse().find(m=>m.role==='assistant')?.activityKey,evidence:evidenceSummary(session.messages),respondOnly,localTime:new Date().toString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),timeout]);
       if(!result.text?.trim())throw new Error('模型返回空回复，请检查模型是否支持工具调用。');
       const liveSession=()=>latestStore.current.sessions.find(s=>s.id===session.id);
       const finalRound=liveSession()?.stats?.round||((Array.isArray(result.usage)&&result.usage.length)?result.usage.length:1);
@@ -167,12 +171,6 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       setDeleteIds([]);setSelected([]);
     }catch(error){setDeleteError('会话清理未完成：'+String(error));}finally{setDeleting(false);}
   }
-  async function chooseWorkspace(){await act(async()=>{
-    const path=await pick(true);if(!path)return;
-    const folder=await api<{path:string}>('assistant_workspace',{path});
-    update(current.id,s=>({...s,workspace:path}));setWorkspacePath(folder.path);setWorkspaceNotice('已更改本会话的报告保存位置。');
-  });}
-  function useDefaultWorkspace(path:string){try{localStorage.setItem(workspaceKey,path);setWorkspaceNotice('已保存，新建会话会使用此目录。');}catch{setWorkspaceNotice('默认目录保存失败，请检查本地存储空间。');}}
   const elapsed=Math.max(0,Math.floor((clock-current.started)/1000));
   const runningReasoningChars=current.activities?.find(a=>a.kind==='reasoning'&&a.status==='running')?.text?.length||0;
   return <aside className={`assistant ${open?'open':''}`} style={{'--assistant-width':`${dimensions.width}px`,'--assistant-height':`${dimensions.height}px`} as CSSProperties} aria-label="工作台助手" aria-hidden={!open} inert={!open}>
@@ -186,7 +184,7 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       <button ref={sessionTrigger} className="assistant-session-current" aria-label="切换会话" aria-expanded={managing} aria-controls="assistant-session-manager" title={current.title} disabled={deleting} onClick={()=>{setManaging(v=>!v);setWorkspaceOpen(false);setDeleteIds([]);setDeleteError('');}}><strong>{current.title}</strong><CaretDown/></button>
       <div className="assistant-header-actions">
         <IconButton label="新建会话" disabled={deleting} onClick={addSession}><Plus/></IconButton>
-        <Tooltip content="报告保存位置" relationship="description"><Button appearance="subtle" size="small" icon={<FolderOpen/>} aria-label="配置报告工作区" aria-expanded={workspaceOpen} aria-controls="assistant-workspace-panel" onClick={()=>{setWorkspaceOpen(v=>!v);setManaging(false);}}/></Tooltip>
+        <Tooltip content="助理工作目录与权限" relationship="description"><Button appearance="subtle" size="small" icon={<FolderOpen/>} aria-label="查看助理工作目录与权限" aria-expanded={workspaceOpen} aria-controls="assistant-workspace-panel" onClick={()=>{setWorkspaceOpen(v=>!v);setManaging(false);}}/></Tooltip>
         <IconButton label="收起助手" onClick={onClose}><X/></IconButton>
       </div>
     </header>
@@ -202,17 +200,17 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       {deleteIds.length?<div className="assistant-delete" role="group" aria-label="确认删除会话"><strong>删除 {deleteIds.length} 个会话？</strong><p>聊天记录将被删除，已生成的报告保留。此操作无法撤销。</p>{deleteError&&<p className="inline-error" role="alert">{deleteError}</p>}<div><Button size="small" disabled={deleting} onClick={()=>setDeleteIds([])}>保留会话</Button><Button size="small" className="assistant-danger-action" disabled={deleting} onClick={()=>void removeSessions()}>{deleting?'正在删除…':'确认删除'}</Button></div></div>:<footer className="assistant-session-footer"><span>会话保存在本机</span><IconButton label="新建会话" onClick={addSession}><Plus size={18}/></IconButton></footer>}
     </section>}
     {workspaceOpen&&<section id="assistant-workspace-panel" className="assistant-workspace-panel" aria-label="报告工作区配置">
-      <div className="assistant-workspace-heading"><strong>报告保存位置</strong><small>{current.workspace?'自选目录':'默认目录'}</small></div>
-      <p>助手生成的文件核对报告保存在这里。</p><div className="assistant-workspace-path">{workspacePath||current.workspace||'正在获取默认目录…'}</div>
-      <div className="assistant-panel-actions"><Button size="small" disabled={!!current.task} onClick={()=>void chooseWorkspace()}>选择文件夹</Button><Button size="small" onClick={()=>void act(()=>api('assistant_workspace',{path:current.workspace||null,open:true}))}>打开目录</Button><Button size="small" disabled={!!current.task} onClick={()=>{update(current.id,s=>({...s,workspace:''}));setWorkspaceNotice('本会话已恢复应用默认目录。');}}>恢复默认</Button></div>
-      <Button size="small" disabled={!!current.task} onClick={()=>useDefaultWorkspace(current.workspace)}>新会话也用此目录</Button>
-      <p className="assistant-panel-hint">此处设置保存位置，不会自动读取文件或扩大助手的操作权限。更改目录不会移动已有报告。</p>{workspaceNotice&&<p role="status" className="assistant-panel-hint">{workspaceNotice}</p>}
+      <div className="assistant-workspace-heading"><strong>助理工作目录</strong><small>{!workspacePath?'未指定':workspacePermission.readWrite?'已授权读写':'权限关闭'}</small></div>
+      <p>授权后可读取确认过的文件，以及生成新的 TXT、Word、Excel、HTML、PPT。</p><div className="assistant-workspace-path">{workspacePath||'尚未指定，请到设置中选择专用文件夹'}</div>
+      <div className="assistant-panel-actions"><Button size="small" onClick={onWorkspaceSettings}>设置目录与权限</Button><Button size="small" disabled={!workspacePath} onClick={()=>void act(()=>api('assistant_workspace',{open:true}))}>打开目录</Button></div>
+      <p className="assistant-panel-hint">设置对所有会话生效；每次读写都有单项确认。更换目录或撤销权限会取消涉及文件的任务，不移动或删除已有文件。</p>{workspaceNotice&&<p role="status" className="assistant-panel-hint">{workspaceNotice}</p>}
     </section>}
     {!current.task&&!!evidence&&<div className="assistant-evidence-action"><Button size="small" onClick={()=>void send('仅根据本会话已收集的资料整理汇报，不进行搜索或其他工具操作。保留来源，明确资料不足之处。',true)}>仅整理已有资料</Button></div>}
     {storageError&&<div className="inline-error" role="alert">{storageError}</div>}
+    <AssistantFileApprovals taskId={current.task} open={open} onSelectTask={id=>setStore(old=>({...old,active:old.sessions.find(s=>s.task===id)?.id||old.active}))}/>
     {((settings.modelRequestTimeoutSecs??45)<300||(settings.assistantTaskTimeoutSecs??180)<600)&&<div className="assistant-budget-notice"><span>当前总等待预算较短，可能中断持续思考。</span><Button className="assistant-budget-action" appearance="subtle" size="small" aria-label="查看防中断配置建议" onClick={()=>void act(async()=>onProposal(await api<Proposal>('assistant_budget_proposal')))}>调整等待</Button></div>}
     <div className="assistant-conversation" onScroll={e=>{const el=e.currentTarget;follow.current=el.scrollHeight-el.scrollTop-el.clientHeight<70;}}>
-      {!current.messages.length?<div className="assistant-welcome"><Sparkle size={36} weight="thin"/><h3>查找、搜索与日常问题，<br/>都可以交给助手。</h3><p>新会话独立保留上下文、草稿和报告目录。<br/>本地文件只使用元数据；联网搜索需在设置中启用。</p><div className="suggestions">{['帮我搜索今天的科技新闻并附上来源','帮我查找名称包含“进度表”的文件','检查当前目录下缺少配套 PDF 交付件的文件夹'].map(s=><button key={s} onClick={()=>void send(s)}>{s}<ArrowUp/></button>)}</div></div>:current.messages.map((m,i)=><div className={`message ${m.role==='assistant'?'reply':m.role}`} key={i}><span>{m.role==='user'?'你':'Office 助手'}</span>{m.role==='assistant'&&<AssistantActivity scope={m.activityKey||current.id+':'+i} expanded={expanded} onToggle={toggleActivity} items={m.activities||[]} onLink={l=>void openLink(l)}/>}
+      {!current.messages.length?<div className="assistant-welcome"><Sparkle size={36} weight="thin"/><h3>查找、搜索与日常问题，<br/>都可以交给助手。</h3><p>未授权时仅使用文件元数据。<br/>制作或读取文件，请先设置助理工作目录并确认权限。</p><div className="suggestions">{['帮我搜索今天的科技新闻并附上来源','帮我查找名称包含“进度表”的文件','检查当前目录下缺少配套 PDF 交付件的文件夹'].map(s=><button key={s} onClick={()=>void send(s)}>{s}<ArrowUp/></button>)}</div></div>:current.messages.map((m,i)=><div className={`message ${m.role==='assistant'?'reply':m.role}`} key={i}><span>{m.role==='user'?'你':'Office 助手'}</span>{m.role==='assistant'&&<AssistantActivity scope={m.activityKey||current.id+':'+i} expanded={expanded} onToggle={toggleActivity} items={m.activities||[]} onLink={l=>void openLink(l)}/>}
       {m.role==='assistant'?<AssistantMarkdown text={m.text} onLink={l=>void openLink(l)}/>:<><p>{m.text}</p><AssistantImages images={m.images||[]}/></>}{m.role==='assistant'&&<IconButton label="复制回复" onClick={()=>void act(()=>copy(replyText(m)))}><Copy/></IconButton>}{<SearchSources links={m.links||[]} onLink={l=>void openLink(l)} onToggle={()=>{follow.current=false;}}/>}
       {m.role==='assistant'&&<AssistantDelivery delivery={m.delivery}/>}
       {m.status==='waiting_input'&&m.taskContext?.intent.pendingField==='scope'&&!current.task&&i===current.messages.length-1&&<div className="assistant-decision" role="group" aria-label="选择查询范围"><strong>选择查询范围</strong><p>选定范围后，助手继续完成这次任务。</p><div className="assistant-scope-answers">{[{scope:'current',label:'当前浏览目录',detail:'仅查询正在浏览的目录'},{scope:'workspace',label:'工作目录',detail:'查询已配置的工作目录'}].map(choice=><button className="assistant-choice" key={choice.scope} onClick={()=>void send(choice.label,false,{type:'scope_answer',scope:choice.scope as 'current'|'workspace'})}><FolderOpen size={20}/><span><strong>{choice.label}</strong><small>{choice.detail}</small></span><ArrowRight size={16}/></button>)}</div></div>}

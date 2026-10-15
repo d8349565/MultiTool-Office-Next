@@ -1,4 +1,4 @@
-use crate::{AppState, index::{Entry, within}, settings};
+use crate::{AppState, index::{Entry, within}};
 use serde_json::{json, Value};
 use std::{collections::HashSet, path::{Path, PathBuf}};
 
@@ -74,13 +74,8 @@ fn matches_companion(filename:&str,pattern:&str,mode:&str,extension:&str)->bool{
 }
 
 fn escape(s:&str)->String{s.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;").replace('"',"&quot;").replace('\'',"&#39;")}
-pub fn report_folder(state:&AppState,workspace:Option<&str>)->Result<PathBuf,String>{
-    let folder=match workspace {Some(p) if !p.is_empty()=>PathBuf::from(p),_=>state.dir.join("workspace")};
-    if !folder.is_absolute(){return Err("报告工作区必须是绝对路径".into());}
-    std::fs::create_dir_all(&folder).map_err(|e|e.to_string())?;
-    let folder=folder.canonicalize().map_err(|e|e.to_string())?;
-    if !folder.is_dir(){return Err("报告工作区必须是文件夹".into());}
-    Ok(folder)
+pub fn report_folder(_state:&AppState,_workspace:Option<&str>)->Result<PathBuf,String>{
+    Err("报告必须在用户指定且授权的工作目录中，经本次文件确认后生成；不存在默认报告目录".into())
 }
 pub fn write_report(state:&AppState,workspace:Option<&str>,title:&str,summary:&str,items:&[Entry],total:usize)->Result<Value,String>{
     if title.len()>1000 || summary.len()>20_000{return Err("报告标题或说明过长".into());}
@@ -93,14 +88,8 @@ pub fn write_report(state:&AppState,workspace:Option<&str>,title:&str,summary:&s
     }
     html.push_str("</tbody></table></html>");save_html(state,workspace,title,&html)
 }
-pub fn save_html(state:&AppState,workspace:Option<&str>,title:&str,html:&str)->Result<Value,String>{
-    if html.len()>20_000_000||title.len()>1000{return Err("报告内容或标题过长".into());}
-    let folder=report_folder(state,workspace)?;let id=uuid::Uuid::new_v4().to_string();let path=folder.join(format!("office-report-{id}.html"));
-    settings::atomic_write(&path,html.as_bytes())?;
-    if !path.is_file(){return Err("报告未成功落盘".into());}
-    let mut reports=state.reports.lock().unwrap();let mut next=reports.clone();next.insert(id.clone(),path.clone());
-    settings::atomic_write(&state.dir.join("reports.json"),&serde_json::to_vec(&next).map_err(|e|e.to_string())?)?;*reports=next;
-    Ok(json!({"id":id,"title":title,"path":path,"href":format!("office-report:{id}")}))
+pub fn save_html(_state:&AppState,_workspace:Option<&str>,_title:&str,_html:&str)->Result<Value,String>{
+    Err("旧报告写入出口已关闭，请使用需要用户确认的报告生成流程".into())
 }
 
 pub fn from_trace(state:&AppState,args:&Value,trace:&[Value],workspace:Option<&str>)->Result<Value,String>{
@@ -114,6 +103,6 @@ pub fn from_trace(state:&AppState,args:&Value,trace:&[Value],workspace:Option<&s
 
 pub fn open_report(state:&AppState,id:&str)->Result<(),String>{
     let reports=state.reports.lock().unwrap();let path=reports.get(id).ok_or("报告已失效，请重新生成")?;
-    if Path::new(path).extension().and_then(|s|s.to_str())!=Some("html"){return Err("无效报告".into());}
+    if !["txt","docx","xlsx","html","pptx"].contains(&Path::new(path).extension().and_then(|s|s.to_str()).unwrap_or("")){return Err("无效生成文件".into());}
     open::that_detached(path).map_err(|e|e.to_string())
 }

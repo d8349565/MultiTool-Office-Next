@@ -34,7 +34,7 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
     case 'file_preview': return previewDemo(String(args.path),Number(args.page)||1,Number(args.sheet)||0) as T;
     case 'cancel_file_preview': return undefined as T;
     case 'bootstrap': return { settings, status, keys: { model:false, jev:false } } as T;
-    case 'assistant_workspace': return {path:args.path||'演示数据/报告工作区'} as T;
+    case 'assistant_workspace': return {path:'',readWrite:false,interactiveHtml:false,revision:0,needsReconfirmation:false,modelHost:''} as T;
     case 'index_status': return status as T;
     case 'list_dirs': return dirs.filter(d => cleanPath(d.parent) === cleanPath(String(args.path))) as T;
     case 'search': {

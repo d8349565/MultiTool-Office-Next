@@ -6,9 +6,7 @@ export type Link={kind:'report'|'folder'|'file'|'web';label:string;target:string
 export type Message={role:'user'|'assistant';text:string;images?:AssistantImage[];activityKey?:string;activities?:Activity[];trace?:AIResult['trace'];proposals?:Proposal[];links?:Link[];status?:AIResult['status'];fault?:AIResult['fault'];route?:string;delivery?:AIResult['delivery'];taskContext?:TaskContext;stats?:AssistantStats};
 export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;recoverTask?:string};
 export const sessionKey='office-assistant-conversations-v1';
-export const workspaceKey='office-assistant-default-workspace';
-function defaultWorkspace():string{try{return localStorage.getItem(workspaceKey)||'';}catch{return '';}}
-export function newConversation():Conversation{return {id:crypto.randomUUID(),title:'新会话',messages:[],draft:'',workspace:defaultWorkspace(),error:'',lastPrompt:'',task:'',progress:'',started:0};}
+export function newConversation():Conversation{return {id:crypto.randomUUID(),title:'新会话',messages:[],draft:'',workspace:'',error:'',lastPrompt:'',task:'',progress:'',started:0};}
 export function loadConversations():{sessions:Conversation[];active:string}{
   try{
     const saved=JSON.parse(localStorage.getItem(sessionKey)||'null');
@@ -27,8 +25,8 @@ export function resultLinks(trace:AIResult['trace']):Link[]{
   for(const item of trace||[]){
     const result=item.result as any;if(!result||typeof result!=='object')continue;
     if(item.tool==='web_search')for(const source of Array.isArray(result.results)?result.results:[]){if(typeof source.url==='string'&&webLink(source.url))links.push({kind:'web',target:source.url,label:source.title||source.url});}
-    const report=result.report||(item.tool==='report_create'&&result.id?result:null);
-    if(typeof report?.id==='string')links.push({kind:'report',target:report.id,label:`打开 HTML：${report.title||'分析报告'}`});
+    const report=result.report||(['report_create','document_create','html_app_create'].includes(item.tool)&&result.id?result:null);
+    if(typeof report?.id==='string')links.push({kind:'report',target:report.id,label:`打开 ${(report.format||'html').toUpperCase()}：${report.title||'生成文件'}`});
     if(['files_search','files_query','directory_tree','resultset_enrich','files_analyze','files_missing_companion','files_list_dirs'].includes(item.tool))for(const e of (Array.isArray(result)?result:result.items)||[]){
       if(typeof e.path==='string'&&!e.isDir&&item.tool!=='files_missing_companion')links.push({kind:'file',target:e.path,label:`定位文件：${e.name||e.path}`});
       const folder=e.isDir?e.path:e.parent;

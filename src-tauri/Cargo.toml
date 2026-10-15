@@ -29,11 +29,13 @@ sha2 = "0.10"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 serde_yaml = "0.9"
+quick-xml = "0.42"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 tauri-winrt-notification = "0.8.1"
-windows = { version = "0.62", features = ["UI_Notifications"] }
+windows = { version = "0.62", features = ["UI_Notifications", "Win32_Storage_FileSystem"] }
 
 [profile.release]
 lto = true

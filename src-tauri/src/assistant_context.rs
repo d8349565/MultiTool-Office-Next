@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 use rusqlite::OptionalExtension;
 use std::path::Path;
 
+// 模型工具定义、意图解析和执行校验共用，避免新增动作只更新其中一处。
+pub const OPERATIONS:&[&str]=&["query","enrich","tree","config","report","document","chat","clarify","failure"];
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default, deny_unknown_fields)]
 pub struct Intent {
@@ -18,6 +21,9 @@ pub struct Intent {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default)]
 pub struct TaskContext {
+    pub workspace_revision:u64,
+    pub has_workspace_file_data:bool,
+    pub file_workspace_binding:String,
     pub schema_version:u32, pub version:u64, pub session_id:String, pub task_id:String,
     pub intent:Intent, pub status:String, pub result_set_ids:Vec<String>,
     pub evidence_ids:Vec<String>,
@@ -66,7 +72,7 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
     if intent.relation.is_empty(){intent.relation="new".into();}
     if intent.scope=="explicit"&&intent.root.is_none(){intent.root=intent.request.root.clone();}
     if intent.relation=="resume"&&old.status=="waiting_input"&&old.intent.pending_field=="scope"&&intent.scope!="result"{intent.result_set_id=None;}
-    if !["new","continue","correction","resume"].contains(&intent.relation.as_str())||!["query","enrich","tree","config","report","chat","clarify","failure"].contains(&intent.operation.as_str())||!["","answer","table","html"].contains(&intent.delivery.as_str()){return Err("任务关系、动作或交付形式无效".into());}
+    if !["new","continue","correction","resume"].contains(&intent.relation.as_str())||!OPERATIONS.contains(&intent.operation.as_str())||!["","answer","table","html","file"].contains(&intent.delivery.as_str()){return Err("任务关系、动作或交付形式无效".into());}
     validate_fields(&mut intent.fields)?;
     if intent.allowed_actions.iter().any(|tool|!["files_reveal","path_open","launcher_run","clipboard_copy","index_refresh","text_translate"].contains(&tool.as_str())){return Err("任务请求包含未开放的操作权限".into());}
     if intent.relation!="new"{
@@ -103,6 +109,8 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
             if requested.latest_only{intent.request.latest_only=true;}
             intent.request.count_only=false;intent.request.offset=requested.offset;
         }
+    }else if intent.operation=="document"{
+        intent.root=None;intent.scope="current".into();
     }else{
         let scope=if intent.scope.is_empty()||intent.scope=="result"{"current"}else{intent.scope.as_str()};
         intent.root=match scope{
@@ -121,7 +129,7 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
     if intent.request.recursive.is_none(){intent.request.recursive=Some(true);}
     if intent.operation=="tree"{intent.request.kind="directory".into();intent.request.count_only=false;}
     if intent.operation=="clarify"&&(intent.question.trim().is_empty()||!["scope","date","goal","field"].contains(&intent.pending_field.as_str())){return Err("澄清问题或待补条件无效".into());}
-    let current=TaskContext{schema_version:1,version:old.version+1,session_id:old.session_id.clone(),task_id:task.into(),status:if intent.operation=="clarify"{"waiting_input"}else{"running"}.into(),result_set_ids:ids,evidence_ids:if intent.relation!="new"{old.evidence_ids.clone()}else{vec![]},intent};
+    let current=TaskContext{file_workspace_binding:old.file_workspace_binding.clone(),has_workspace_file_data:old.has_workspace_file_data,workspace_revision:context["nativeWorkspaceRevision"].as_u64().unwrap_or(0),schema_version:1,version:old.version+1,session_id:old.session_id.clone(),task_id:task.into(),status:if intent.operation=="clarify"{"waiting_input"}else{"running"}.into(),result_set_ids:ids,evidence_ids:if intent.relation!="new"{old.evidence_ids.clone()}else{vec![]},intent};
     save(state,&current)?;Ok(current)
 }
 pub fn attach(state:&AppState,current:&mut TaskContext,result:&Value)->Result<(),String>{
@@ -129,6 +137,7 @@ pub fn attach(state:&AppState,current:&mut TaskContext,result:&Value)->Result<()
     if let Some(id)=result["resultSetId"].as_str(){if !current.result_set_ids.iter().any(|s|s==id){current.result_set_ids.push(id.into());}}
     current.version+=1;save(state,current)
 }
+pub fn mark_workspace_data(state:&AppState,current:&mut TaskContext)->Result<(),String>{crate::assistant_workspace::authorize(state,current.workspace_revision)?;current.has_workspace_file_data=true;current.file_workspace_binding=crate::assistant_workspace::binding(state);current.version+=1;save(state,current)}
 pub fn finish(state:&AppState,current:&mut TaskContext,status:&str)->Result<(),String>{
     current.status=status.into();current.version+=1;save(state,current)
 }
@@ -205,6 +214,7 @@ pub fn delivery_text(result:&Value,current:&TaskContext)->String{
     crate::assistant_work::answer(result)
 }
 pub fn validate_delivery(state:&AppState,current:&TaskContext,trace:&[Value])->Result<(),String>{
+    if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){return Err("尚未在用户确认后生成本轮要求的文件；不能声称已完成".into());}
     if current.intent.delivery=="html"{
         let reports=state.reports.lock().unwrap();
         if !trace.iter().any(|r|{let p=if r["tool"]=="report_create"{&r["result"]}else{&r["result"]["report"]};p["id"].as_str().is_some_and(|id|reports.get(id).is_some_and(|path|path.is_file()))}){return Err("尚未生成并验证本轮要求的网页报告".into());}

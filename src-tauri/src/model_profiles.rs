@@ -81,7 +81,7 @@ pub async fn model_test(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandl
     if stored.model_url!=profile.model_url||stored.model_id!=profile.model_id{return Err("配置已变化，请重新测试".into());}
     stored.tested_at=Some(now());
     if secret.is_some(){stored.credential_revision=stored.credential_revision.checked_add(1).ok_or("密钥版本超出范围，请新增配置")?;}
-    let saved=persist(&state,&mut current,next,&profile_id,secret)?;drop(current);announce(&app,&saved);
+    let saved=persist(&state,&mut current,next,&profile_id,secret)?;drop(current);announce(&app,&saved);crate::assistant_workspace::model_service_changed(&state,&app);
     Ok(json!({"settings":saved,"result":result,"profileId":profile_id}))
 }
 
@@ -92,7 +92,7 @@ pub fn model_profile_activate(state:tauri::State<Arc<AppState>>,app:tauri::AppHa
     if profile.tested_at.is_none(){return Err("请先测试此配置，成功后才能使用".into());}
     ai::key(&credential(Some(&profile_id)))?.get_password().map_err(|_|"这份配置尚未保存密钥，请先测试并保存")?;
     next.model_url=profile.model_url.clone();next.model_id=profile.model_id.clone();next.active_model_profile_id=Some(profile_id);
-    let saved=settings::save(&state.dir,&current,next)?;*current=saved.clone();drop(current);announce(&app,&saved);Ok(saved)
+    let saved=settings::save(&state.dir,&current,next)?;*current=saved.clone();drop(current);announce(&app,&saved);crate::assistant_workspace::model_service_changed(&state,&app);Ok(saved)
 }
 fn now()->u64{std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()}
 

@@ -7,10 +7,10 @@ import { basename, samePath } from './domain';
 export function IconButton({label,children,onClick,disabled=false}:{label:string;children:ReactNode;onClick:()=>void;disabled?:boolean}) {
   return <Tooltip content={label} relationship="label"><Button appearance="subtle" size="small" icon={<>{children}</>} aria-label={label} onClick={onClick} disabled={disabled}/></Tooltip>;
 }
-export function Modal({title,children,onClose,wide=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean}) {
+export function Modal({title,children,onClose,wide=false,className=''}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean;className?:string}) {
   const ref=useRef<HTMLDialogElement>(null);
   useEffect(()=>{const d=ref.current!;d.showModal();return()=>d.close();},[]);
-  return <dialog ref={ref} className={`modal ${wide?'wide':''}`} onCancel={e=>{e.preventDefault();onClose();}} aria-label={title} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+  return <dialog ref={ref} className={`modal ${wide?'wide':''} ${className}`} onCancel={e=>{e.preventDefault();onClose();}} aria-label={title} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
     <header><h2>{title}</h2><IconButton label="关闭" onClick={onClose}><X/></IconButton></header><div className="modal-body">{children}</div>
   </dialog>;
 }

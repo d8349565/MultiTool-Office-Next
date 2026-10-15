@@ -2,7 +2,7 @@ import type { Activity } from './types';
 import { ArrowUpRight, CaretDown, BookOpen } from '@phosphor-icons/react';
 import { AssistantMarkdown } from './AssistantMarkdown';
 import { type Link, webLink } from './assistantState';
-const names:Record<string,string>={files_query:'查询目录信息',files_analyze:'分析业务文件',resultset_enrich:'补充原结果字段',directory_tree:'获取目录结构',task_clarify:'等待补充条件',web_search:'联网搜索',files_search:'搜索本地文件',files_list_dirs:'浏览目录',files_missing_companion:'核对配套文件',report_create:'生成报告',app_get_state:'查看工作台状态',settings_read:'读取设置',settings_propose_change:'提出设置变更',model_config_add:'新增模型连接配置',text_translate:'翻译文本',files_reveal:'定位文件',path_open:'打开路径',launcher_run:'启动工具',index_refresh:'刷新索引',clipboard_copy:'复制文本'};
+const names:Record<string,string>={workspace_list_files:'查看授权工作目录',workspace_read_file:'确认读取文件',document_create:'确认生成文件',html_app_create:'确认生成交互网页',files_query:'查询目录信息',files_analyze:'分析业务文件',resultset_enrich:'补充原结果字段',directory_tree:'获取目录结构',task_clarify:'等待补充条件',web_search:'联网搜索',files_search:'搜索本地文件',files_list_dirs:'浏览目录',files_missing_companion:'核对配套文件',report_create:'生成报告',app_get_state:'查看工作台状态',settings_read:'读取设置',model_config_add:'新增模型连接配置',settings_propose_change:'提出设置变更',text_translate:'翻译文本',files_reveal:'定位文件',path_open:'打开路径',launcher_run:'启动工具',index_refresh:'刷新索引',clipboard_copy:'复制文本'};
 const statuses={running:'进行中',completed:'已完成',failed:'失败',interrupted:'已中断'};
 export function AssistantActivity({items,onLink,scope,expanded,onToggle}:{items:Activity[];onLink:(l:Link)=>void;scope:string;expanded:Record<string,boolean>;onToggle:(key:string,open:boolean)=>void}){
   if(!items.length)return null;

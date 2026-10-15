@@ -14,7 +14,7 @@ export function AssistantDocuments({onDirtyChange}:{onDirtyChange?:(dirty:boolea
     {!documents?<Button disabled={busy} onClick={()=>void load()}>编辑助理文件</Button>:<>
       <label>助理文件<select value={name} disabled={busy||dirty} onChange={e=>{setName(e.target.value);setText(documents.files.find(f=>f.name===e.target.value)?.text||'');setMessage('');setError('');}}><option value="SOUL.md">SOUL.md · 性格与表达</option><option value="AGENTS.md">AGENTS.md · 工作规范</option><option value="USER.md">USER.md · 用户偏好</option></select></label>
       <textarea aria-label="助理文件内容" value={text} disabled={busy} onChange={e=>setText(e.target.value)} rows={12}/>
-      <p className="document-path">{documents.directory}</p><div className="button-row"><Button disabled={busy||!dirty} onClick={()=>void save()}>保存助理文件</Button><Button disabled={busy} onClick={()=>void load()}>{dirty?'放弃修改并重新加载':'重新加载文件'}</Button></div><p>角色文件需要单独保存，“保存报告目录”只保存目录。{dirty?'当前有未保存的文件修改。':''}</p>
+      <p className="document-path">{documents.directory}</p><div className="button-row"><Button disabled={busy||!dirty} onClick={()=>void save()}>保存助理文件</Button><Button disabled={busy} onClick={()=>void load()}>{dirty?'放弃修改并重新加载':'重新加载文件'}</Button></div><p>角色文件需要单独保存，目录和权限在上方单独保存。{dirty?'当前有未保存的文件修改。':''}</p>
     </>}{message&&<p role="status">{message}</p>}{error&&<p role="alert" className="inline-error">{error}</p>}
   </section>;
 }

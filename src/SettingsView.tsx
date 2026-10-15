@@ -11,6 +11,7 @@ import { getLauncherVisual } from './launcherVisuals';
 import { PricingEditor } from './PricingEditor';
 import { ModelConnections } from './ModelConnections';
 import { rebaseSettings, settingsEqual } from './settingsDraft';
+import { AssistantWorkspaceSettings } from './AssistantWorkspaceSettings';
 
 const modules = [
   {id:'workspace',label:'工作台',description:'设置文件搜索范围、外观和默认浏览方式。',keys:['roots','theme','recursive','filter']},
@@ -23,7 +24,6 @@ const modules = [
 ] as const;
 export type ModuleId=typeof modules[number]['id'];
 type NumberKey='modelContextTokens'|'assistantOutputTokens'|'translationOutputTokens'|'modelFirstResponseTimeoutSecs'|'modelIdleTimeoutSecs'|'modelRequestTimeoutSecs'|'modelRetryCount'|'assistantTaskTimeoutSecs'|'assistantHistoryMessages'|'assistantHistoryChars'|'assistantToolRounds'|'assistantSearchLimit'|'assistantContinueTokens';
-function readWorkspace(){try{return localStorage.getItem(workspaceKey)||'';}catch{return '';}}
 
 export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{settings:Settings;onSaved:(s:Settings)=>void;onClose:()=>void;initialTab?:ModuleId}) {
   const [draft,setDraft]=useState(()=>structuredClone(settings)),[tab,setTab]=useState<ModuleId>(initialTab);
@@ -37,12 +37,12 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const closeWarning=useRef<HTMLDivElement>(null);
   function revealCloseWarning(){closeWarning.current?.scrollIntoView({block:'center'});closeWarning.current?.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});}
   useEffect(()=>{if(closing||pendingSecretAction)revealCloseWarning();},[closing,pendingSecretAction]);
-  const [workspace,setWorkspace]=useState(readWorkspace),[savedWorkspace,setSavedWorkspace]=useState(readWorkspace);
+  const [workspaceGrantDirty,setWorkspaceGrantDirty]=useState(false);
   const [imported,setImported]=useState<Settings|null>(null);
   const module=modules.find(m=>m.id===tab)!;
-  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]))||(m.id==='model'&&connectionDirty)||(m.id==='assistant'&&(workspace!==savedWorkspace||roleDirty))||(m.id==='transfer'&&imported!==null));
+  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]))||(m.id==='model'&&connectionDirty)||(m.id==='assistant'&&(workspaceGrantDirty||roleDirty))||(m.id==='transfer'&&imported!==null));
   const moduleFieldsDirty=module.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]));
-  const canSave=tab==='assistant'?workspace!==savedWorkspace:tab==='transfer'?!!imported:moduleFieldsDirty;
+  const canSave=tab==='assistant'?false:tab==='transfer'?!!imported:moduleFieldsDirty;
   useEffect(()=>{if(!dirtyModules.length&&!secret.trim())setClosing(false);},[dirtyModules.length,secret]);
   function requestClose(){if(busy)return;setPendingSecretAction(null);if(dirtyModules.length||secret.trim()){if(closing)revealCloseWarning();else setClosing(true);}else onClose();}
   const dirty=dirtyModules.some(m=>m.id===tab);
@@ -61,7 +61,6 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
     const panel=event.currentTarget.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])');
     for(const field of panel?.querySelectorAll<HTMLInputElement>('input,select')||[]){if(field.closest('.model-connections'))continue;if(!field.checkValidity()){const details=field.closest('details');if(details)details.open=true;field.reportValidity();return;}}
     await run(async()=>{
-      if(tab==='assistant'){if(workspace)await api('assistant_workspace',{path:workspace});localStorage.setItem(workspaceKey,workspace);setSavedWorkspace(workspace);setMessage('报告目录已保存，新建会话时生效。');return;}
       if(tab==='transfer'){
         if(!imported)return;
         const saved=await api<Settings>('save_settings',{next:{...imported,revision:savedSettings.revision}});acceptSaved(saved);
@@ -74,7 +73,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       setMessage(module.label+'已保存。'+(connectionDirty?'连接草稿请在上方测试并保存。':dirtyModules.some(m=>m.id!==tab)?'其他模块的草稿继续保留。':''));
     });
   }
-  function resetModule(){if(tab==='transfer'){setImported(null);setError('');setMessage('已取消本次导入。');return;}if(tab==='assistant'){setWorkspace(savedWorkspace);return;}setDraft(old=>{const next={...old};for(const key of module.keys)Object.assign(next,{[key]:savedSettings[key as keyof Settings]});return next;});setError('');setMessage('本模块参数已恢复为已保存的配置。');}
+  function resetModule(){if(tab==='transfer'){setImported(null);setError('');setMessage('已取消本次导入。');return;}if(tab==='assistant')return;setDraft(old=>{const next={...old};for(const key of module.keys)Object.assign(next,{[key]:savedSettings[key as keyof Settings]});return next;});setError('');setMessage('本模块参数已恢复为已保存的配置。');}
   async function exportSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {save}=await import('@tauri-apps/plugin-dialog');const path=await save({defaultPath:'office-next-settings.json',filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;await api('export_settings',{path});setMessage('已导出配置：'+path);}
   async function importSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {open}=await import('@tauri-apps/plugin-dialog');const path=await open({multiple:false,filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;setImported(null);const next=await api<Settings>('import_settings',{path});setImported(next);setMessage('配置已校验，请检查后点击“确认导入配置”。');}
   const deepseek=(()=>{try{return new URL(draft.modelUrl).hostname==='api.deepseek.com';}catch{return false;}})();
@@ -144,7 +143,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
           </div>{deepseek&&<p>深度求索开启思考时不发送随机程度；关闭思考后生效。采样范围按模型自身规则处理。</p>}</details>
         </div>
         <div id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant" hidden={tab!=='assistant'}>
-          <section className="settings-section"><h3>新会话的报告目录</h3><p>用于助手生成的文件核对报告。每个会话仍可另选目录。</p><div className="settings-workspace-path">{workspace||'应用数据目录中的默认报告文件夹'}</div><div className="button-row"><Button onClick={()=>void run(async()=>{const path=await pick(true);if(path)setWorkspace(path);})}>选择报告文件夹</Button><Button onClick={()=>setWorkspace('')}>使用应用默认目录</Button><Button onClick={()=>void run(async()=>{await api('assistant_workspace',{path:workspace||null,open:true});})}>打开报告目录</Button></div><p>保存此模块后，新建会话使用此目录。已有会话和报告不移动。</p></section>
+          <AssistantWorkspaceSettings modelUrl={savedSettings.modelUrl} onDirtyChange={setWorkspaceGrantDirty} onBusyChange={setBusy} disabled={busy}/>
           <AssistantDocuments onDirtyChange={setRoleDirty}/>
         </div>
         <div id="settings-panel-pricing" role="tabpanel" aria-labelledby="settings-tab-pricing" hidden={tab!=='pricing'}><PricingEditor value={draft.modelPricing} modelId={draft.modelId} modelUrl={draft.modelUrl} onChange={v=>change('modelPricing',v)}/></div>
@@ -161,7 +160,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       </div>
       {tab==='integrations'&&<section className="settings-section settings-credentials"><h3>服务密钥</h3><p>密钥单独保存到系统凭据管理器，保存模块时不会提交密钥。</p><div className="credential-form"><label>密钥服务<select value={provider} disabled={busy} onChange={e=>{const next=e.target.value;guardSecret(()=>{setProvider(next);setSecret('');});}}><option value="tavily">Tavily 联网搜索</option><option value="jev">TypeSafe / Jev</option></select></label><label>API 密钥<input type="password" autoComplete="off" disabled={busy} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="保存在系统凭据管理器"/></label><Button type="button" icon={<Key/>} disabled={!secret||busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret});setSecret('');setMessage('密钥已保存到系统凭据管理器');})}>保存密钥</Button><Button type="button" disabled={busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret:''});setMessage('密钥已删除');})}>清除密钥</Button></div></section>}
       </fieldset>{message&&<p className="notice" role="status">{message}</p>}{error&&<p className="inline-error" role="alert">{error}</p>}
-      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button><Button type="button" disabled={busy||!canSave} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></footer>
+      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&<><Button type="button" disabled={busy||!canSave} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
     </form>
   </Modal>;
 }

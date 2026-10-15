@@ -35,7 +35,7 @@ fn source_html(source:&Value,layout:&str,fields:&[String])->String{
         html.push_str(&format!("<tr><th>{}</th><td>{}</td></tr>",escape(label(key)),escape(&text(value))));}
     html.push_str("</tbody></table>");html
 }
-pub fn create(state:&AppState,current:&TaskContext,args:&Value,trace:&[Value],workspace:Option<&str>)->Result<Value,String>{
+pub fn render(state:&AppState,current:&TaskContext,args:&Value,trace:&[Value])->Result<(String,String),String>{
     let title=args["title"].as_str().unwrap_or("工作台报告");let summary=args["summary"].as_str().unwrap_or("");
     if title.len()>1000||summary.len()>20_000{return Err("报告标题或说明过长".into());}
     let mut sources=BTreeMap::<String,Value>::new();
@@ -67,5 +67,5 @@ pub fn create(state:&AppState,current:&TaskContext,args:&Value,trace:&[Value],wo
         if source["results"].is_array(){body.push_str("<p>公开资料基于搜索摘要整理，未读取网页全文。</p>");for r in source["results"].as_array().unwrap(){if let Some(url)=r["url"].as_str().and_then(crate::tavily::public_url){body.push_str(&format!("<p><a href=\"{}\" rel=\"noreferrer noopener\">{}</a></p>",escape(&url),escape(&text(&r["title"]))));}}}
     }body.push_str("</footer>");
     let html=format!("<!doctype html><html lang=zh-CN><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\"><title>{}</title><style>body{{font:14px system-ui;color:#263025;max-width:1100px;margin:32px auto;padding:0 24px;line-height:1.8}}h1{{font-size:28px}}h2{{margin-top:30px}}p,td{{white-space:pre-wrap;overflow-wrap:anywhere}}table{{border-collapse:collapse;width:100%}}th,td{{padding:9px;border-bottom:1px solid #dce1d7;text-align:left;vertical-align:top}}th{{background:#f2f5ee}}a{{color:#456829}}.table-scroll{{overflow:auto}}.tree{{list-style:none;padding-left:20px;border-left:1px solid #dce1d7}}summary{{cursor:pointer}}.muted,footer{{color:#65715f;font-size:12px}}footer{{border-top:1px solid #dce1d7;margin-top:30px}}.metric{{font-size:32px}}.bar{{display:flex;gap:12px;align-items:center}}.bar span{{width:160px}}meter{{flex:1}}</style><main>{}</main></html>",escape(title),body);
-    crate::assistant_tools::save_html(state,workspace,title,&html)
+    Ok((title.into(),html))
 }

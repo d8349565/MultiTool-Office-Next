@@ -26,6 +26,8 @@ export interface DeliveryTable {columns:{key:string;label:string}[];rows:{path:s
 export interface Activity { id: string; kind: 'reasoning' | 'note' | 'tool'; status: 'running' | 'completed' | 'failed' | 'interrupted'; text?: string; tool?: string; args?: unknown; result?: unknown; elapsedMs?: number }
 export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; format?: 'plain'|'markdown'|'html'; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; answers?: Record<string, { choice?: string; confidence?: number; score?: number }>; usage?: unknown; model?: string }
 export interface Bootstrap { settings: Settings; status: Status; keys: { model: boolean; jev: boolean; tavily?: boolean } }
+export interface AssistantWorkspace {path:string;readWrite:boolean;interactiveHtml:boolean;revision:number;needsReconfirmation:boolean;modelHost:string}
+export interface FileApproval {id:string;taskId:string;kind:'read'|'create';filename:string;format:string;preview:string;size:number;directory:string;modelHost:string;interactiveHtml:boolean;expiresAt:number}
 
 export type TodoQuadrant = 0 | 1 | 2 | 3 | 4;
 export interface TodoSubtask { id: string; title: string; completed: boolean }
