@@ -702,7 +702,7 @@ export default function TodoWorkbench({ visible, reminderRequest }: { visible: b
                 onClick={() => setMaximizedQuadrant(maximizedQuadrant === 0 ? null : 0)}><ArrowsOutSimple size={15} aria-hidden="true"/></button>
             </div>
           </div>
-          <p className="todo-inbox-caption">待办与灵感，稍后再归类</p>
+          <p className="todo-inbox-caption">拖动条目到四象限归类</p>
           {maximizedQuadrant === 0 && renderFlowStrip(0)}
           <div className="todo-card-scroll" {...getDropProps(0)}>{inboxItems.length ? inboxItems.map(renderCard) : renderEmpty('随时记录，稍后归类')}</div>
         </>}
