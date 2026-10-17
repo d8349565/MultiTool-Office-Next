@@ -7,8 +7,8 @@ pub fn registry() -> Value {
 pub fn public_url(raw: &str) -> Option<String> {
     let url = reqwest::Url::parse(raw).ok()?;
     if !matches!(url.scheme(), "https"|"http") || !url.username().is_empty() || url.password().is_some() { return None; }
-    let host=url.host_str()?;
-    if host=="localhost" || host.ends_with(".localhost") || !host.contains('.') || host.parse::<std::net::IpAddr>().is_ok() { return None; }
+    let host=url.host_str()?.trim_end_matches('.');
+    if host=="localhost" || [".localhost",".local",".internal",".lan",".home",".onion"].iter().any(|suffix|host.ends_with(suffix)) || !host.contains('.') || host.trim_matches(['[',']']).parse::<std::net::IpAddr>().is_ok() { return None; }
     Some(url.to_string())
 }
 fn body(args: &Value) -> Result<Value, String> {
@@ -55,7 +55,7 @@ async fn perform(body:Value,secret:&str,cancel:&AtomicBool,feature:crate::networ
 }
 
 #[tauri::command]
-pub async fn tavily_test_connection(secret:Option<String>)->Result<Value,String>{
+pub async fn tavily_test_connection(state:tauri::State<'_,std::sync::Arc<crate::AppState>>,secret:Option<String>)->Result<Value,String>{
     let entry=crate::ai::key("tavily")?;
     let previous=match entry.get_password(){Ok(value)=>Some(value),Err(keyring::Error::NoEntry)=>None,Err(_)=>return Err("无法读取原 Tavily 凭据状态，请检查 Windows 凭据管理器".into())};
     let supplied=secret.as_deref().map(str::trim).filter(|s|!s.is_empty());
@@ -67,6 +67,6 @@ pub async fn tavily_test_connection(secret:Option<String>)->Result<Value,String>
     let result=perform(body,key,&cancel,crate::network::Feature::SearchTest).await?;
     if supplied.is_some(){entry.set_password(key).map_err(|_|"搜索测试成功，但密钥保存失败，原配置未主动删除")?;}
     let tested=match crate::network::tavily_tested(key){Ok(time)=>time,Err(error)=>{if supplied.is_some(){let restored=if let Some(old)=previous.as_deref(){entry.set_password(old)}else{entry.delete_credential()};if restored.is_err(){return Err("测试记录保存失败，且密钥恢复失败，请重新测试并保存".into());}}return Err(error);}};
-    if supplied.is_some()&&previous.as_deref()!=Some(key){crate::network::invalidate_feature("search")?;}
+    if supplied.is_some()&&previous.as_deref()!=Some(key)&&state.settings.lock().unwrap().search_provider=="tavily"{crate::network::invalidate_feature("search")?;}
     Ok(json!({"testedAt":tested,"elapsedMs":start.elapsed().as_millis(),"resultCount":result["results"].as_array().map_or(0,Vec::len)}))
 }

@@ -31,7 +31,10 @@ pub struct Settings {
     #[serde(default)] pub model_profiles: Vec<ModelProfile>,
     #[serde(default)] pub active_model_profile_id: Option<String>,
     #[serde(default)] pub model_connection_revision:u64,
-    #[serde(default)] pub tavily_enabled: bool,
+    #[serde(default, alias="tavilyEnabled")] pub search_enabled: bool,
+    #[serde(default="default_search_provider")] pub search_provider: String,
+    #[serde(default)] pub deepseek_search_profile_id: Option<String>,
+    #[serde(default)] pub deepseek_fetch_enabled: bool,
     #[serde(default="default_reasoning")] pub assistant_reasoning: String,
     #[serde(default="default_reasoning")] pub translation_reasoning: String,
     #[serde(default)] pub model_context_tokens: u32,
@@ -61,11 +64,12 @@ fn default_history_messages()->usize{12}
 fn default_history_chars()->usize{4000}
 fn default_tool_rounds()->u32{25}
 fn default_search_limit()->usize{8}
+fn default_search_provider()->String{"tavily".into()}
 fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, tavily_enabled: false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -84,6 +88,11 @@ pub fn launcher_target(raw: &str) -> Result<LauncherTarget, String> {
 }
 pub fn validate(s: &Settings) -> Result<(), String> {
     crate::pricing::validate(&s.model_pricing)?;
+    if !["tavily","deepseek"].contains(&s.search_provider.as_str()){return Err("未知搜索渠道".into());}
+    if let Some(id)=&s.deepseek_search_profile_id {
+        let profile=crate::model_profiles::profiles(s).into_iter().find(|p|&p.id==id).ok_or("搜索复用的模型配置不存在")?;
+        if !crate::web_search::official_deepseek(&profile.model_url){return Err("搜索只能复用 DeepSeek 官方服务的模型密钥".into());}
+    }
     if s.schema_version != 1 { return Err("不支持的配置版本".into()); }
     if !["light", "dark", "system"].contains(&s.theme.as_str()) { return Err("无效主题".into()); }
     for effort in [&s.assistant_reasoning,&s.translation_reasoning] {if !["default","none","minimal","low","medium","high","xhigh","max","ultra"].contains(&effort.to_ascii_lowercase().as_str()){return Err("无效思考程度".into());}}
@@ -154,7 +163,9 @@ pub fn patch(old: &Settings, changes: &Value) -> Result<Settings, String> {
     let mut value = serde_json::to_value(old).unwrap();
     for (key, v) in changes {
         if !["roots", "theme", "recursive", "filter", "launchers", "assistantReasoning", "translationReasoning", "assistantOutputTokens", "translationOutputTokens", "modelRequestTimeoutSecs", "modelFirstResponseTimeoutSecs", "modelIdleTimeoutSecs", "modelRetryCount", "assistantTaskTimeoutSecs", "assistantHistoryMessages", "assistantHistoryChars", "assistantToolRounds", "assistantSearchLimit", "assistantAutoContinue", "assistantContinueTokens", "modelContextTokens", "modelTemperature", "modelTopP", "modelPricing"].contains(&key.as_str()) { return Err(format!("助手不能修改 {key}")); }
-        value[key] = v.clone();
+        let mut updated=v.clone();
+        if key=="modelPricing"&&updated.is_object()&&updated.get("toolRates").is_none(){updated["toolRates"]=json!(old.model_pricing.tool_rates);}
+        value[key] = updated;
     }
     if changes.get("modelRetryCount").and_then(Value::as_u64).is_some_and(|n|n>2){return Err("重试最多2次".into());}
     let next = serde_json::from_value(value).map_err(|e| format!("配置结构无效：{e}"))?;
@@ -200,7 +211,7 @@ mod tests {
                 Launcher { id: "local".into(), name: "常用文件".into(), path: dir.path().join("报价单.pdf").to_string_lossy().into_owned(), group: "文档".into() },
                 Launcher { id: "web".into(), name: "工作门户".into(), path: "https://example.com/office".into(), group: "网页".into() },
             ],
-            model_url: "https://example.com/v1".into(), model_id: "办公模型".into(), jev_enabled: true, tavily_enabled: true,
+            model_url: "https://example.com/v1".into(), model_id: "办公模型".into(), jev_enabled: true, search_enabled: true,search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false,
             model_profiles:vec![], active_model_profile_id:None,
             model_connection_revision:0,
             assistant_reasoning: "medium".into(), translation_reasoning: "low".into(), model_context_tokens: 32000,

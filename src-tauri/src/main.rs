@@ -19,6 +19,7 @@ mod task_state;
 mod assistant_profile;
 mod assistant_images;
 mod tavily;
+mod web_search;
 mod assistant_tools;
 mod shell;
 mod window_state;
@@ -57,18 +58,24 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
 #[tauri::command] fn index_status(state:tauri::State<Arc<AppState>>)->index::Status{state.index.status.lock().unwrap().clone()}
 #[tauri::command] fn reindex(state:tauri::State<Arc<AppState>>){let _=state.index.refresh.send(());}
 #[tauri::command] fn save_settings(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle,next:settings::Settings)->Result<settings::Settings,String>{
-    let mut current=state.settings.lock().unwrap();let next=settings::save(&state.dir,&current,next)?;let roots_changed=next.roots!=current.roots;let search_changed=next.tavily_enabled!=current.tavily_enabled;*current=next.clone();if roots_changed{state.index.configure(&next.roots);}drop(current);if search_changed{network::search_changed(next.tavily_enabled)?;}assistant_workspace::model_service_changed(&state,&app);Ok(next)
+    let mut current=state.settings.lock().unwrap();
+    let search_changed=next.search_enabled!=current.search_enabled||next.search_provider!=current.search_provider||next.deepseek_search_profile_id!=current.deepseek_search_profile_id||next.deepseek_fetch_enabled!=current.deepseek_fetch_enabled||next.assistant_search_limit!=current.assistant_search_limit;
+    let needs_test=!current.search_enabled||next.search_provider!=current.search_provider||next.deepseek_search_profile_id!=current.deepseek_search_profile_id||next.deepseek_fetch_enabled&&!current.deepseek_fetch_enabled;
+    if next.search_enabled&&needs_test{web_search::ready(&next)?;}
+    let next=settings::save(&state.dir,&current,next)?;let roots_changed=next.roots!=current.roots;*current=next.clone();if roots_changed{state.index.configure(&next.roots);}drop(current);if search_changed{network::search_changed(next.search_enabled)?;}assistant_workspace::model_service_changed(&state,&app);Ok(next)
 }
 #[tauri::command] fn decide_proposal(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle,id:String,approve:bool)->Result<settings::Settings,String>{
     let next=state.proposals.lock().unwrap().remove(&id).ok_or("提案已失效")?;
     if approve {save_settings(state,app,next)}else{Ok(state.settings.lock().unwrap().clone())}
 }
-#[tauri::command] fn set_key(provider:String,secret:String)->Result<(),String>{
-    if provider!="tavily"&&provider!="jev"{return Err("模型密钥请在模型连接中测试并保存".into());}
-    if provider=="tavily"&&!secret.is_empty(){return Err("Tavily 密钥请通过测试并保存，避免替换有效配置".into());}
+#[tauri::command] fn set_key(state:tauri::State<Arc<AppState>>,provider:String,secret:String)->Result<(),String>{
+    if !["tavily","deepseek-search","jev"].contains(&provider.as_str()){return Err("模型密钥请在模型连接中测试并保存".into());}
+    if provider!="jev"&&!secret.is_empty(){return Err("搜索密钥请通过测试并保存，避免替换有效配置".into());}
     let entry=ai::key(&provider)?;
     if secret.is_empty(){match entry.delete_credential(){Ok(())|Err(keyring::Error::NoEntry)=>{},Err(e)=>return Err(e.to_string())}}else{entry.set_password(&secret).map_err(|e|e.to_string())?;}
-    for feature in if provider=="tavily"{["search","search_test"]}else{["jev","ocr_jev"]}{network::invalidate_feature(feature)?;}Ok(())
+    let active=state.settings.lock().unwrap().clone();
+    let current=provider=="tavily"&&active.search_provider=="tavily"||provider=="deepseek-search"&&active.search_provider=="deepseek"&&active.deepseek_search_profile_id.is_none();
+    for feature in if provider=="jev"{vec!["jev","ocr_jev"]}else if current{vec!["search","search_fetch","search_test"]}else{vec!["search_test"]}{network::invalidate_feature(feature)?;}Ok(())
 }
 #[tauri::command] fn import_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<settings::Settings,String>{settings::import(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] fn export_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<(),String>{settings::export(Path::new(&path),&state.settings.lock().unwrap())}
@@ -195,7 +202,7 @@ fn main(){
             std::fs::create_dir_all(&dir)?;
             if let Some(window)=app.get_webview_window("main"){window_state::install(window,&dir);}
             let settings=settings::load(&dir).map_err(std::io::Error::other)?;
-            network::init(&dir,app.handle().clone(),!settings.roots.is_empty()||!settings.model_url.is_empty(),settings.tavily_enabled).map_err(std::io::Error::other)?;
+            network::init(&dir,app.handle().clone(),!settings.roots.is_empty()||!settings.model_url.is_empty(),settings.search_enabled).map_err(std::io::Error::other)?;
             let (index,rx)=Index::open(&dir).map_err(std::io::Error::other)?;index.configure(&settings.roots);index.clone().spawn(rx);
             let reports=std::fs::read(dir.join("reports.json")).ok().and_then(|data|serde_json::from_slice::<HashMap<String,std::path::PathBuf>>(&data).ok()).unwrap_or_default();
             let ocr_exe=if cfg!(debug_assertions){std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/ocr-worker/ocr-worker.exe")}else{app.path().resource_dir()?.join("ocr-worker/ocr-worker.exe")};
@@ -211,6 +218,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
+        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

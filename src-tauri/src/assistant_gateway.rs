@@ -7,7 +7,7 @@ pub fn capability(tool:&str)->Result<Capability,String>{
     Ok(match tool{
         "files_query"|"resultset_enrich"|"directory_tree"|"files_search"|"files_analyze"|"files_list_dirs"|"files_missing_companion"=>Capability::Metadata,
         "settings_read"|"app_get_state"|"pricing_read"=>Capability::AppState,
-        "web_search"=>Capability::PublicSearch,
+        "web_search"|"web_fetch"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
         "workspace_list_files"|"workspace_read_file"|"document_create"|"html_app_create"=>Capability::WorkspaceFile,
         "settings_propose_change"|"pricing_propose_change"|"model_config_add"=>Capability::SettingsProposal,
@@ -30,7 +30,11 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
         }}
         if let Some(id)=args["resultSetId"].as_str(){crate::assistant_context::evidence(state,&current.session_id,id)?;}
     }
-    if capability==Capability::PublicSearch&&!state.settings.lock().unwrap().tavily_enabled{return Err("请先在设置中启用 Tavily 联网搜索".into());}
+    if capability==Capability::PublicSearch{
+        let s=state.settings.lock().unwrap();
+        if !s.search_enabled||s.assistant_search_limit==0{return Err("请先在设置中启用联网搜索并配置任务次数上限".into());}
+        if tool=="web_fetch"&&(s.search_provider!="deepseek"||!s.deepseek_fetch_enabled){return Err("额外网页正文抓取尚未开启".into());}
+    }
     if capability==Capability::PublicSearch&&current.has_workspace_file_data{return Err("本会话已接触本地工作目录资料，禁止把它们带入公开搜索；需要搜索公开资料请新建会话".into());}
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}

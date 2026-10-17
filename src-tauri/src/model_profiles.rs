@@ -82,6 +82,7 @@ pub async fn model_test(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandl
     stored.tested_at=Some(now());
     if secret.is_some(){stored.credential_revision=stored.credential_revision.checked_add(1).ok_or("密钥版本超出范围，请新增配置")?;}
     let saved=persist(&state,&mut current,next,&profile_id,secret)?;drop(current);announce(&app,&saved);crate::assistant_workspace::model_service_changed(&state,&app);
+    if secret.is_some()&&saved.search_provider=="deepseek"&&saved.deepseek_search_profile_id.as_deref()==Some(profile_id.as_str()){crate::network::invalidate_feature("search")?;crate::network::invalidate_feature("search_fetch")?;crate::network::invalidate_feature("search_test")?;}
     Ok(json!({"settings":saved,"result":result,"profileId":profile_id}))
 }
 

@@ -1,8 +1,9 @@
+import type { ServiceUsage } from './types';
 import type { Activity, AIResult, Proposal, TaskContext } from './types';
 import { withTaskScope } from './assistantMetrics';
 import type { AssistantStats } from './assistantMetrics';
 import { imageReferences, type AssistantImage } from './assistantImages';
-export type Link={kind:'report'|'folder'|'file'|'web';label:string;target:string};
+export type Link={kind:'report'|'folder'|'file'|'web';label:string;target:string;contentKind?:'summary'|'fulltext';truncated?:boolean};
 export type Message={role:'user'|'assistant';text:string;images?:AssistantImage[];activityKey?:string;activities?:Activity[];trace?:AIResult['trace'];proposals?:Proposal[];links?:Link[];status?:AIResult['status'];fault?:AIResult['fault'];route?:string;delivery?:AIResult['delivery'];taskContext?:TaskContext;stats?:AssistantStats};
 export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;recoverTask?:string};
 export const sessionKey='office-assistant-conversations-v1';
@@ -24,7 +25,7 @@ export function resultLinks(trace:AIResult['trace']):Link[]{
   const links:Link[]=[];
   for(const item of trace||[]){
     const result=item.result as any;if(!result||typeof result!=='object')continue;
-    if(item.tool==='web_search')for(const source of Array.isArray(result.results)?result.results:[]){if(typeof source.url==='string'&&webLink(source.url))links.push({kind:'web',target:source.url,label:source.title||source.url});}
+    if(['web_search','web_fetch'].includes(item.tool))for(const source of Array.isArray(result.results)?result.results:[]){if(typeof source.url==='string'&&webLink(source.url))links.push({kind:'web',target:source.url,label:source.title||source.url,contentKind:source.contentKind==='fulltext'?'fulltext':'summary',truncated:!!source.truncated});}
     const report=result.report||(['report_create','document_create','html_app_create'].includes(item.tool)&&result.id?result:null);
     if(typeof report?.id==='string')links.push({kind:'report',target:report.id,label:`打开 ${(report.format||'html').toUpperCase()}：${report.title||'生成文件'}`});
     if(['files_search','files_query','directory_tree','resultset_enrich','files_analyze','files_missing_companion','files_list_dirs'].includes(item.tool))for(const e of (Array.isArray(result)?result:result.items)||[]){
@@ -35,7 +36,9 @@ export function resultLinks(trace:AIResult['trace']):Link[]{
     for(const group of result.groups||[])for(const path of group.paths||[])if(typeof path==='string')links.push({kind:'file',target:path,label:`定位文件：${path}`});
     if(item.tool==='path_open'&&typeof result.path==='string')links.push({kind:'file',target:result.path,label:`定位文件：${result.path}`});
   }
-  return links.filter((l,i)=>links.findIndex(x=>x.kind===l.kind&&x.target===l.target)===i);
+  const unique=new Map<string,Link>();
+  for(const link of links){const key=link.kind+':'+link.target,old=unique.get(key);if(!old||(link.contentKind==='fulltext'&&(old.contentKind!=='fulltext'||old.truncated&&!link.truncated)))unique.set(key,link);}
+  return [...unique.values()];
 }
 export function localLink(href:string):Link|null{
   try{
@@ -55,8 +58,8 @@ export function evidenceSummary(messages:Message[]):string{
     const trace=message.trace||message.activities?.filter(a=>a.kind==='tool'&&a.result!==undefined).map(a=>({tool:a.tool||'',result:a.result}))||[];
     for(const call of trace){
       const result=call.result as any;if(!result||typeof result!=='object')continue;
-      if(call.tool==='web_search')for(const r of result.results||[]){
-        if(typeof r.url==='string'&&webLink(r.url))sources.set(r.url,{title:r.title,url:r.url,content:String(r.content||'').slice(0,500),publishedDate:r.publishedDate});
+      if(['web_search','web_fetch'].includes(call.tool))for(const r of result.results||[]){
+        if(typeof r.url==='string'&&webLink(r.url))sources.set(r.url,{title:r.title,url:r.url,content:String(r.rawContent||r.content||'').slice(0,4000),contentKind:r.contentKind,truncated:!!r.truncated||String(r.rawContent||r.content||'').length>4000,publishedDate:r.publishedDate});
       }
       else results.push({tool:call.tool,total:result.total,scope:result.scope,report:result.report,error:result.error,items:(Array.isArray(result)?result:result.items||[]).slice(0,5).map((r:any)=>({name:r.name,path:r.path,parent:r.parent}))});
     }
@@ -80,15 +83,16 @@ export function lastQuery(messages:Message[]):unknown{
   return null;
 }
 export function taskMessage(result:AIResult,key:string,stats?:AssistantStats):Message{
-  return {role:'assistant',activityKey:key,text:result.text||result.fault?.message||'任务未返回正文',activities:finishActivities(result.activities),trace:result.trace,proposals:result.proposals,links:resultLinks(result.trace),status:result.status,fault:result.fault,route:result.route,delivery:result.delivery,taskContext:result.taskContext,stats};
+  return {role:'assistant',activityKey:key,text:result.text||result.fault?.message||'任务未返回正文',activities:finishActivities(result.activities),trace:result.trace,proposals:result.proposals,links:resultLinks(result.trace),status:result.status,fault:result.fault,route:result.route,delivery:result.delivery,taskContext:result.taskContext,stats:stats?{...stats,serviceUsage:result.serviceUsage??stats.serviceUsage}:undefined};
 }
 // 会话累计：统计条必须反映本会话全部任务，而不是只看最后一条回复。
-export function sessionTotals(messages:Message[],running?:{stats?:AssistantStats;activities?:Activity[]}):{usage:unknown[];steps:number;rounds:number}|null{
-  const parts:unknown[]=[];let steps=0;let rounds=0;let seen=false;
+export function sessionTotals(messages:Message[],running?:{stats?:AssistantStats;activities?:Activity[]}):{usage:unknown[];steps:number;rounds:number;serviceUsage:ServiceUsage[]}|null{
+  const parts:unknown[]=[];const serviceUsage:ServiceUsage[]=[];let steps=0;let rounds=0;let seen=false;
   const isTool=(a:Activity)=>a.kind==='tool';
   for(const [index,message] of messages.entries()){
     if(message.role!=='assistant')continue;
     const own=message.stats;
+    if(own?.serviceUsage?.length){serviceUsage.push(...own.serviceUsage);seen=true;}
     if(Array.isArray(own?.usage)&&own.usage.length){parts.push(...withTaskScope(own.usage,message.activityKey||String(index)) as unknown[]);seen=true;}
     const toolSteps=(message.activities||[]).filter(isTool).length;
     if(toolSteps){steps+=toolSteps;seen=true;}
@@ -96,6 +100,7 @@ export function sessionTotals(messages:Message[],running?:{stats?:AssistantStats
   }
   if(running){
     const live=running.stats;
+    if(live?.serviceUsage?.length){serviceUsage.push(...live.serviceUsage);seen=true;}
     if(Array.isArray(live?.usage)&&live.usage.length){
       const last=parts[parts.length-1];
       if(last!==live.usage[live.usage.length-1])parts.push(...live.usage);
@@ -103,7 +108,7 @@ export function sessionTotals(messages:Message[],running?:{stats?:AssistantStats
     }
     steps+=(running.activities||[]).filter(isTool).length;
   }
-  return seen?{usage:parts,steps,rounds}:null;
+  return seen?{usage:parts,steps,rounds,serviceUsage:[...new Map(serviceUsage.map(r=>[r.id,r])).values()]}:null;
 }
 export function replyText(message:Message):string{
   const table=message.delivery;if(!table)return message.text;

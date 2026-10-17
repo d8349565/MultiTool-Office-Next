@@ -12,11 +12,19 @@ pub struct PricingRule {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
-pub struct PricingConfig {pub rules:Vec<PricingRule>, pub holidays:BTreeMap<String,Vec<String>>}
+pub struct PricingConfig {pub rules:Vec<PricingRule>, pub holidays:BTreeMap<String,Vec<String>>, #[serde(default="default_tool_rates")] pub tool_rates:Vec<ToolRate>}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all="camelCase", deny_unknown_fields)]
+pub struct ToolRate {pub operation:String,pub currency:String,pub per_thousand:f64,pub source:String,pub verified_at:String}
+fn default_tool_rates()->Vec<ToolRate>{["search","fetch"].into_iter().map(|operation|ToolRate{operation:operation.into(),currency:"CNY".into(),per_thousand:5.0,source:"https://api-docs.deepseek.com/zh-cn/guides/search/".into(),verified_at:"2026-10-17".into()}).collect()}
 impl Default for PricingConfig {
     fn default()->Self{serde_json::from_str(include_str!("../../src/assistantPricingDefaults.json")).expect("built-in pricing")}
 }
 pub fn validate(config:&PricingConfig)->Result<(),String>{
+    let mut operations=HashSet::new();
+    for r in &config.tool_rates {
+        if !["search","fetch"].contains(&r.operation.as_str())||!operations.insert(&r.operation)||!["CNY","USD"].contains(&r.currency.as_str())||!r.per_thousand.is_finite()||!(0.0..=1_000_000.0).contains(&r.per_thousand)||r.source.trim().is_empty()||r.source.len()>2000||NaiveDate::parse_from_str(&r.verified_at,"%Y-%m-%d").is_err(){return Err("DeepSeek 工具计价需要唯一操作、有效单价、币种、来源及核对日期".into());}
+    }
     if config.rules.len()>100||config.holidays.len()>20{return Err("计价规则或节假日年份过多".into());}
     let mut ids=HashSet::new();let mut models=HashSet::new();
     for r in &config.rules {
@@ -65,6 +73,7 @@ pub fn snapshot(config:&PricingConfig,url:&str,model:&str,usage:&Value,requested
     result
 }
 pub fn schema()->Value{json!({"type":"object","properties":{
+    "toolRates":{"type":"array","maxItems":2,"items":{"type":"object","properties":{"operation":{"type":"string","enum":["search","fetch"]},"currency":{"type":"string","enum":["CNY","USD"]},"perThousand":{"type":"number","minimum":0},"source":{"type":"string"},"verifiedAt":{"type":"string"}},"required":["operation","currency","perThousand","source","verifiedAt"],"additionalProperties":false}},
     "rules":{"type":"array","maxItems":100,"items":{"type":"object","properties":{
         "id":{"type":"string"},"modelIds":{"type":"array","items":{"type":"string"}},"providerHost":{"type":"string"},"currency":{"type":"string","enum":["CNY","USD"]},
         "inputPerMillion":{"type":"number","minimum":0},"cachedInputPerMillion":{"type":"number","minimum":0},"outputPerMillion":{"type":"number","minimum":0},

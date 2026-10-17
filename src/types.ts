@@ -1,10 +1,12 @@
 export type ReasoningEffort = 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 export interface PricingRule { id:string; modelIds:string[]; providerHost:string; currency:'CNY'|'USD'; inputPerMillion:number; cachedInputPerMillion:number; outputPerMillion:number; schedule:'flat'|'deepseek'; offPeakDiscount:number; source:string; verifiedAt:string }
-export interface PricingConfig { rules:PricingRule[]; holidays:Record<string,string[]> }
+export interface ToolRate {operation:'search'|'fetch';currency:'CNY'|'USD';perThousand:number;source:string;verifiedAt:string}
+export interface ServiceUsage {id:string;provider:'deepseek';operation:'search'|'fetch';requestedAt:number;revision:number;status:'pending'|'calculated'|'unavailable';outcome:'pending'|'billable'|'not_billed'|'unknown';currency?:'CNY'|'USD';total?:number;rule?:ToolRate;reason?:string}
+export interface PricingConfig { rules:PricingRule[]; holidays:Record<string,string[]>; toolRates?:ToolRate[] }
 export interface Entry { path: string; name: string; parent: string; extension: string; size: number; modified: number; created?: number | null; isDir: boolean; businessDate?: string | null; dateSource?: string; matchReason?: string }
 export interface Launcher { id: string; name: string; path: string; group: string }
 export interface ModelProfile {id:string;name:string;modelUrl:string;modelId:string;testedAt?:number|null;credentialRevision?:number}
-export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; jevEnabled: boolean; tavilyEnabled?: boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
+export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; jevEnabled: boolean; searchEnabled?: boolean; searchProvider?:'tavily'|'deepseek';deepseekSearchProfileId?:string|null;deepseekFetchEnabled?:boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
   assistantOutputTokens?: number; translationOutputTokens?: number; modelRequestTimeoutSecs?: number; modelRetryCount?: number; assistantTaskTimeoutSecs?: number;
   assistantHistoryMessages?: number; assistantHistoryChars?: number; assistantToolRounds?: number; assistantSearchLimit?: number; assistantAutoContinue?: boolean; assistantContinueTokens?: number;
   modelContextTokens?: number;
@@ -24,7 +26,7 @@ export interface TaskContext { schemaVersion:number;version:number;sessionId:str
 export interface TaskAction {type:'next_page'|'scope_answer';resultSetId?:string;offset?:number;scope?:'current'|'workspace';operation?:string}
 export interface DeliveryTable {columns:{key:string;label:string}[];rows:{path:string;values:string[];notice?:string|null}[];total:number;resultSetId:string}
 export interface Activity { id: string; kind: 'reasoning' | 'note' | 'tool'; status: 'running' | 'completed' | 'failed' | 'interrupted'; text?: string; tool?: string; args?: unknown; result?: unknown; elapsedMs?: number }
-export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; format?: 'plain'|'markdown'|'html'; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; answers?: Record<string, { choice?: string; confidence?: number; score?: number }>; usage?: unknown; model?: string }
+export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; format?: 'plain'|'markdown'|'html'; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; answers?: Record<string, { choice?: string; confidence?: number; score?: number }>; usage?: unknown; serviceUsage?:ServiceUsage[]; model?: string }
 export interface Bootstrap { settings: Settings; status: Status; keys: { model: boolean; jev: boolean; tavily?: boolean } }
 export interface AssistantWorkspace {path:string;readWrite:boolean;interactiveHtml:boolean;revision:number;needsReconfirmation:boolean;modelHost:string}
 export interface FileApproval {id:string;taskId:string;kind:'read'|'create';filename:string;format:string;preview:string;size:number;directory:string;modelHost:string;interactiveHtml:boolean;expiresAt:number}

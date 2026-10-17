@@ -10,9 +10,9 @@ import { basename } from './domain';
 import { getLauncherVisual } from './launcherVisuals';
 import { PricingEditor } from './PricingEditor';
 import { ModelConnections } from './ModelConnections';
-import { TavilyConnection } from './TavilyConnection';
+import { SearchConnection } from './SearchConnection';
 import { NetworkSettings, openSetup } from './NetworkControls';
-import { rebaseSettings, settingsEqual } from './settingsDraft';
+import { rebaseSettings, settingsEqual, settingsFieldEqual, searchSettingsKeys } from './settingsDraft';
 import { AssistantWorkspaceSettings } from './AssistantWorkspaceSettings';
 
 const modules = [
@@ -20,8 +20,8 @@ const modules = [
   {id:'tools',label:'常用工具',description:'整理每天需要打开的程序、文件、快捷方式和网页入口。',keys:['launchers']},
   {id:'model',label:'模型参数',description:'配置连接、回复、思考和等待时间。新参数在下一次任务生效。',keys:['modelUrl','modelId','assistantReasoning','translationReasoning','modelContextTokens','assistantOutputTokens','translationOutputTokens','modelRequestTimeoutSecs','modelFirstResponseTimeoutSecs','modelIdleTimeoutSecs','modelRetryCount','assistantTaskTimeoutSecs','assistantHistoryMessages','assistantHistoryChars','assistantToolRounds','assistantSearchLimit','assistantAutoContinue','assistantContinueTokens','modelTemperature','modelTopP']},
   {id:'assistant',label:'助理配置',description:'选择助理工作目录，确认文件读写权限，并设置表达方式和工作规范。',keys:[]},
-  {id:'pricing',label:'费用计价',description:'配置模型单价、缓存价格与峰谷时段。保存后用于下一次任务。',keys:['modelPricing']},
-  {id:'integrations',label:'联网与评分',description:'按需启用公开资料搜索和候选评分，并管理各自密钥。',keys:['tavilyEnabled','jevEnabled']},
+  {id:'pricing',label:'费用计价',description:'配置模型单价、缓存价格、峰谷时段与搜索抓取按次价格。保存后用于下一次任务。',keys:['modelPricing']},
+  {id:'integrations',label:'联网与评分',description:'按需启用公开资料搜索和候选评分，并管理各自密钥。',keys:[...searchSettingsKeys,'jevEnabled']},
   {id:'privacy',label:'隐私与联网',description:'管理首次联网授权、仅本地模式与活动记录。',keys:[]},
   {id:'transfer',label:'导入导出',description:'导出已保存的配置，或导入配置文件并确认应用。',keys:[]},
 ] as const;
@@ -36,6 +36,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[secret,setSecret]=useState(''),[provider,setProvider]=useState('jev'),[message,setMessage]=useState('');
   const [closing,setClosing]=useState(false),[roleDirty,setRoleDirty]=useState(false);
   const [connectionDirty,setConnectionDirty]=useState(false),[searchDirty,setSearchDirty]=useState(false);
+  const [searchSaveBlocked,setSearchSaveBlocked]=useState(''),[searchResetVersion,setSearchResetVersion]=useState(0);
   const [pendingSecretAction,setPendingSecretAction]=useState<(()=>void)|null>(null);
   const closeWarning=useRef<HTMLDivElement>(null);
   function revealCloseWarning(){closeWarning.current?.scrollIntoView({block:'center'});closeWarning.current?.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});}
@@ -43,9 +44,10 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   const [workspaceGrantDirty,setWorkspaceGrantDirty]=useState(false);
   const [imported,setImported]=useState<Settings|null>(null);
   const module=modules.find(m=>m.id===tab)!;
-  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]))||(m.id==='model'&&connectionDirty)||(m.id==='integrations'&&searchDirty)||(m.id==='assistant'&&(workspaceGrantDirty||roleDirty))||(m.id==='transfer'&&imported!==null));
-  const moduleFieldsDirty=module.keys.some(key=>!settingsEqual(draft[key as keyof Settings],savedSettings[key as keyof Settings]));
-  const canSave=tab==='assistant'?false:tab==='transfer'?!!imported:moduleFieldsDirty;
+  const dirtyModules=modules.filter(m=>m.keys.some(key=>!settingsFieldEqual(draft,savedSettings,key))||(m.id==='model'&&connectionDirty)||(m.id==='integrations'&&searchDirty)||(m.id==='assistant'&&(workspaceGrantDirty||roleDirty))||(m.id==='transfer'&&imported!==null));
+  const moduleFieldsDirty=module.keys.some(key=>!settingsFieldEqual(draft,savedSettings,key));
+  const canSave=tab==='assistant'?false:tab==='transfer'?!!imported:moduleFieldsDirty&&(tab!=='integrations'||(!searchDirty&&!searchSaveBlocked));
+  const canReset=canSave||(tab==='integrations'&&(moduleFieldsDirty||searchDirty));
   useEffect(()=>{if(!dirtyModules.length&&!secret.trim())setClosing(false);},[dirtyModules.length,secret]);
   function requestClose(){if(busy)return;setPendingSecretAction(null);if(dirtyModules.length||secret.trim()){if(closing)revealCloseWarning();else setClosing(true);}else onClose();}
   const dirty=dirtyModules.some(m=>m.id===tab);
@@ -76,7 +78,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       setMessage(module.label+'已保存。'+(connectionDirty?'连接草稿请在上方测试并保存。':dirtyModules.some(m=>m.id!==tab)?'其他模块的草稿继续保留。':''));
     });
   }
-  function resetModule(){if(tab==='transfer'){setImported(null);setError('');setMessage('已取消本次导入。');return;}if(tab==='assistant')return;setDraft(old=>{const next={...old};for(const key of module.keys)Object.assign(next,{[key]:savedSettings[key as keyof Settings]});return next;});setError('');setMessage('本模块参数已恢复为已保存的配置。');}
+  function resetModule(){if(tab==='transfer'){setImported(null);setError('');setMessage('已取消本次导入。');return;}if(tab==='assistant')return;setDraft(old=>{const next={...old};for(const key of module.keys)Object.assign(next,{[key]:savedSettings[key as keyof Settings]});return next;});if(tab==='integrations'){setSearchResetVersion(v=>v+1);setSearchDirty(false);setSearchSaveBlocked('');}setError('');setMessage('本模块参数已恢复为已保存的配置。');}
   async function exportSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {save}=await import('@tauri-apps/plugin-dialog');const path=await save({defaultPath:'office-next-settings.json',filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;await api('export_settings',{path});setMessage('已导出配置：'+path);}
   async function importSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {open}=await import('@tauri-apps/plugin-dialog');const path=await open({multiple:false,filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;setImported(null);const next=await api<Settings>('import_settings',{path});setImported(next);setMessage('配置已校验，请检查后点击“确认导入配置”。');}
   const deepseek=(()=>{try{return new URL(draft.modelUrl).hostname==='api.deepseek.com';}catch{return false;}})();
@@ -138,7 +140,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
             {numberField('assistantHistoryMessages','发送历史消息条数',12,0,12,'0 不发送聊天历史，最多最近 12 条。')}
             {numberField('assistantHistoryChars','每条历史文字上限',4000,500,12000,'只影响发送给模型的历史，保留本机完整记录。')}
             {numberField('assistantToolRounds','任务模型轮数上限',25,1,25,'包含最后汇报的一轮；1 只回复，不调用工具。')}
-            {numberField('assistantSearchLimit','任务联网搜索次数上限',8,0,20,'0 禁用联网工具；已有资料仍可用于汇报。')}
+            {numberField('assistantSearchLimit','任务搜索与抓取次数上限',8,0,20,'0 禁用联网工具；已有资料仍可用于汇报。')}
           </div><p>历史思考内容留在本机；已收集的工具资料摘要单独传递。调整这些参数不会扩大文件访问权限。</p></section>
           <details className="settings-advanced"><summary>高级采样参数</summary><p>留空使用模型默认；不同服务对这些参数的支持不同。</p><div className="form-grid">
             <label>随机程度<input type="number" min={0} max={2} step={0.1} value={draft.modelTemperature??''} onChange={e=>change('modelTemperature',e.target.value===''?null:Number(e.target.value))} placeholder="模型默认"/><small>较低时表达更稳定，较高时措辞更多样。</small></label>
@@ -151,7 +153,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
         </div>
         <div id="settings-panel-pricing" role="tabpanel" aria-labelledby="settings-tab-pricing" hidden={tab!=='pricing'}><PricingEditor value={draft.modelPricing} modelId={draft.modelId} modelUrl={draft.modelUrl} onChange={v=>change('modelPricing',v)}/></div>
         <div id="settings-panel-integrations" role="tabpanel" aria-labelledby="settings-tab-integrations" hidden={tab!=='integrations'}>
-          <TavilyConnection settings={savedSettings} onSaved={acceptSaved} onDirtyChange={setSearchDirty} onBusyChange={setBusy} disabled={busy}/>
+          <SearchConnection settings={savedSettings} value={draft} onChange={changes=>setDraft(d=>({...d,...changes}))} onSaved={acceptSaved} onSecretDirtyChange={setSearchDirty} onSaveBlockedChange={setSearchSaveBlocked} onBusyChange={setBusy} disabled={busy} standalone={false} resetVersion={searchResetVersion}/>
           <section className="settings-section"><h3>候选评分</h3><Switch checked={draft.jevEnabled} onChange={(_,d)=>change('jevEnabled',d.checked)} label="启用 Jev 实验建议与候选评分"/><p>使用前 20 条名称和相对路径进行实验评分；精确日期和缺失核对仍使用本地规则。</p></section>
         </div>
         <div id="settings-panel-privacy" role="tabpanel" aria-labelledby="settings-tab-privacy" hidden={tab!=='privacy'}><NetworkSettings/></div>
@@ -164,7 +166,8 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       </div>
       {tab==='integrations'&&<section className="settings-section settings-credentials"><h3>服务密钥</h3><p>密钥单独保存到系统凭据管理器，保存模块时不会提交密钥。</p><div className="credential-form"><label>密钥服务<select value={provider} disabled={busy} onChange={e=>{const next=e.target.value;guardSecret(()=>{setProvider(next);setSecret('');});}}><option value="jev">TypeSafe / Jev</option></select></label><label>API 密钥<input type="password" autoComplete="off" disabled={busy} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="保存在系统凭据管理器"/></label><Button type="button" icon={<Key/>} disabled={!secret||busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret});setSecret('');setMessage('密钥已保存到系统凭据管理器');})}>保存密钥</Button><Button type="button" disabled={busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret:''});setMessage('密钥已删除');})}>清除密钥</Button></div></section>}
       </fieldset>{message&&<p className="notice" role="status">{message}</p>}{error&&<p className="inline-error" role="alert">{error}</p>}
-      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&tab!=='privacy'&&<><Button type="button" disabled={busy||!canSave} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
+      {tab==='integrations'&&(moduleFieldsDirty||searchDirty)&&searchSaveBlocked&&<p className="settings-save-hint" role="status">{searchSaveBlocked}</p>}
+      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&tab!=='privacy'&&<><Button type="button" disabled={busy||!canReset} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
     </form>
   </Modal>;
 }

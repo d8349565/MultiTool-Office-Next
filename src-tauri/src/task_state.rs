@@ -43,6 +43,17 @@ pub fn get(state:&AppState,id:&str)->Result<Value,String>{
     let raw:String=state.index.db.lock().unwrap().query_row("SELECT data FROM assistant_tasks WHERE id=?1",[id],|r|r.get(0)).map_err(|_|"任务记录不存在")?;
     serde_json::from_str(&raw).map_err(|_|"任务记录无法读取".into())
 }
+// 按次服务独立记账；发送前和完成后都立即落盘，不受模型用量事件覆盖。
+pub fn service_usage(state:&AppState,app:&tauri::AppHandle,id:&str,record:&Value)->Result<(),String>{
+    let mut snapshots=state.task_results.lock().unwrap();
+    let task=snapshots.get_mut(id).ok_or("任务已停止，未继续发送收费请求")?;
+    if !task["serviceUsage"].is_array(){task["serviceUsage"]=json!([]);}
+    let records=task["serviceUsage"].as_array_mut().unwrap();
+    if let Some(old)=records.iter_mut().find(|r|r["id"]==record["id"]){*old=record.clone();}else{records.push(record.clone());}
+    state.index.db.lock().unwrap().execute("INSERT OR REPLACE INTO assistant_tasks(id,data) VALUES(?1,?2)",rusqlite::params![id,task.to_string()]).map_err(|_|"费用记录保存失败，已停止后续收费请求")?;
+    let payload=json!({"id":id,"serviceUsage":task["serviceUsage"]});drop(snapshots);
+    let _=app.emit("task-service-usage",payload);Ok(())
+}
 pub fn emit(app:&tauri::AppHandle,event:&str,payload:Value){
     if let Some(state)=app.try_state::<std::sync::Arc<AppState>>(){if let Some(id)=payload["id"].as_str(){
         let mut snapshots=state.task_results.lock().unwrap();

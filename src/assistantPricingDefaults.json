@@ -1,4 +1,8 @@
 {
+  "toolRates": [
+    {"operation":"search","currency":"CNY","perThousand":5,"source":"https://api-docs.deepseek.com/zh-cn/guides/search/","verifiedAt":"2026-10-17"},
+    {"operation":"fetch","currency":"CNY","perThousand":5,"source":"https://api-docs.deepseek.com/zh-cn/guides/search/","verifiedAt":"2026-10-17"}
+  ],
   "rules": [
     {
       "id": "deepseek-flash-cny",

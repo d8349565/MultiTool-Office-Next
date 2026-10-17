@@ -1,5 +1,5 @@
 // 用量来自服务返回；未知字段不按零计算。
-export interface AssistantStats { round:number; steps:number; usage:unknown; contextLimit:number }
+export interface AssistantStats { round:number; steps:number; usage:unknown; contextLimit:number; serviceUsage?:import('./types').ServiceUsage[] }
 export interface TokenMetrics { read:number|null; cacheRate:number|null; written:number|null; speed:number|null; avgSpeed:number|null; contextTokens:number|null; rounds:number|null }
 type RecordValue=Record<string,unknown>;
 function record(value:unknown):RecordValue{return value&&typeof value==='object'&&!Array.isArray(value)?value as RecordValue:{};}

@@ -1,3 +1,4 @@
+import type { ServiceUsage } from './types';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Tooltip } from '@fluentui/react-components';
 import { ArrowUp, ArrowRight, X, Sparkle, Stop, Check, CaretDown, Plus, Trash, Copy, FolderOpen, MagnifyingGlass, ImageSquare, ChatsCircle, SlidersHorizontal, Coins, WarningCircle, ArrowsClockwise, Wrench, ChatCircle, ArrowLineDown, ArrowLineUp, Database, Lightning, Gauge, ListChecks } from '@phosphor-icons/react';
@@ -35,7 +36,7 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
   const totals=sessionTotals(current.messages,current.task?{stats:current.stats,activities:current.activities}:undefined);
   const activeStats=current.task?current.stats:(lastAssistantWithStats?.stats??current.stats);
   const metrics=tokenMetrics(totals?.usage);
-  const costs=costMetrics(totals?.usage);
+  const costs=costMetrics(totals?.usage,totals?.serviceUsage);
   const contextLimit=activeStats?.contextLimit||contextCapacity(settings.modelContextTokens,settings.modelId);
   const contextPercent=metrics.contextTokens!==null&&contextLimit>0?metrics.contextTokens/contextLimit*100:null;
   const [expanded,setExpanded]=useState<Record<string,boolean>>({});
@@ -78,12 +79,12 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
     for(const session of store.sessions.filter(s=>s.recoverTask)){
       const id=session.recoverTask!;activeTasks.current.set(session.id,id);
       const recover=async()=>{try{const result=await api<AIResult&{progress?:string}>('task_status',{id});if(!alive)return;await resumeAssistantTask(result);
-        if(result.status==='running'){update(session.id,s=>({...s,task:id,streaming:result.text,activities:result.activities,progress:result.progress||'正在恢复任务状态',messages:s.messages.filter(m=>m.activityKey!==id)}));timers.push(setTimeout(()=>void recover(),2000));}
+        if(result.status==='running'){update(session.id,s=>({...s,task:id,streaming:result.text,activities:result.activities,progress:result.progress||'正在恢复任务状态',stats:{round:Array.isArray(result.usage)?result.usage.length:0,steps:(result.activities||[]).filter(a=>a.kind==='tool').length,usage:result.usage,serviceUsage:result.serviceUsage,contextLimit:contextCapacity(settings.modelContextTokens,settings.modelId)},messages:s.messages.filter(m=>m.activityKey!==id)}));timers.push(setTimeout(()=>void recover(),2000));}
         else{
           activeTasks.current.delete(session.id);
           const recoveredSteps=(result.activities||[]).filter(a=>a.kind==='tool').length;
           const recoveredRound=(Array.isArray(result.usage)&&result.usage.length)?result.usage.length:1;
-          const recoveredStats={round:recoveredRound,steps:recoveredSteps,usage:result.usage,contextLimit:contextCapacity(settings.modelContextTokens,settings.modelId)};
+          const recoveredStats={round:recoveredRound,steps:recoveredSteps,usage:result.usage,serviceUsage:result.serviceUsage,contextLimit:contextCapacity(settings.modelContextTokens,settings.modelId)};
           update(session.id,s=>({...s,task:'',recoverTask:undefined,error:'',taskContext:result.taskContext??s.taskContext,stats:recoveredStats,messages:[...s.messages.filter(m=>m.activityKey!==id),taskMessage(result,id,recoveredStats)]}));
         }
       }catch{if(alive){activeTasks.current.delete(session.id);update(session.id,s=>({...s,task:'',recoverTask:undefined,error:'无法恢复上次任务状态，旧版本可能没有保存记录。'}));}}};void recover();
@@ -122,12 +123,14 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
     let stopStream:(()=>void)|undefined;
     let stopActivity:(()=>void)|undefined;
     let stopUsage:(()=>void)|undefined;
+    let stopServiceUsage:(()=>void)|undefined;
     let stopContext:(()=>void)|undefined;
     try{
       const id=crypto.randomUUID();follow.current=true;activeTasks.current.set(session.id,id);setClock(Date.now());
       if(desktop)stopStream=await listen<{id:string;text:string}>('task-stream',e=>{if(e.payload.id===id)update(session.id,s=>s.task===id?{...s,streaming:e.payload.text}:s);});
       if(desktop)stopActivity=await listen<{id:string;activity:Activity}>('task-activity',e=>{if(e.payload.id===id)update(session.id,s=>s.task===id?{...s,activities:upsertActivity(s.activities,e.payload.activity),stats:s.stats?{...s.stats,steps:upsertActivity(s.activities,e.payload.activity).filter(a=>a.kind==='tool').length}:s.stats}:s);});
       if(desktop)stopUsage=await listen<{id:string;round:number;usage:unknown}>('task-usage',e=>{if(e.payload.id===id)update(session.id,s=>s.task===id&&s.stats?{...s,stats:{...s.stats,round:e.payload.round,usage:e.payload.usage}}:s);});
+      if(desktop)stopServiceUsage=await listen<{id:string;serviceUsage:ServiceUsage[]}>('task-service-usage',e=>{if(e.payload.id===id)update(session.id,s=>s.task===id&&s.stats?{...s,stats:{...s.stats,serviceUsage:e.payload.serviceUsage}}:s);});
       if(desktop)stopContext=await listen<{id:string;taskContext:TaskContext}>('task-context',e=>{if(e.payload.id===id)update(session.id,s=>s.task===id?{...s,taskContext:e.payload.taskContext}:s);});
       const history=conversationHistory(session.messages,settings.assistantHistoryMessages??12,settings.assistantHistoryChars??4000);
       const attachments=await imageContext(history,images);
@@ -150,13 +153,13 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       const inFlight=liveSession()?.stats;
       const liveUsage=Array.isArray(inFlight?.usage)?inFlight.usage:undefined;
       const finalUsage=(resultUsage?.length??0)>=(liveUsage?.length??0)?(resultUsage??liveUsage):liveUsage;
-      const finishedStats={round:finalRound,steps:finalSteps,usage:finalUsage,contextLimit:contextCapacity(settings.modelContextTokens,settings.modelId)};
+      const finishedStats={round:finalRound,steps:finalSteps,usage:finalUsage,serviceUsage:result.serviceUsage??inFlight?.serviceUsage,contextLimit:contextCapacity(settings.modelContextTokens,settings.modelId)};
       update(session.id,s=>({...s,error:'',taskContext:result.taskContext??s.taskContext,stats:finishedStats,messages:[...s.messages,taskMessage({...result,activities:result.activities||s.activities,fault:result.fault||(result.warning?{code:'partial',message:result.warning,recovery:'可仅整理已有结果'}:undefined)},s.task,finishedStats)]}));
     }catch(e){
       if(!submitted){update(session.id,s=>({...s,error:String(e)}));return;}
       const failedStats=latestStore.current.sessions.find(s=>s.id===session.id)?.stats??session.stats;
       update(session.id,s=>({...s,error:'',messages:[...s.messages,taskMessage({status:'failed',text:s.streaming||'本次任务未完成。',fault:{code:'frontend_error',message:String(e),recovery:'核对任务状态后重试'},activities:s.activities,trace:s.activities?.filter(a=>a.kind==='tool'&&a.result!==undefined).map(a=>({tool:a.tool||'',result:a.result}))},s.task,failedStats)]}));
-    }finally{clearTimeout(timer);stopStream?.();stopActivity?.();stopUsage?.();stopContext?.();activeTasks.current.delete(session.id);update(session.id,s=>({...s,task:'',progress:'',streaming:'',activities:[]}));}
+    }finally{clearTimeout(timer);stopStream?.();stopActivity?.();stopUsage?.();stopServiceUsage?.();stopContext?.();activeTasks.current.delete(session.id);update(session.id,s=>({...s,task:'',progress:'',streaming:'',activities:[]}));}
   }
   async function act(fn:()=>Promise<unknown>){const id=current.id;try{await fn();}catch(e){update(id,s=>({...s,error:String(e)}));}}
   function retryMessage(index=current.messages.length){const message=current.messages.slice(0,index).reverse().find(m=>m.role==='user');void send(message?.text||current.lastPrompt,false,undefined,message?.images||[]);}
@@ -228,7 +231,7 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       {!!current.draftImages?.length&&<p className="assistant-image-notice">发送后图片原始内容会交给当前模型，不会自动脱敏；需使用支持图片的模型。每次请求最多携带 4 张当前及历史图片。</p>}
       <div className="assistant-input-actions"><IconButton label="添加图片" disabled={!!current.task||loadingImages===current.id||(current.draftImages?.length||0)>=maxImages} onClick={()=>imageInput.current?.click()}><ImageSquare/></IconButton><span>{loadingImages===current.id?'正在添加图片…':'Enter 发送 · Shift+Enter 换行'}</span>{current.task?<IconButton label="取消任务" onClick={()=>void act(async()=>{update(current.id,s=>({...s,progress:'正在取消'}));await api('cancel_task',{id:current.task});})}><Stop weight="fill"/></IconButton>:<Button type="submit" appearance="primary" icon={<ArrowUp/>} aria-label="发送任务" disabled={loadingImages===current.id||(!current.draft.trim()&&!current.draftImages?.length)}/>}</div>
     </form>
-    {costOpen&&<AssistantCost cost={costs} onClose={()=>setCostOpen(false)} onConfigure={onPricingSettings} reviewDisabled={!!current.task} onReview={()=>{setCostOpen(false);void send('请仅使用 pricing_read 和公开联网搜索核对当前模型的最新计价规则。先说明来源、调整原因与费用影响，再通过 pricing_propose_change 提交建议等待我确认。不要读取任何目录、文件信息，也不要修改其他配置。');}}/>}
+    {costOpen&&<AssistantCost cost={costs} onClose={()=>setCostOpen(false)} onConfigure={onPricingSettings} reviewDisabled={!!current.task} onReview={()=>{setCostOpen(false);void send('请仅使用 pricing_read 和公开联网搜索核对当前模型及 DeepSeek Search / Fetch 的最新计价规则，保留未要求更改的模型与工具单价。先说明来源、调整原因与费用影响，再通过 pricing_propose_change 提交建议等待我确认。不要读取任何目录、文件信息，也不要修改其他配置。');}}/>}
 <div className="assistant-metrics" aria-label="本次会话累计统计">
       <Tooltip content={'会话费用明细；按请求时单价和实际返回用量计算'+(costs.missing?'，有 '+costs.missing+' 次请求无法完整计费':'')} relationship="description"><button className="assistant-metrics-cost" aria-label="会话费用明细" aria-expanded={costOpen} aria-controls="assistant-cost-panel" onClick={()=>setCostOpen(v=>!v)}><Coins size={15} aria-hidden="true"/><b>{costs.totals.length?costs.totals.map(t=>money(t.total,t.currency)).join(' + '):'—'}</b>{costs.missing>0&&<WarningCircle size={14} className="assistant-cost-incomplete" aria-hidden="true"/>}<CaretDown size={12} aria-hidden="true"/></button></Tooltip>
       <Metric label={'本会话累计 '+(metrics.rounds??0)+' 轮模型尝试'}><ArrowsClockwise size={14} aria-hidden="true"/><b>{metrics.rounds??0}</b></Metric>

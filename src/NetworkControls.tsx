@@ -4,11 +4,12 @@ import { listen } from '@tauri-apps/api/event';
 import { api, desktop } from './api';
 import { Modal } from './components';
 import './setup.css';
+import { money } from './assistantPricing';
 
 interface Grant {id:string;feature:string;label:string;service:string;categories:string[];masked:boolean}
-interface Activity extends Grant {time:number;status:string}
+interface Activity extends Grant {time:number;status:string;billing?:import('./types').ServiceUsage}
 interface NetworkStatus {localOnly:boolean;setupStep:number;setupDismissed:boolean;grants:Grant[];activities:Activity[];pending:{id:string;grant:Grant;expiresAt:number}[];notice?:string|null}
-export interface ServiceStatus {modelKey:boolean;modelConfigured:boolean;tavilyKey:boolean;tavilyTestedAt:number|null;tavilyEnabled:boolean;jevKey:boolean}
+export interface ServiceStatus {modelKey:boolean;modelConfigured:boolean;tavilyKey:boolean;tavilyTestedAt:number|null;searchEnabled:boolean;searchProvider:'tavily'|'deepseek';searchProfileId:string|null;searchKey:boolean;searchTestedAt:number|null;deepseekOwnKey:boolean;deepseekProfiles:{id:string;name:string}[];jevKey:boolean}
 const statusNames:Record<string,string>={running:'正在请求',success:'成功',failed:'失败',blocked:'已阻止',cancelled:'已停止',interrupted:'已中断'};
 const NetworkContext=createContext<{status:NetworkStatus|null;error:string;refresh:()=>Promise<void>}>({status:null,error:'',refresh:async()=>{}});
 export const useNetwork=()=>useContext(NetworkContext);
@@ -46,13 +47,13 @@ export function NetworkSettings(){
   async function act(command:string,args?:Record<string,unknown>){setBusy(true);setError('');try{await api(command,args);setClearing(false);await refresh();}catch(e){setError(String(e));}finally{setBusy(false);}}
   return <section className="settings-section network-settings">
     <h3>联网控制</h3>{status?.notice&&<p role="alert" className="inline-error">{status.notice}</p>}<Switch checked={!!status?.localOnly} disabled={busy||!status} label="仅本地模式" onChange={(_,v)=>void act('network_local_mode',{enabled:v.checked})}/>
-    <p>开启后暂停应用内模型、Tavily、Jev 和连接测试，并停止正在进行的请求。本地检索、预览、OCR 继续可用。已经发送的内容无法通过此开关收回。</p>
+    <p>开启后暂停应用内模型、Tavily / DeepSeek 搜索、网页抓取、Jev 和连接测试，并停止正在进行的请求。本地检索、预览、OCR 继续可用。已经发送的内容无法通过此开关收回。</p>
     <h3>已授权的联网功能</h3>{!status?.grants.length&&<p className="muted">尚未授权。首次使用时会说明服务与数据范围。</p>}
     {status?.grants.map(g=><div className="network-grant" key={g.id}><div><strong>{g.label}</strong><span>{g.service}</span><small>{g.categories.join('；')}</small></div><Button type="button" disabled={busy} onClick={()=>void act('network_revoke',{id:g.id})}>撤销授权</Button></div>)}
     <div className="settings-budget-heading"><h3>联网活动</h3><Button type="button" disabled={busy} onClick={()=>setClearing(v=>!v)}>清空活动记录</Button></div>
     <p className="muted">保留最近 30 天、最多 1000 条。仅记录类别和结果，不额外保存正文、完整文件路径或 Key。已有聊天、OCR 任务和报告仍在各自入口管理。</p>
     {clearing&&<div className="setup-callout"><p>确认清空已结束的联网活动记录？正在请求的记录会保留。</p><Button type="button" disabled={busy} onClick={()=>void act('network_clear_activity')}>确认清空</Button><Button type="button" onClick={()=>setClearing(false)}>取消</Button></div>}
-    <div className="network-activities">{status?.activities.slice(0,limit).map(a=><article key={a.id}><header><strong>{a.label}</strong><span>{statusNames[a.status]||a.status}</span></header><p>{a.service} · {new Date(a.time*1000).toLocaleString()}</p><small>{a.categories.join('；')} · {a.masked?'已执行候选数字过滤':'不适用 OCR 数字脱敏'}</small></article>)}{!status?.activities.length&&<p className="muted">还没有联网活动。</p>}</div>{(status?.activities.length||0)>limit&&<Button type="button" onClick={()=>setLimit(n=>n+50)}>再显示 50 条</Button>}
+    <div className="network-activities">{status?.activities.slice(0,limit).map(a=><article key={a.id}><header><strong>{a.label}</strong><span>{statusNames[a.status]||a.status}</span></header><p>{a.service} · {new Date(a.time*1000).toLocaleString()}</p><small>{a.categories.join('；')} · {a.masked?'已执行候选数字过滤':'不适用 OCR 数字脱敏'}</small>{a.billing&&<p>DeepSeek {a.billing.operation==='fetch'?'Fetch':'Search'} 费用：{a.billing.status==='calculated'&&a.billing.total!==undefined&&a.billing.currency?money(a.billing.total,a.billing.currency):'待核实'}{a.billing.outcome==='not_billed'?'（未计费）':''}{a.billing.rule?` · 请求时单价 ${a.billing.rule.perThousand} ${a.billing.rule.currency}/千次`:''}</p>}</article>)}{!status?.activities.length&&<p className="muted">还没有联网活动。</p>}</div>{(status?.activities.length||0)>limit&&<Button type="button" onClick={()=>setLimit(n=>n+50)}>再显示 50 条</Button>}
     {(error||loadError)&&<p role="alert" className="inline-error">{error||loadError}</p>}
   </section>;
 }

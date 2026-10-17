@@ -12,4 +12,22 @@
 
 .network-indicator-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .setup-wizard .dialog-actions,.network-consent .dialog-actions,.ocr-rename-dialog .dialog-actions{flex-wrap:wrap}
+.search-connection{display:grid;gap:14px;min-width:0}
+.search-connection .search-connection-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.search-connection-heading>div{min-width:0;flex:1 1 250px}
+.search-connection .search-connection-heading h3{margin:0 0 4px}
+.search-connection p{margin:0;padding:0;line-height:1.7}
+.search-connection .search-connection-status{display:flex;gap:6px 18px;flex-wrap:wrap;font-size:12px;color:var(--muted);line-height:1.7}
+.search-connection .search-connection-fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:680px;width:100%;margin:0}
+.search-connection-fields label,.search-connection-key>label{display:flex;flex-direction:column;gap:6px;min-width:0}
+.search-connection-fields select,.search-connection-key input{width:100%;min-width:0;min-height:38px;box-sizing:border-box}
+.search-connection-key{max-width:680px;width:100%;min-width:0}
+.search-connection .service-guide{margin:12px 0 0}.search-connection .service-guide p{margin:8px 0}
+.search-connection-test{display:grid;gap:8px}.search-connection .search-connection-hint{font-size:12px;color:var(--muted)}
+.search-connection-fetch{display:grid;gap:8px;padding-top:14px;border-top:1px solid var(--line)}
+.search-connection-details{font-size:12px;line-height:1.7}.search-connection-details>summary{cursor:pointer;font-weight:500}.search-connection-details>p{margin:8px 0}.search-connection-details:focus-within{outline-offset:3px}
+.search-connection .search-connection-message{color:var(--focus);font-size:12px;overflow-wrap:anywhere}
+.settings-save-hint{font-size:12px;line-height:1.7;color:var(--muted);margin:0;padding:12px 0}
+.settings-form .settings-actions{flex-wrap:wrap;gap:8px 12px}.settings-form .settings-actions>span{flex:1 1 180px;min-width:0}.settings-form .settings-actions>.fui-Button{flex-shrink:0}
+@media(max-width:767px){.search-connection .search-connection-fields{grid-template-columns:1fr}.search-connection-heading>div{flex-basis:100%}.settings-form .settings-actions>span{flex-basis:100%}}
 @media(max-width:767px){.network-status-bar{padding:8px 14px}.network-status-bar>span{flex-basis:100%;order:1}.setup-wizard .dialog-actions,.network-consent .dialog-actions,.ocr-rename-dialog .dialog-actions{bottom:-16px}}

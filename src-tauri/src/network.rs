@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, future::Future, path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex, OnceLock}, time::{Duration, SystemTime, UNIX_EPOCH}};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::oneshot;
 
 static NETWORK: OnceLock<Network> = OnceLock::new();
 const RETENTION: u64 = 30 * 86400;
 
 #[derive(Clone, Copy)]
-pub enum Feature { Assistant, Translation, Todo, OcrConfig, OcrJev, Jev, ModelTest, Search, SearchTest }
+pub enum Feature { Assistant, Translation, Todo, OcrConfig, OcrJev, Jev, ModelTest, Search, SearchTest, Fetch }
 impl Feature {
     fn info(self) -> (&'static str, &'static str, Vec<&'static str>, bool) {
         match self {
@@ -22,6 +22,7 @@ impl Feature {
             Self::ModelTest => ("model_test", "模型连接测试", vec!["固定测试消息和工具定义（不执行工具）"], false),
             Self::Search => ("search", "Tavily 联网搜索", vec!["公开搜索关键词（搜索摘要还会交给当前模型）"], false),
             Self::SearchTest => ("search_test", "Tavily 连接测试", vec!["固定公开关键词 Microsoft WebView2"], false),
+            Self::Fetch => ("search_fetch", "DeepSeek 网页正文抓取", vec!["公开网页网址（获取的正文还会交给当前模型）"], false),
         }
     }
 }
@@ -31,10 +32,10 @@ impl Feature {
 struct Grant { id:String, feature:String, label:String, service:String, categories:Vec<String>, masked:bool }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct Activity { id:String, time:u64, feature:String, label:String, service:String, categories:Vec<String>, masked:bool, status:String }
+struct Activity { id:String, time:u64, feature:String, label:String, service:String, categories:Vec<String>, masked:bool, status:String, #[serde(default,skip_serializing_if="Option::is_none")] billing:Option<Value> }
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all="camelCase")]
-struct Data { local_only:bool, setup_step:u8, setup_dismissed:bool, grants:Vec<Grant>, activities:Vec<Activity>, tavily_tested_at:Option<u64>, tavily_binding:String }
+struct Data { local_only:bool, setup_step:u8, setup_dismissed:bool, grants:Vec<Grant>, activities:Vec<Activity>, tavily_tested_at:Option<u64>, tavily_binding:String, search_tests:HashMap<String,u64> }
 #[derive(Clone, Serialize)]
 #[serde(rename_all="camelCase")]
 struct Consent { id:String, grant:Grant, expires_at:u64 }
@@ -73,11 +74,19 @@ fn grant(feature:Feature,url:&str,secret:&str,binding:&str)->Result<Grant,String
     let (id,label,categories,masked)=feature.info();
     // 只保存不可逆的服务/账号绑定摘要，不保存密钥、完整接口路径或请求正文。
     let mut hash=Sha256::new();for part in [id,url,secret,binding]{hash.update((part.len() as u64).to_le_bytes());hash.update(part.as_bytes());}
+    let label=if matches!(feature,Feature::Search|Feature::SearchTest)&&parsed.host_str()==Some("api.deepseek.com"){if matches!(feature,Feature::SearchTest){"DeepSeek 连接测试"}else{"DeepSeek 联网搜索"}}else{label};
     Ok(Grant{id:format!("{:x}",hash.finalize()),feature:id.into(),label:label.into(),service:parsed.origin().ascii_serialization(),categories:categories.into_iter().map(String::from).collect(),masked})
+}
+fn current_search(feature:Feature,url:&str,secret:&str,binding:&str)->Result<(),String>{
+    if !matches!(feature,Feature::Search|Feature::Fetch){return Ok(());}
+    let state=network()?.app.try_state::<Arc<crate::AppState>>().ok_or("工作台尚未初始化")?;
+    let settings=state.settings.lock().unwrap().clone();
+    crate::web_search::check_connection(&settings,feature,url,secret,binding)
 }
 pub async fn authorize(feature:Feature,url:&str,secret:&str,binding:&str,cancel:&AtomicBool)->Result<(),String>{
     let net=network()?;let grant=grant(feature,url,secret,binding)?;
-    if matches!(feature,Feature::Search)&&!net.search_enabled.load(Ordering::Relaxed){return Err("Tavily 联网搜索已关闭，请在设置中主动启用".into());}
+    if matches!(feature,Feature::Search|Feature::Fetch)&&!net.search_enabled.load(Ordering::Relaxed){return Err("联网搜索已关闭，请在设置中主动启用".into());}
+    current_search(feature,url,secret,binding)?;
     if cancel.load(Ordering::Relaxed){return Err("任务已取消".into());}
     if net.allowed(&grant){return Ok(());}
     if net.data.lock().unwrap().local_only{return Err("仅本地模式已开启；请在隐私与联网设置中关闭后再使用此功能".into());}
@@ -113,20 +122,35 @@ impl Running {
 }
 impl Drop for Running{fn drop(&mut self){if !self.finished{self.finish("interrupted");}}}
 pub async fn request<T>(feature:Feature,url:&str,secret:&str,binding:&str,cancel:&AtomicBool,categories:Vec<String>,future:impl Future<Output=Result<T,String>>)->Result<T,String>{
+    request_with_id(feature,url,secret,binding,cancel,categories,None,future).await
+}
+pub async fn request_with_id<T>(feature:Feature,url:&str,secret:&str,binding:&str,cancel:&AtomicBool,categories:Vec<String>,request_id:Option<&str>,future:impl Future<Output=Result<T,String>>)->Result<T,String>{
     let net=network()?;let grant=grant(feature,url,secret,binding)?;
-    if let Err(error)=authorize(feature,url,secret,binding,cancel).await{let _=net.edit(|d|d.activities.push(Activity{id:uuid::Uuid::new_v4().to_string(),time:now(),feature:grant.feature.clone(),label:grant.label.clone(),service:grant.service.clone(),categories,masked:grant.masked,status:"blocked".into()}));return Err(error);}
-    let revoked=Arc::new(AtomicBool::new(false));let id=uuid::Uuid::new_v4().to_string();
+    if let Err(error)=authorize(feature,url,secret,binding,cancel).await{let _=net.edit(|d|d.activities.push(Activity{id:uuid::Uuid::new_v4().to_string(),time:now(),feature:grant.feature.clone(),label:grant.label.clone(),service:grant.service.clone(),categories,masked:grant.masked,status:"blocked".into(),billing:None}));return Err(error);}
+    let revoked=Arc::new(AtomicBool::new(false));let id=request_id.map(str::to_owned).unwrap_or_else(||uuid::Uuid::new_v4().to_string());
     // 先登记，再重查权限，封住授权撤销与开始发送之间的竞态。
     net.active.lock().unwrap().insert(id.clone(),(grant.id.clone(),revoked.clone()));
     let mut running=Running{id:id.clone(),finished:false};
-    net.edit(|d|d.activities.push(Activity{id,time:now(),feature:grant.feature.clone(),label:grant.label.clone(),service:grant.service.clone(),categories,masked:grant.masked,status:"running".into()}))?;
+    net.edit(|d|d.activities.push(Activity{id,time:now(),feature:grant.feature.clone(),label:grant.label.clone(),service:grant.service.clone(),categories,masked:grant.masked,status:"running".into(),billing:None}))?;
     if !net.allowed(&grant)||revoked.load(Ordering::Relaxed){running.finish("blocked");return Err("联网权限已撤销，未发送请求".into());}
+    if let Err(error)=current_search(feature,url,secret,binding){running.finish("blocked");return Err(error);}
     let result=tokio::select!{r=future=>r,_=wait(&revoked)=>Err("联网权限已撤销，已停止当前请求".into()),_=wait(cancel)=>Err("任务已取消".into())};
     running.finish(if result.is_ok(){"success"}else if revoked.load(Ordering::Relaxed)||cancel.load(Ordering::Relaxed){"cancelled"}else{"failed"});result
 }
 pub fn model_binding(s:Option<&crate::settings::Settings>)->String{s.map(|s|format!("{}:{}:{}",s.active_model_profile_id.as_deref().unwrap_or("legacy"),s.model_connection_revision,s.model_id)).unwrap_or_default()}
 pub fn invalidate_feature(feature:&str)->Result<(),String>{let net=network()?;let mut ids:Vec<_>=net.data.lock().unwrap().grants.iter().filter(|g|g.feature==feature).map(|g|g.id.clone()).collect();ids.extend(net.pending.lock().unwrap().values().filter(|p|p.consent.grant.feature==feature).map(|p|p.consent.grant.id.clone()));net.edit(|d|d.grants.retain(|g|g.feature!=feature))?;for id in ids{net.cancel(Some(&id));}Ok(())}
-pub fn search_changed(enabled:bool)->Result<(),String>{network()?.search_enabled.store(enabled,Ordering::Relaxed);if !enabled{invalidate_feature("search")?;}Ok(())}
+pub fn search_changed(enabled:bool)->Result<(),String>{network()?.search_enabled.store(enabled,Ordering::Relaxed);invalidate_feature("search")?;invalidate_feature("search_fetch")?;invalidate_feature("search_test")?;Ok(())}
+pub fn record_service_usage(record:&Value)->Result<(),String>{network()?.edit(|d|{if let Some(a)=d.activities.iter_mut().find(|a|Some(a.id.as_str())==record["id"].as_str()){a.billing=Some(record.clone());}})}
+pub fn search_tested(provider:&str,secret:&str,binding:&str)->Result<u64,String>{
+    if provider=="tavily"{return tavily_tested(secret);}
+    let stamp=now();let id=grant(Feature::SearchTest,crate::web_search::SEARCH_URL,secret,binding)?.id;
+    network()?.edit(|d|{d.search_tests.insert(id,stamp);if d.search_tests.len()>100{if let Some(old)=d.search_tests.iter().min_by_key(|(_,time)|**time).map(|(id,_)|id.clone()){d.search_tests.remove(&old);}}})?;Ok(stamp)
+}
+pub fn search_tested_at(provider:&str,secret:&str,binding:&str)->Option<u64>{
+    let id=grant(Feature::SearchTest,if provider=="deepseek"{crate::web_search::SEARCH_URL}else{"https://api.tavily.com/search"},secret,binding).ok()?.id;
+    let data=network().ok()?.data.lock().ok()?;
+    if provider=="tavily"{if id==data.tavily_binding{data.tavily_tested_at}else{None}}else{data.search_tests.get(&id).copied()}
+}
 pub fn tavily_tested(secret:&str)->Result<u64,String>{let stamp=now();let id=grant(Feature::SearchTest,"https://api.tavily.com/search",secret,"")?.id;network()?.edit(|d|{d.tavily_tested_at=Some(stamp);d.tavily_binding=id;})?;Ok(stamp)}
 
 #[tauri::command]
@@ -142,7 +166,18 @@ pub fn network_clear_activity()->Result<(),String>{network()?.edit(|d|d.activiti
 #[tauri::command]
 pub fn setup_progress(step:u8,dismissed:bool)->Result<(),String>{if step>3{return Err("引导步骤无效".into());}network()?.edit(|d|{d.setup_step=step;d.setup_dismissed=dismissed;})}
 #[tauri::command]
-pub fn service_status(state:tauri::State<Arc<crate::AppState>>)->Result<Value,String>{let s=state.settings.lock().unwrap();let has=|provider:&str|crate::ai::key(provider).and_then(|k|k.get_password().map_err(|_|"无法读取凭据".to_string())).ok().filter(|v|!v.trim().is_empty());let model=has(&crate::model_profiles::credential(s.active_model_profile_id.as_deref())).is_some();let tavily=has("tavily");let data=network()?.data.lock().unwrap();let tested=tavily.as_ref().is_some_and(|secret|grant(Feature::SearchTest,"https://api.tavily.com/search",secret,"").ok().is_some_and(|g|g.id==data.tavily_binding));Ok(json!({"modelKey":model,"modelConfigured":model&&!s.model_url.is_empty()&&!s.model_id.is_empty(),"tavilyKey":tavily.is_some(),"tavilyTestedAt":if tested{data.tavily_tested_at}else{None},"tavilyEnabled":s.tavily_enabled,"jevKey":has("jev").is_some()}))}
+pub fn service_status(state:tauri::State<Arc<crate::AppState>>,search_provider:Option<String>,profile_id:Option<String>)->Result<Value,String>{
+    let s=state.settings.lock().unwrap().clone();
+    let has=|provider:&str|crate::ai::key(provider).and_then(|k|k.get_password().map_err(|_|"无法读取凭据".to_string())).ok().filter(|v|!v.trim().is_empty());
+    let model=has(&crate::model_profiles::credential(s.active_model_profile_id.as_deref())).is_some();
+    let tavily=has("tavily");
+    let provider=search_provider.as_deref().unwrap_or(&s.search_provider);
+    let profile=match profile_id.as_deref(){Some("")=>None,Some(id)=>Some(id),None=>s.deepseek_search_profile_id.as_deref()};
+    let credentials=crate::web_search::credential(&s,provider,profile).ok();
+    let tested=credentials.as_ref().and_then(|(key,binding)|search_tested_at(provider,key,binding));
+    let profiles:Vec<_>=crate::model_profiles::profiles(&s).into_iter().filter(|p|crate::web_search::official_deepseek(&p.model_url)&&has(&crate::model_profiles::credential(Some(&p.id))).is_some()).map(|p|json!({"id":p.id,"name":p.name})).collect();
+    Ok(json!({"modelKey":model,"modelConfigured":model&&!s.model_url.is_empty()&&!s.model_id.is_empty(),"tavilyKey":tavily.is_some(),"tavilyTestedAt":tavily.as_ref().and_then(|key|search_tested_at("tavily",key,"")),"searchEnabled":s.search_enabled,"searchProvider":provider,"searchProfileId":if provider=="deepseek"{profile}else{None},"searchKey":credentials.is_some(),"searchTestedAt":tested,"deepseekOwnKey":has("deepseek-search").is_some(),"deepseekProfiles":profiles,"jevKey":has("jev").is_some()}))
+}
 
 #[cfg(test)]
 mod tests {

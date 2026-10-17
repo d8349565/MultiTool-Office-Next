@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Button } from '@fluentui/react-components';
 import { Plus, Trash } from '@phosphor-icons/react';
 import defaults from './assistantPricingDefaults.json';
-import type { PricingConfig, PricingRule } from './types';
+import type { PricingConfig, PricingRule, ToolRate } from './types';
 
 export function PricingEditor({value,modelId,modelUrl,onChange}:{value?:PricingConfig;modelId:string;modelUrl:string;onChange:(v:PricingConfig)=>void}){
   const config=value??defaults as PricingConfig;
+  const toolRates=config.toolRates??defaults.toolRates as ToolRate[];
+  const editTool=<K extends keyof ToolRate>(operation:string,key:K,v:ToolRate[K])=>onChange({...config,toolRates:toolRates.map(r=>r.operation===operation?{...r,[key]:v}:r)});
   let host='';try{host=new URL(modelUrl).hostname;}catch{}
   const [chosen,setChosen]=useState(()=>config.rules.find(r=>r.providerHost===host&&r.modelIds.includes(modelId))?.id||config.rules[0]?.id||'');
   const [year,setYear]=useState(String(new Date().getFullYear()+1));
@@ -23,6 +25,10 @@ export function PricingEditor({value,modelId,modelUrl,onChange}:{value?:PricingC
         <Button type="button" appearance="subtle" icon={<Trash/>} onClick={()=>onChange({...config,rules:config.rules.filter(r=>r.id!==rule.id)})}>移除此计价规则</Button></>}
     </section>
     <details className="settings-advanced pricing-calendar"><summary>峰谷计费节假日</summary><p>按北京时间填写各年的完整假期日期。缺少年份时，高峰时间的请求会显示无法计费。默认内置 2026 年国务院放假安排。</p>{Object.entries(config.holidays).map(([y,dates])=><label key={y}>{y} 年 · {dates.filter(Boolean).length} 天<textarea value={dates.join('\n')} onChange={e=>onChange({...config,holidays:{...config.holidays,[y]:e.target.value.split(/[\n,]/).map(s=>s.trim())}})} aria-label={y+' 年节假日日期'} placeholder="YYYY-MM-DD，每行一个日期"/><Button type="button" appearance="subtle" onClick={()=>{const holidays={...config.holidays};delete holidays[y];onChange({...config,holidays});}}>移除 {y} 年</Button></label>)}<div className="button-row"><label>新增年份<input type="number" min={2020} max={2100} value={year} onChange={e=>setYear(e.target.value)}/></label><Button type="button" disabled={!/^(?:20\d{2}|2100)$/.test(year)||year in config.holidays} onClick={()=>onChange({...config,holidays:{...config.holidays,[year]:[]}})}>添加年份</Button></div></details>
-    <p className="pricing-save-hint">保存后用于下一次任务。助手更新价格时会先整理建议与来源，由你确认后应用；历史费用保留原单价。</p>
+    <section className="settings-section pricing-editor"><h3>DeepSeek 搜索与抓取单价</h3><p>按每千次成功且产生内容的请求计价，与模型 token 和峰谷时段分开。默认 Search / Fetch 均为 5 元 / 千次；搜索附带正文只计一次 Search。失败或无结果请求不计费，客户端中断且无法确认结果时标为待核实。</p>
+      {toolRates.map(r=><div key={r.operation}><h4>{r.operation==='search'?'联网搜索 Search':'网页正文抓取 Fetch'}</h4><div className="form-grid"><label>每千次请求单价<input required type="number" min={0} max={1000000} step="any" value={Number.isFinite(r.perThousand)?r.perThousand:''} onChange={e=>editTool(r.operation,'perThousand',e.target.value===''?NaN:Number(e.target.value))}/></label><label>币种<select value={r.currency} onChange={e=>editTool(r.operation,'currency',e.target.value as ToolRate['currency'])}><option value="CNY">人民币 CNY</option><option value="USD">美元 USD</option></select></label><label>计价来源<input required value={r.source} onChange={e=>editTool(r.operation,'source',e.target.value)}/></label><label>核对日期<input required type="date" value={r.verifiedAt} onChange={e=>editTool(r.operation,'verifiedAt',e.target.value)}/></label></div></div>)}
+      {toolRates.length<2&&<Button type="button" onClick={()=>onChange({...config,toolRates:[...toolRates,...(defaults.toolRates as ToolRate[]).filter(r=>!toolRates.some(existing=>existing.operation===r.operation))]})}>补充缺少的工具计价规则</Button>}
+    </section>
+    <p className="pricing-save-hint">保存后用于后续请求。助手更新价格时会先整理建议与来源，由你确认后应用；历史费用保留原单价。</p>
   </>;
 }
