@@ -6,6 +6,7 @@ mod index;
 mod ai;
 mod pi_runtime;
 mod model_adapter;
+mod model_context;
 mod model_profiles;
 mod assistant_work;
 mod assistant_context;
@@ -14,6 +15,7 @@ mod assistant_reports;
 mod assistant_fs;
 mod assistant_workspace;
 mod assistant_documents;
+mod assistant_pdf;
 mod assistant_html;
 mod task_state;
 mod assistant_profile;
@@ -80,14 +82,29 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
 #[tauri::command] fn import_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<settings::Settings,String>{settings::import(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] fn export_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<(),String>{settings::export(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] async fn open_path(state:tauri::State<'_,Arc<AppState>>,path:String,reveal:bool)->Result<(),String>{
-    let idx=state.index.clone();
+    let state=state.inner().clone();
     tauri::async_runtime::spawn_blocking(move||{
-        let p=idx.authorize(&path)?;
+        let p=authorize_user_path(&state,&path)?;
         if reveal {let result=shell::reveal(vec![p])?;if let Some(failed)=result["groups"].as_array().and_then(|g|g.iter().find(|g|g["status"]=="failed")){return Err(failed["error"].as_str().unwrap_or("定位失败").into());}return Ok(());
         }open::that_detached(p).map_err(|e|e.to_string())
     }).await.map_err(|e|e.to_string())?
 }
-fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{let paths=paths.iter().map(|p|state.index.authorize(p)).collect::<Result<Vec<_>,_>>()?;shell::reveal(paths)}
+fn authorize_user_path(state:&AppState,path:&str)->Result<std::path::PathBuf,String>{
+    state.index.authorize(path).or_else(|error|{
+        if assistant_workspace::info(state)["readWrite"]==true{assistant_workspace::authorize_local_path(state,path)}else{Err(error)}
+    })
+}
+#[tauri::command]
+async fn drag_file(state:tauri::State<'_,Arc<AppState>>,window:tauri::WebviewWindow,path:String)->Result<Value,String>{
+    let state=state.inner().clone();
+    let path=tauri::async_runtime::spawn_blocking(move||authorize_user_path(&state,&path)).await.map_err(|e|e.to_string())??;
+    #[cfg(windows)] let hwnd=window.hwnd().map_err(|e|e.to_string())?.0 as isize;
+    #[cfg(not(windows))] let hwnd=0;
+    let (send,result)=tokio::sync::oneshot::channel();
+    window.run_on_main_thread(move||{let _=send.send(shell::drag_file(hwnd,path));}).map_err(|e|e.to_string())?;
+    result.await.map_err(|_|"系统拖拽已中断，请重试".to_owned())?
+}
+fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{let paths=paths.iter().map(|p|authorize_user_path(state,p)).collect::<Result<Vec<_>,_>>()?;shell::reveal(paths)}
 #[tauri::command] async fn reveal_paths(state:tauri::State<'_,Arc<AppState>>,paths:Vec<String>)->Result<Value,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||reveal_authorized(&state,paths)).await.map_err(|e|e.to_string())?}
 #[tauri::command] async fn launch(state:tauri::State<'_,Arc<AppState>>,id:String)->Result<(),String>{
     let path=state.settings.lock().unwrap().launchers.iter().find(|l|l.id==id).map(|l|l.path.clone()).ok_or("工具不存在")?;
@@ -123,8 +140,8 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
 #[tauri::command] async fn open_report(state:tauri::State<'_,Arc<AppState>>,id:String)->Result<(),String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||assistant_tools::open_report(&state,&id)).await.map_err(|e|e.to_string())?}
 #[tauri::command] fn cancel_task(state:tauri::State<Arc<AppState>>,id:String){if let Some(c)=state.tasks.lock().unwrap().get(&id){c.store(true,Ordering::Relaxed);}}
 #[tauri::command] fn assistant_budget_proposal(state:tauri::State<Arc<AppState>>)->Result<Value,String>{
-    let old=state.settings.lock().unwrap().clone();let next=settings::patch(&old,&json!({"modelRequestTimeoutSecs":300,"assistantTaskTimeoutSecs":600,"modelFirstResponseTimeoutSecs":45,"modelIdleTimeoutSecs":60,"assistantReasoning":"max"}))?;
-    let mut p=make_proposal(&state,&old,next);p["reason"]=json!("原来的45秒总超时可能中断仍在输出的思考；将首响应、停滞与总预算分开。");p["impact"]=json!("持续输出时允许继续，等待最长可能增加；仍受总预算限制，修改仅在同意后生效。");Ok(p)
+    let old=state.settings.lock().unwrap().clone();let next=settings::patch(&old,&json!({"modelRequestTimeoutSecs":old.model_request_timeout_secs.max(600),"assistantTaskTimeoutSecs":old.assistant_task_timeout_secs.max(1800),"modelFirstResponseTimeoutSecs":old.model_first_response_timeout_secs.max(120),"modelIdleTimeoutSecs":old.model_idle_timeout_secs.max(120)}))?;
+    let mut p=make_proposal(&state,&old,next);p["reason"]=json!("将不足推荐值的参数提高到：单次请求至少10分钟、整个任务至少30分钟、首响应及停滞等待至少2分钟；已有更长等待时间保留。");p["impact"]=json!("下一次任务可等待更长时间，仍可随时取消；保留当前思考程度，修改仅在确认后生效。");Ok(p)
 }
 #[tauri::command] fn task_status(state:tauri::State<Arc<AppState>>,id:String)->Result<Value,String>{task_state::get(&state,&id)}
 #[tauri::command] fn assistant_context(state:tauri::State<Arc<AppState>>,session_id:String)->Result<Value,String>{serde_json::to_value(assistant_context::load(&state,&session_id)?).map_err(|e|e.to_string())}
@@ -218,6 +235,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
+        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

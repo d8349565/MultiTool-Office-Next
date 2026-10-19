@@ -41,7 +41,7 @@ pub struct Settings {
     #[serde(default)] pub assistant_output_tokens: u32,
     #[serde(default)] pub translation_output_tokens: u32,
     #[serde(default="default_request_timeout")] pub model_request_timeout_secs: u64,
-    #[serde(default="default_request_timeout")] pub model_first_response_timeout_secs: u64,
+    #[serde(default="default_first_response_timeout")] pub model_first_response_timeout_secs: u64,
     #[serde(default="default_idle_timeout")] pub model_idle_timeout_secs: u64,
     #[serde(default="default_retry_count")] pub model_retry_count: u32,
     #[serde(default="default_task_timeout")] pub assistant_task_timeout_secs: u64,
@@ -56,10 +56,11 @@ pub struct Settings {
     #[serde(default)] pub model_pricing: crate::pricing::PricingConfig,
 
 }
-fn default_request_timeout()->u64{45}
-fn default_idle_timeout()->u64{60}
+fn default_request_timeout()->u64{600}
+fn default_first_response_timeout()->u64{120}
+fn default_idle_timeout()->u64{120}
 fn default_retry_count()->u32{2}
-fn default_task_timeout()->u64{180}
+fn default_task_timeout()->u64{1800}
 fn default_history_messages()->usize{12}
 fn default_history_chars()->usize{4000}
 fn default_tool_rounds()->u32{25}
@@ -69,7 +70,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: 300, model_first_response_timeout_secs:45, model_idle_timeout_secs:60, model_retry_count: default_retry_count(), assistant_task_timeout_secs: 600, assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -99,8 +100,8 @@ pub fn validate(s: &Settings) -> Result<(), String> {
     if s.model_context_tokens>10_000_000{return Err("模型上下文容量不能超过 10000000".into());}
     for tokens in [s.assistant_output_tokens,s.translation_output_tokens]{if tokens!=0 && !(256..=384000).contains(&tokens){return Err("输出上限应为 256–384000，或使用 0 自动选择".into());}}
     if !(256..=384000).contains(&s.assistant_continue_tokens){return Err("补写输出上限应为 256–384000".into());}
-    if !(10..=600).contains(&s.model_request_timeout_secs) || !(30..=1800).contains(&s.assistant_task_timeout_secs) || s.assistant_task_timeout_secs<s.model_request_timeout_secs{return Err("请求等待应为 10–600 秒，任务等待应为 30–1800 秒，且不小于请求等待".into());}
-    if !(10..=600).contains(&s.model_first_response_timeout_secs) || !(10..=600).contains(&s.model_idle_timeout_secs){return Err("首响应与停滞等待应为 10–600 秒".into());}
+    if !(10..=1800).contains(&s.model_request_timeout_secs) || !(30..=7200).contains(&s.assistant_task_timeout_secs) || s.assistant_task_timeout_secs<s.model_request_timeout_secs{return Err("请求等待应为 10–1800 秒，任务等待应为 30–7200 秒，且不小于请求等待".into());}
+    if !(10..=1800).contains(&s.model_first_response_timeout_secs) || !(10..=1800).contains(&s.model_idle_timeout_secs){return Err("首响应与停滞等待应为 10–1800 秒".into());}
     if s.model_retry_count>5 || s.assistant_history_messages>12 || !(500..=12000).contains(&s.assistant_history_chars) || !(1..=25).contains(&s.assistant_tool_rounds) || s.assistant_search_limit>20{return Err("重试、历史上下文或工具调用限制超出允许范围".into());}
     if s.model_temperature.is_some_and(|v|!v.is_finite() || !(0.0..=2.0).contains(&v)) || s.model_top_p.is_some_and(|v|!v.is_finite() || !(0.01..=1.0).contains(&v)){return Err("温度应为 0–2，采样范围应为 0.01–1，或留空使用模型默认".into());}
     if s.roots.len() > 100 || s.filter.len() > 500 { return Err("目录或筛选条件过多".into()); }

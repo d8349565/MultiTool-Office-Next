@@ -71,8 +71,9 @@ export function tokenMetrics(raw:unknown):TokenMetrics{
     const totalWritten=validSpeedRows.reduce((total,r)=>total+r.written!,0);
     avgSpeed=totalMs>0?(totalWritten*1000)/totalMs:null;
   }
-  // 上下文占用：历史在每次请求中不断累积，取整段对话中最大的一次请求（输入+输出）才代表当前占用。
-  const contextTokens=rows.reduce<number|null>((peak,r)=>r.read!==null&&r.written!==null?Math.max(peak??0,r.read+r.written):peak,null);
+  // 压缩后占用可能下降；显示最近一次已返回的真实用量，而非历史峰值。
+  const latestContext=[...rows].reverse().find(r=>r.read!==null&&r.written!==null);
+  const contextTokens=latestContext?latestContext.read!+latestContext.written!:null;
   return {read,written,cacheRate,speed,avgSpeed,contextTokens,rounds};
 }
 export function contextCapacity(configured:number|undefined,modelId:string):number{

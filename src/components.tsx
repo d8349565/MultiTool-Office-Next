@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, useLayoutEffect } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type HTMLAttributes, useLayoutEffect } from 'react';
 import { Button, Tooltip } from '@fluentui/react-components';
 import { X, FolderSimple, CaretRight, ArrowSquareOut, Copy, ArrowUp, FolderOpen } from '@phosphor-icons/react';
 import type { Entry } from './types';
@@ -18,7 +18,7 @@ export function Empty({title,detail,action}:{title:string;detail?:string;action?
 export function Skeleton(){return <div className="skeleton" aria-label="加载中">{[1,2,3,4].map(i=><div key={i}/>)}</div>;}
 
 // Scroll position is keyed by parent. Ancestor panels stay mounted when descendants change.
-export function DirectoryPanel({title,level,parent,items,selected,busy,error,filterText,onSelect,onEnter,onOpen,onCopy,onBack,className}:{title:string;level:number;parent:string;items:Entry[];selected?:string;busy:boolean;error?:string;filterText?:string;onSelect:(e:Entry)=>void;onEnter?:(e:Entry)=>void;onOpen:(e:Entry)=>void;onCopy:(s:string)=>void;onBack?:()=>void;className?:string}) {
+export function DirectoryPanel({title,level,parent,items,selected,busy,error,filterText,onSelect,onEnter,onOpen,onCopy,onBack,className,dragProps}:{title:string;level:number;parent:string;items:Entry[];selected?:string;busy:boolean;error?:string;filterText?:string;onSelect:(e:Entry)=>void;onEnter?:(e:Entry)=>void;onOpen:(e:Entry)=>void;onCopy:(s:string)=>void;onBack?:()=>void;className?:string;dragProps?:(entry:Entry)=>HTMLAttributes<HTMLDivElement>}) {
   const list=useRef<HTMLDivElement>(null), positions=useRef(new Map<string,number>()), interaction=useRef(false);
   const query=(filterText||'').trim().toLocaleLowerCase();
   const visibleItems=query?items.filter(e=>e.name.toLocaleLowerCase().includes(query)):items;
@@ -33,7 +33,7 @@ export function DirectoryPanel({title,level,parent,items,selected,busy,error,fil
     <div className="panel-parent" title={parent}>{parent?basename(parent):'选择前一级目录'}</div>
     <div className="directory-list" ref={list} onWheel={()=>{interaction.current=true;}} onPointerDown={()=>{interaction.current=true;}} onKeyDown={()=>{interaction.current=true;}} onScroll={e=>{if(!busy&&interaction.current)positions.current.set(parent,e.currentTarget.scrollTop);}} role="listbox" aria-label={`${title}列表`}>
       {busy&&!items.length?<Skeleton/>:error?<div className="inline-error">{error}</div>:!items.length?<Empty title={parent?'没有子文件夹':'等待选择'} detail={parent?'文件会显示在下方':'从前一级目录继续'}/>:!visibleItems.length?<Empty title="没有匹配的文件夹" detail="可清除或调整当前范围筛选"/>:visibleItems.map((e,i)=><div role="option" aria-selected={!!selected&&samePath(selected,e.path)} tabIndex={0} key={e.path} className={`directory-row ${selected&&samePath(selected,e.path)?'selected':''}`} title={e.name}
-        onClick={()=>onSelect(e)} onDoubleClick={()=>onEnter?onEnter(e):onCopy(e.name)} onContextMenu={event=>{event.preventDefault();onOpen(e);}}
+        {...dragProps?.(e)} onClick={()=>onSelect(e)} onDoubleClick={()=>onEnter?onEnter(e):onCopy(e.name)} onContextMenu={event=>{event.preventDefault();onOpen(e);}}
         onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();if(!event.repeat)(event.key==='Enter'&&onEnter?onEnter:onSelect)(e);}if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();(list.current?.querySelectorAll<HTMLElement>('[role=option]')[Math.max(0,Math.min(visibleItems.length-1,i+(event.key==='ArrowDown'?1:-1)))])?.focus();}}}>
         <FolderSimple size={20} weight={selected&&samePath(selected,e.path)?'fill':'regular'}/><span>{e.name}</span><CaretRight size={14}/>
       </div>)}

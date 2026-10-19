@@ -28,7 +28,7 @@ fn validate(path:&Path,page:u32,sheet:u32)->Result<(),String>{
 #[tauri::command]
 pub async fn file_preview(state:tauri::State<'_,Arc<AppState>>,path:String,request_id:String,page:u32,sheet:u32)->Result<Value,String>{
     if uuid::Uuid::parse_str(&request_id).is_err(){return Err("预览请求编号无效".into());}
-    let path=state.index.authorize(&path)?;
+    let path=crate::authorize_user_path(&state,&path)?;
     validate(&path,page,sheet)?;
     let state=state.inner().clone();
     let cancel={

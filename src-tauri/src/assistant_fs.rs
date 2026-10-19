@@ -12,7 +12,7 @@ pub fn relative_path(raw:&str)->Result<PathBuf,String>{
 }
 pub fn extension(path:&Path)->Result<String,String>{
     let ext=path.extension().and_then(|s|s.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !["txt","md","csv","json","html","docx","xlsx","pptx"].contains(&ext.as_str()){return Err("只支持 TXT、MD、CSV、JSON、HTML、DOCX、XLSX、PPTX，不读取程序、宏或凭据文件".into());}
+    if !["txt","md","csv","json","html","docx","xlsx","pptx","pdf"].contains(&ext.as_str()){return Err("只支持 TXT、MD、CSV、JSON、HTML、DOCX、XLSX、PPTX 及 PDF；PDF 仅支持创建，不读取程序、宏或凭据文件".into());}
     let name=path.file_name().and_then(|s|s.to_str()).unwrap_or("").to_ascii_lowercase();
     if ["credential","password","secret","api-key","api_key","id_rsa"].iter().any(|s|name.contains(s)){return Err("不允许助理读取凭据或密钥类文件".into());}
     Ok(ext)
@@ -26,8 +26,22 @@ fn root_path(path:&Path)->Result<(),String>{
 }
 
 pub struct Directory {pub path:PathBuf,pub identity:String,_locks:Vec<File>}
-pub struct SourceFile {file:File,_locks:Vec<File>}
+pub struct SourceFile {file:File,version:(u64,std::time::SystemTime),_locks:Vec<File>}
 impl SourceFile{pub fn metadata(&self)->std::io::Result<std::fs::Metadata>{self.file.metadata()}}
+fn file_version(file:&File)->Result<(u64,std::time::SystemTime),String>{
+    let metadata=file.metadata().map_err(|_|"无法读取文件信息，请重新选择文件")?;
+    Ok((metadata.len(),metadata.modified().map_err(|_|"无法核对文件修改时间，请保存文件后重试")?))
+}
+fn read_error(error:std::io::Error)->String{
+    match error.raw_os_error(){
+        Some(32|33)=>"文件被其他程序独占，请保存并关闭该文件后重试".into(),
+        _=>match error.kind(){
+            std::io::ErrorKind::NotFound=>"文件不存在或已移动，请重新选择文件并确认相对路径".into(),
+            std::io::ErrorKind::PermissionDenied=>"Windows 拒绝读取此文件，请检查文件权限；助理目录授权不能替代系统权限".into(),
+            _=>format!("无法打开文件，请检查文件状态后重试（系统错误：{error}）"),
+        },
+    }
+}
 #[cfg(windows)]
 fn information(file:&File)->Result<(PathBuf,String,u32,u32),String>{
     use std::os::windows::io::AsRawHandle;
@@ -65,12 +79,12 @@ impl Directory{
             use std::os::windows::fs::OpenOptionsExt;
             let mut folder=self.path.clone();let mut locks=vec![];
             if let Some(parent)=relative.parent(){for component in parent.components(){folder.push(component.as_os_str());locks.push(lock_directory(&folder)?);}}
-            let file=OpenOptions::new().read(true).share_mode(1).custom_flags(0x00200000).open(self.path.join(relative)).map_err(|_|"文件无法安全读取，可能被占用、已移动或没有权限")?;
+            let file=OpenOptions::new().read(true).share_mode(3).custom_flags(0x00200000).open(self.path.join(relative)).map_err(read_error)?;
             let (final_path,_,attributes,links)=information(&file)?;
             if !final_path.starts_with(&self.path)||attributes&0x410!=0||links!=1{return Err("拒绝目录之外的文件、链接、硬链接或重解析点".into());}
             // 将父目录锁与读取句柄的生命周期绑定，避免校验后被替换。
-            // 文件句柄拒绝写入和删除共享；读取始终使用同一个已验证句柄。
-            Ok(SourceFile{file,_locks:locks})
+            // 允许 Office 保持编辑句柄，仍拒绝删除共享；确认前后核对版本，读取使用同一已验证句柄。
+            Ok(SourceFile{version:file_version(&file)?,file,_locks:locks})
         }
         #[cfg(not(windows))] {Err("此功能仅支持 Windows 桌面版".into())}
     }
@@ -88,7 +102,36 @@ impl Directory{
 }
 pub fn bounded_read(mut source:SourceFile)->Result<Vec<u8>,String>{
     let file=&mut source.file;
-    if file.metadata().map_err(|_|"无法读取文件信息")?.len()>8_000_000{return Err("文件超过 8 MB 读取上限，请拆分后重试".into());}
+    if file_version(file)?!=source.version{return Err("文件在等待确认期间发生变化，请保存后重新确认读取".into());}
+    if source.version.0>8_000_000{return Err("文件超过 8 MB 读取上限，请拆分后重试".into());}
     let mut data=vec![];Read::by_ref(file).take(8_000_001).read_to_end(&mut data).map_err(|_|"文件读取失败")?;
-    if data.len()>8_000_000{return Err("文件超过读取上限".into());}Ok(data)
+    if data.len()>8_000_000{return Err("文件超过读取上限".into());}
+    if file_version(file)?!=source.version{return Err("文件在读取过程中发生变化，未发送正文；请保存并停止编辑后重试".into());}Ok(data)
+}
+
+#[cfg(all(test,windows))]
+mod tests{
+    use super::*;
+    fn folder()->tempfile::TempDir{
+        let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assistant-fs-audit");std::fs::create_dir_all(&root).unwrap();
+        tempfile::Builder::new().prefix("audit-").tempdir_in(root).unwrap()
+    }
+    #[test]
+    fn a_saved_office_file_can_be_read_while_an_editor_holds_it(){
+        use std::os::windows::fs::OpenOptionsExt;
+        let folder=folder();let directory=Directory::lock(folder.path()).unwrap();let path=directory.create("audit.txt",b"synthetic content").unwrap();
+        let _editor=OpenOptions::new().read(true).write(true).share_mode(3).open(&path).unwrap();
+        assert_eq!(bounded_read(directory.read_file("audit.txt").unwrap()).unwrap(),b"synthetic content");
+    }
+    #[test]
+    fn changed_files_are_rejected_after_confirmation(){
+        let folder=folder();let directory=Directory::lock(folder.path()).unwrap();let path=directory.create("audit.txt",b"old").unwrap();
+        let source=directory.read_file("audit.txt").unwrap();std::fs::write(path,b"changed synthetic content").unwrap();
+        assert!(bounded_read(source).unwrap_err().contains("变化"));
+    }
+    #[test]
+    fn create_never_overwrites_an_existing_file(){
+        let folder=folder();let directory=Directory::lock(folder.path()).unwrap();directory.create("keep.txt",b"original").unwrap();
+        assert!(directory.create("keep.txt",b"replacement").is_err());assert_eq!(bounded_read(directory.read_file("keep.txt").unwrap()).unwrap(),b"original");
+    }
 }

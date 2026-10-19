@@ -1,0 +1,36 @@
+.settings-form .launcher-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.settings-form .launcher-tools-section .launcher-section-heading h3{display:flex;align-items:center;gap:8px;margin:0;line-height:24px}
+.launcher-count{font-size:11px;font-weight:400;color:var(--muted);white-space:nowrap}
+.launcher-add-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.launcher-add-actions>.fui-Button{min-height:32px}
+.settings-form .launcher-tools-section .launcher-section-note{margin:8px 0 16px;line-height:1.7}
+.launcher-editor-list{display:grid;gap:12px}
+.settings-form .launcher-editor{
+  display:grid;
+  grid-template-columns:40px minmax(0,3fr) minmax(48px,1fr) auto;
+  grid-template-areas:"type name group group" ". target target actions";
+  align-items:end;
+  gap:12px;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--surface-alt);
+}
+.settings-form .launcher-editor:focus-within{border-color:color-mix(in srgb,var(--focus) 55%,var(--line))}
+.launcher-editor-name{grid-area:name}
+.launcher-editor-group{grid-area:group}
+.launcher-editor-target{grid-area:target}
+.settings-form .launcher-editor>label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;line-height:18px}
+.settings-form .launcher-editor input{width:100%;min-width:0;height:40px;padding:9px 11px;font-size:13px;line-height:20px;text-overflow:ellipsis}
+.settings-form .launcher-editor-target input{font-family:'Cascadia Code',Consolas,'Microsoft YaHei UI',monospace;font-size:12px}
+.launcher-editor-preview{grid-area:type;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:40px;height:40px;border:1px solid;border-radius:8px;user-select:none}
+.launcher-editor-preview span{font-size:9px;font-weight:600;line-height:11px;letter-spacing:.3px}
+.launcher-editor-actions{grid-area:actions;display:flex;align-items:center;justify-content:flex-end;gap:8px;height:40px}
+.launcher-editor-actions>.fui-Button{width:36px;min-width:36px;height:40px;padding:0}
+.launcher-editor-actions>.fui-Button:last-child:not(:disabled):hover{color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--surface))}
+.settings-form .launcher-tools-section .launcher-empty{padding:24px 16px;margin:0;border:1px dashed var(--line);border-radius:10px;color:var(--muted);text-align:center}
+@media(max-width:640px){
+  .settings-form .launcher-editor{grid-template-columns:40px minmax(0,1fr);grid-template-areas:"type name" ". group" ". target" ". actions";padding:12px}
+  .launcher-editor-actions{justify-self:end}
+  .launcher-add-actions{width:100%}
+}

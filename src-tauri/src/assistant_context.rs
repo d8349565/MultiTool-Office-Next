@@ -114,8 +114,8 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
     }else{
         let scope=if intent.scope.is_empty()||intent.scope=="result"{"current"}else{intent.scope.as_str()};
         intent.root=match scope{
-            "current"=>context["view"]["currentDirectory"].as_str().or_else(||context["view"]["root"].as_str()).map(str::to_owned),
-            "workspace"=>context["view"]["root"].as_str().map(str::to_owned),
+            "current"=>context["view"]["currentDirectory"].as_str().filter(|p|!p.trim().is_empty()).or_else(||context["view"]["root"].as_str().filter(|p|!p.trim().is_empty())).map(str::to_owned),
+            "workspace"=>context["view"]["root"].as_str().filter(|p|!p.trim().is_empty()).map(str::to_owned),
             "all"=>{if state.index.roots.read().unwrap().is_empty(){return Err("请先配置工作目录".into());}None},
             "explicit"=>intent.root.clone(),
             _=>return Err("无效目录范围".into()),
@@ -214,7 +214,10 @@ pub fn delivery_text(result:&Value,current:&TaskContext)->String{
     crate::assistant_work::answer(result)
 }
 pub fn validate_delivery(state:&AppState,current:&TaskContext,trace:&[Value])->Result<(),String>{
-    if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){return Err("尚未在用户确认后生成本轮要求的文件；不能声称已完成".into());}
+    if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){
+        let cause=trace.iter().rev().filter(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))).find_map(|r|r["result"]["error"].as_str());
+        return Err(cause.map_or_else(||"尚未在用户确认后生成本轮要求的文件；不能声称已完成".into(),|error|format!("文件未能生成：{error}；不能声称已完成")));
+    }
     if current.intent.delivery=="html"{
         let reports=state.reports.lock().unwrap();
         if !trace.iter().any(|r|{let p=if r["tool"]=="report_create"{&r["result"]}else{&r["result"]["report"]};p["id"].as_str().is_some_and(|id|reports.get(id).is_some_and(|path|path.is_file()))}){return Err("尚未生成并验证本轮要求的网页报告".into());}

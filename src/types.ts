@@ -23,7 +23,7 @@ export interface Proposal { id: string; before: Partial<Settings>; after: Partia
 export interface TaskFault { code:string; message:string; recovery:string }
 export type TaskStatus='running'|'waiting_input'|'completed'|'partial'|'failed'|'cancelled'|'interrupted';
 export interface TaskContext { schemaVersion:number;version:number;sessionId:string;taskId:string;status:TaskStatus;intent:{goal:string;operation:string;scope:string;root?:string;fields:string[];delivery:string;pendingField?:string;question?:string};resultSetIds:string[];evidenceIds:string[] }
-export interface TaskAction {type:'next_page'|'scope_answer';resultSetId?:string;offset?:number;scope?:'current'|'workspace';operation?:string}
+export interface TaskAction {type:'next_page'|'scope_answer'|'resume_task';taskId?:string;resultSetId?:string;offset?:number;scope?:'current'|'workspace';operation?:string}
 export interface DeliveryTable {columns:{key:string;label:string}[];rows:{path:string;values:string[];notice?:string|null}[];total:number;resultSetId:string}
 export interface Activity { id: string; kind: 'reasoning' | 'note' | 'tool'; status: 'running' | 'completed' | 'failed' | 'interrupted'; text?: string; tool?: string; args?: unknown; result?: unknown; elapsedMs?: number }
 export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; format?: 'plain'|'markdown'|'html'; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; answers?: Record<string, { choice?: string; confidence?: number; score?: number }>; usage?: unknown; serviceUsage?:ServiceUsage[]; model?: string }

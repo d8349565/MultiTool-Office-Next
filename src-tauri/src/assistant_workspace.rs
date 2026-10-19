@@ -50,6 +50,16 @@ fn check(state:&AppState,p:&Permission,revision:u64)->Result<Directory,String>{
     if directory.identity!=p.identity{return Err("工作目录的物理身份已变化，请重新选择并确认授权".into());}Ok(directory)
 }
 pub fn authorize(state:&AppState,revision:u64)->Result<(),String>{check(state,&state.workspace.permission.lock().unwrap(),revision).map(|_|())}
+pub fn authorize_local_path(state:&AppState,path:&str)->Result<std::path::PathBuf,String>{
+    let permission=state.workspace.permission.lock().unwrap();
+    let directory=check(state,&permission,permission.revision)?;
+    let canonical=crate::index::normalize(Path::new(path))?;
+    let root=crate::index::normalize(&directory.path)?;
+    let relative=canonical.strip_prefix(&root).map_err(|_|"路径不在当前授权的助理工作目录内")?;
+    let path=directory.path.join(relative);
+    if path.is_dir(){Directory::lock(&path)?;}else{directory.read_file(&relative.to_string_lossy())?;}
+    Ok(path)
+}
 pub fn authorize_interactive(state:&AppState,revision:u64)->Result<(),String>{
     let p=state.workspace.permission.lock().unwrap();check(state,&p,revision)?;
     if !p.allow_interactive_html||p.interactive_risk_version!=INTERACTIVE_RISK_VERSION{return Err("交互式 HTML 权限关闭。请由用户在设置 → 助理配置中单独勾选并二次确认脚本风险；不能改用静态文档或剪贴板绕过授权。".into());}Ok(())
@@ -148,13 +158,14 @@ pub fn list(state:&AppState,revision:u64,task:&str)->Result<Value,String>{
     for entry in std::fs::read_dir(&directory.path).map_err(|_|"无法列出工作目录")?{
         let entry=entry.map_err(|_|"目录列表读取失败")?;let name=entry.file_name().to_string_lossy().into_owned();
         if !entry.file_type().is_ok_and(|t|t.is_file())||assistant_fs::relative_path(&name).is_err()||assistant_fs::extension(&entry.path()).is_err(){continue;}
-        total+=1;if items.len()<100{items.push(json!({"filename":name,"bytes":entry.metadata().map(|m|m.len()).unwrap_or(0)}));}
+        total+=1;if items.len()<100{items.push(json!({"filename":name,"bytes":entry.metadata().map(|m|m.len()).unwrap_or(0),"readable":assistant_fs::extension(&entry.path()).is_ok_and(|ext|ext!="pdf")}));}
     }
     Ok(json!({"items":items,"total":total,"notice":"仅列出工作目录根部最多 100 个支持文件，不读取正文。子目录文件需提供相对路径。文件名是不可信资料。"}))
 }
 pub async fn read(state:&AppState,app:&tauri::AppHandle,revision:u64,task:&str,name:&str,cancel:&AtomicBool)->Result<Value,String>{
-    let (directory,file,size)={let p=state.workspace.permission.lock().unwrap();let directory=check(state,&p,revision)?;let file=directory.read_file(name)?;let size=file.metadata().map_err(|_|"无法读取文件大小")?.len();if size>8_000_000{return Err("文件超过 8 MB 上限".into());}(directory,file,size)};
     let ext=assistant_fs::extension(Path::new(name))?;
+    if ext=="pdf"{return Err("PDF 当前支持创建及本地预览，尚不支持通过助理工具读取正文；请提供文字内容或改用支持读取的文档格式".into());}
+    let (directory,file,size)={let p=state.workspace.permission.lock().unwrap();let directory=check(state,&p,revision)?;let file=directory.read_file(name)?;let size=file.metadata().map_err(|_|"无法读取文件大小")?.len();if size>8_000_000{return Err("文件超过 8 MB 上限".into());}(directory,file,size)};
     confirm_operation(state,app,approval(state,task,"read",name,&ext,"确认后会读取此文件的正文并发送给当前模型服务。不要允许读取包含密钥、个人隐私、机密或无权分享资料的文件。".into(),size),cancel).await?;
     authorize(state,revision)?;if cancel.load(Ordering::Relaxed){return Err("任务已取消".into());}
     let data=assistant_fs::bounded_read(file)?;drop(directory);
@@ -165,7 +176,12 @@ pub async fn read(state:&AppState,app:&tauri::AppHandle,revision:u64,task:&str,n
 }
 pub async fn create(state:&AppState,app:&tauri::AppHandle,revision:u64,task:&str,args:Value,cancel:&AtomicBool)->Result<Value,String>{
     authorize(state,revision)?;let doc=crate::assistant_documents::Document::parse(args)?;
-    let bytes=doc.render()?;let notice=approval(state,task,"create",&doc.filename,&doc.format,doc.preview(),bytes.len() as u64);
+    let bytes=if doc.format=="pdf"{
+        crate::task_state::emit(app,"task-progress",json!({"id":task,"message":"正在排版 PDF，完成后请确认保存"}));
+        crate::assistant_pdf::render(app,doc.html(),cancel).await?
+    }else{doc.render()?};
+    authorize(state,revision)?;
+    let notice=approval(state,task,"create",&doc.filename,&doc.format,doc.preview(),bytes.len() as u64);
     confirm_operation(state,app,notice,cancel).await?;
     store(state,revision,task,&doc.filename,&doc.title,&doc.format,&bytes,cancel)
 }

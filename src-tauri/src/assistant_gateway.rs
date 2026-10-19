@@ -39,7 +39,7 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}
     if tool=="model_config_add"&&current.intent.operation!="config"{return Err("只有用户要求配置模型接口时才能新增模型配置".into());}
-    if tool=="path_open"{state.index.authorize(args["path"].as_str().ok_or("缺少路径")?)?;}
-    if tool=="files_reveal"{for path in args["paths"].as_array().ok_or("缺少路径集合")?{state.index.authorize(path.as_str().ok_or("路径无效")?)?;}}
+    if tool=="path_open"{crate::authorize_user_path(state,args["path"].as_str().ok_or("缺少路径")?)?;}
+    if tool=="files_reveal"{for path in args["paths"].as_array().ok_or("缺少路径集合")?{crate::authorize_user_path(state,path.as_str().ok_or("路径无效")?)?;}}
     Ok(())
 }

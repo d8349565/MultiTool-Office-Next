@@ -21,6 +21,8 @@ import { htmlToPlainText } from './htmlTokens';
 import { getLauncherVisual } from './launcherVisuals';
 import { useFilePreview } from './useFilePreview';
 import { FilePreview } from './FilePreview';
+import { useFileDrag } from './useFileDrag';
+const moduleNavigation=[{id:'files',label:'文件工作区',icon:<FolderSimple/>},{id:'translate',label:'文本翻译',icon:<Translate/>},{id:'tools',label:'常用工具',icon:<SquaresFour/>},{id:'ocr',label:'文档 OCR',icon:<FileText/>},{id:'todo',label:'待办事项',icon:<CheckSquare/>}];
 const pageModuleMap: Record<string, ModuleId> = { files: 'workspace', tools: 'tools', translate: 'model', ocr: 'integrations', todo: 'workspace' };
 const Assistant=lazy(()=>import('./Assistant'));
 const OcrWorkbench=lazy(()=>import('./OcrWorkbench'));
@@ -108,6 +110,7 @@ export default function App(){
   const virtual=useVirtualizer({count:resultsReady?files.items.length:0,getScrollElement:()=>fileList.current,getItemKey:index=>files.items[index]?.path||index,estimateSize:()=>54,overscan:8});
   const scrollMemory=useRef(new Map<string,number>()),fileScope=q?`search:${q}:${offset}`:`browse:${current}:${offset}`,fileInteraction=useRef(false);
   const preview=useFilePreview(page==='files'&&!settingsTab&&!about&&!quick&&!assistant,`${fileScope}|${settings?.roots.join('|')}|${f}|${recursive}|${extension}|${after}`,files.items);
+  const dragProps=useFileDrag(setNotice,preview.close);
   const lastQueryKey=useRef(''),selectedRef=useRef<Entry|null>(null);
   selectedRef.current=selected;
   useLayoutEffect(()=>{fileInteraction.current=false;},[fileScope,fileBusy]);
@@ -139,7 +142,25 @@ export default function App(){
   useEffect(()=>{const m=matchMedia('(prefers-color-scheme: dark)');const fn=()=>setSystemDark(m.matches);m.addEventListener('change',fn);return()=>m.removeEventListener('change',fn);},[]);
   useEffect(()=>{if(!desktop)return;const unlisten=listen<Settings>('settings-updated',event=>setSettings(previous=>!previous||event.payload.revision>previous.revision?event.payload:previous));return()=>{void unlisten.then(stop=>stop());};},[]);
   useEffect(()=>{if(!notice||(pendingActions.size&&notice.startsWith('正在')))return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);},[notice,pendingActions]);
-  useEffect(()=>{const listener=(e:KeyboardEvent)=>{if(e.ctrlKey&&e.key.toLowerCase()==='k'){e.preventDefault();setQuick(s=>!s);}if(e.ctrlKey&&e.key.toLowerCase()==='f'){if(pageRef.current==='todo'&&document.querySelector('dialog[open]'))return;e.preventDefault();if(pageRef.current==='todo'){document.getElementById('todo-search')?.focus();}else if(pageRef.current==='tools'){document.getElementById('tools-search')?.focus();}else{setPage('files');searchInput.current?.focus();}}if(e.key==='Escape'){setAssistant(false);setQuick(false);}};window.addEventListener('keydown',listener);const unlisten=desktop?listen('quick-open',()=>setQuick(true)):null;return()=>{window.removeEventListener('keydown',listener);void unlisten?.then(f=>f());};},[]);
+  useEffect(()=>{
+    const listener=(e:KeyboardEvent)=>{
+      if(e.defaultPrevented||e.isComposing||e.repeat)return;
+      if(e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey){
+        const index=moduleNavigation.findIndex((_,i)=>e.code===`Digit${i+1}`);
+        const editing=e.target instanceof Element&&e.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]');
+        if(index>=0&&!editing&&!document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')){
+          e.preventDefault();setPage(moduleNavigation[index].id);
+          document.querySelector<HTMLButtonElement>(`nav button[aria-keyshortcuts="Alt+${index+1}"]`)?.focus();
+        }
+        return;
+      }
+      if(e.ctrlKey&&e.key.toLowerCase()==='k'){e.preventDefault();setQuick(s=>!s);}
+      if(e.ctrlKey&&e.key.toLowerCase()==='f'){if(pageRef.current==='todo'&&document.querySelector('dialog[open]'))return;e.preventDefault();if(pageRef.current==='todo'){document.getElementById('todo-search')?.focus();}else if(pageRef.current==='tools'){document.getElementById('tools-search')?.focus();}else{setPage('files');searchInput.current?.focus();}}
+      if(e.key==='Escape'){setAssistant(false);setQuick(false);}
+    };
+    window.addEventListener('keydown',listener);const unlisten=desktop?listen('quick-open',()=>setQuick(true)):null;
+    return()=>{window.removeEventListener('keydown',listener);void unlisten?.then(f=>f());};
+  },[]);
   useLayoutEffect(()=>{
     const area=workspace.current,ancestors=columns.current;if(!area||!ancestors)return;
     const resize=()=>{
@@ -247,10 +268,10 @@ export default function App(){
     finally{stopStream?.();if(translationRun.current===id){translationRun.current='';setTranslationTask('');}}
   }
   async function evaluateJev(){const id=crypto.randomUUID();setJevTask(id);setJevResult(null);try{const result=await api<AIResult>('ai_task',{id,kind:'jev',text:q,items:files.items.slice(0,20).map(e=>({name:e.name,path:relativePath(e.path,settings?.roots.find(r=>isWithin(e.path,r))||root)}))});setJevResult(result);}catch(e){setNotice(`${e}；保留本地搜索结果`);}finally{setJevTask('');}}
-  const directoryProps={onOpen:(e:Entry)=>openEntry(e),onCopy:copyValue,filterText:query?'':f};
+  const directoryProps={dragProps,onOpen:(e:Entry)=>openEntry(e),onCopy:copyValue,filterText:query?'':f};
   const viewContext={page,root,currentDirectory:current,selectedDirectories:trail,query,filter,recursive,selectedFile:selected?{name:selected.name,path:selected.path}:null};
   return <FluentProvider theme={theme} className={`office-app ${dark?'dark':''}`}><IconContext.Provider value={{size:18,weight:'regular'}}>
-    <header className="app-header"><div className="wordmark"><span className="brand-mark"><SquaresFour size={22} weight="fill"/></span><span>MultiTool <strong>Office</strong></span></div><nav aria-label="主导航">{[{id:'files',label:'文件工作区',icon:<FolderSimple/>},{id:'translate',label:'文本翻译',icon:<Translate/>},{id:'tools',label:'常用工具',icon:<SquaresFour/>},{id:'ocr',label:'文档 OCR',icon:<FileText/>},{id:'todo',label:'待办事项',icon:<CheckSquare/>}].map(t=><button className={page===t.id?'active':''} onClick={()=>setPage(t.id)} key={t.id} title={t.label} aria-label={t.label}>{t.icon}{page===t.id&&<span>{t.label}</span>}</button>)}</nav><div className="header-actions"><button className="quick-trigger" onClick={()=>setQuick(true)} aria-label="快捷面板" title={quickShortcutHint}><Command/><kbd>Ctrl K</kbd></button><IconButton label="关于" onClick={()=>setAbout(true)}><Info/></IconButton><IconButton label="设置" onClick={()=>openSettings()}><GearSix/></IconButton><Button appearance="primary" className="assistant-toggle" aria-label="助手" icon={<Sparkle weight="fill"/>} onClick={()=>setAssistant(a=>!a)}>助手</Button></div></header>
+    <header className="app-header"><div className="wordmark"><span className="brand-mark"><SquaresFour size={22} weight="fill"/></span><span>MultiTool <strong>Office</strong></span></div><nav aria-label="主导航">{moduleNavigation.map((t,index)=><button className={page===t.id?'active':''} onClick={()=>setPage(t.id)} key={t.id} title={`${t.label} · Alt+${index+1}`} aria-label={t.label} aria-keyshortcuts={`Alt+${index+1}`} aria-current={page===t.id?'page':undefined}>{t.icon}{page===t.id&&<span>{t.label}</span>}</button>)}</nav><div className="header-actions"><button className="quick-trigger" onClick={()=>setQuick(true)} aria-label="快捷面板" title={quickShortcutHint}><Command/><kbd>Ctrl K</kbd></button><IconButton label="关于" onClick={()=>setAbout(true)}><Info/></IconButton><IconButton label="设置" onClick={()=>openSettings()}><GearSix/></IconButton><Button appearance="primary" className="assistant-toggle" aria-label="助手" icon={<Sparkle weight="fill"/>} onClick={()=>setAssistant(a=>!a)}>助手</Button></div></header>
     <div className="network-status-bar"><NetworkIndicator onOpen={()=>openSettings('privacy')}/><span>本地文件整理 · 外部服务按需授权</span><Button type="button" size="small" appearance="subtle" onClick={()=>openSetup()}>配置引导</Button></div>
     {demo&&<div className="demo-banner">交互预览 · 当前为示例文件，系统操作请使用桌面版</div>}
     {fatal?<div className="fatal"><h2>无法加载工作台</h2><p>{fatal}</p><Button onClick={()=>location.reload()}>重新加载</Button></div>:!settings?<Skeleton/>:<>
@@ -272,7 +293,7 @@ export default function App(){
             <section className="file-panel panel" aria-label="文件列表"><div className="panel-head"><div className="panel-title"><span className="file-heading-icon"><FileText/></span><h2>{q?'搜索结果':'文件列表'}</h2><span className="count">{resultsReady?files.total:'…'}</span></div><Checkbox checked={!!q||recursive} title={q?'搜索始终包含所有工作目录的子文件夹':undefined} disabled={!!q} onChange={(_,d)=>setRecursive(!!d.checked)} label="包含子文件夹"/></div><div className="file-list-top"><span>{q?`“${q}” · 所有工作目录`:current?basename(current):'文件'}</span>{q&&settings.jevEnabled&&<Button size="small" appearance="subtle" disabled={!!jevTask} icon={<Sparkle/>} onClick={()=>void evaluateJev()}>{jevTask?'正在评分':'JEV 实验评分'}</Button>}</div>
               {jevResult&&<div className="jev-result"><Check size={14}/>Jev 建议：{jevResult.answers?.intent?.choice||'已评分'}，仅供参考<IconButton label="关闭评分" onClick={()=>setJevResult(null)}><X/></IconButton></div>}
               <div className="file-list" ref={fileList} onWheel={()=>{fileInteraction.current=true;}} onPointerDown={()=>{fileInteraction.current=true;}} onKeyDown={()=>{fileInteraction.current=true;}} onScroll={e=>{if(!fileBusy&&fileInteraction.current)scrollMemory.current.set(fileScope,e.currentTarget.scrollTop);}}>
-                {!resultsReady||fileBusy?<Skeleton/>:fileError?<div className="inline-error">{fileError}</div>:!files.items.length?<Empty title={status.scanning?'索引中，稍后显示文件':'没有匹配的文件'} detail={q||f?'试试更短的关键词或清除筛选':'可选择其他目录，或关闭范围限制'}/>:<div style={{height:virtual.getTotalSize(),position:'relative'}}>{virtual.getVirtualItems().map(v=>{const e=files.items[v.index];return <div className={`file-row ${selected?.path===e.path?'selected':''}`} data-index={v.index} ref={virtual.measureElement} key={e.path} style={{position:'absolute',top:0,left:0,width:'100%',transform:`translateY(${v.start}px)`}} tabIndex={0} role="button" aria-busy={pendingActions.has(openActionKey(e.path))} aria-label={e.name} title={e.path} onPointerEnter={event=>preview.hover(e,event)} onPointerMove={event=>preview.hover(e,event)} onPointerLeave={preview.leave} onClick={event=>{setSelected(e);if(event.ctrlKey)preview.pin(e,event.currentTarget);}} onDoubleClick={event=>{if(!event.ctrlKey)openEntry(e);}} onContextMenu={event=>{event.preventDefault();openEntry(e,true);}} onKeyDown={event=>{if(event.ctrlKey&&event.key==='Enter'){event.preventDefault();preview.pin(e,event.currentTarget);return;}if(event.key==='Enter'&&!event.repeat)openEntry(e);if(event.key===' '){event.preventDefault();setSelected(e);}}}>
+                {!resultsReady||fileBusy?<Skeleton/>:fileError?<div className="inline-error">{fileError}</div>:!files.items.length?<Empty title={status.scanning?'索引中，稍后显示文件':'没有匹配的文件'} detail={q||f?'试试更短的关键词或清除筛选':'可选择其他目录，或关闭范围限制'}/>:<div style={{height:virtual.getTotalSize(),position:'relative'}}>{virtual.getVirtualItems().map(v=>{const e=files.items[v.index];return <div {...dragProps(e)} className={`file-row ${selected?.path===e.path?'selected':''}`} data-index={v.index} ref={virtual.measureElement} key={e.path} style={{position:'absolute',top:0,left:0,width:'100%',transform:`translateY(${v.start}px)`}} tabIndex={0} role="button" aria-busy={pendingActions.has(openActionKey(e.path))} aria-label={e.name} title={e.path} onPointerEnter={event=>preview.hover(e,event)} onPointerMove={event=>preview.hover(e,event)} onPointerLeave={preview.leave} onClick={event=>{setSelected(e);if(event.ctrlKey)preview.pin(e,event.currentTarget);}} onDoubleClick={event=>{if(!event.ctrlKey)openEntry(e);}} onContextMenu={event=>{event.preventDefault();openEntry(e,true);}} onKeyDown={event=>{if(event.ctrlKey&&event.key==='Enter'){event.preventDefault();preview.pin(e,event.currentTarget);return;}if(event.key==='Enter'&&!event.repeat)openEntry(e);if(event.key===' '){event.preventDefault();setSelected(e);}}}>
                     <FileIcon extension={e.extension}/><div className="file-description"><strong>{e.name}</strong><span>{relativePath(e.parent,q?settings.roots.find(r=>isWithin(e.path,r))||root:current)||'当前目录'}</span></div><div className="file-meta"><span>{sizeLabel(e.size)}</span><span>{new Date(e.modified*1000).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'})}</span></div>{jevResult?.answers?.[`file_${v.index}`]?.score!==undefined&&<span className="score" title="仅根据名称与相对路径评分">{jevResult.answers[`file_${v.index}`].score?.toFixed(1)}</span>}
                   </div>;})}</div>}
               </div>
@@ -287,7 +308,7 @@ export default function App(){
         {(todoVisited||page==='todo')&&<Suspense fallback={<Skeleton/>}><TodoWorkbench visible={page==='todo'} reminderRequest={todoReminder}/></Suspense>}
       </main>
       <footer className="statusbar"><span><span className="status-dot"/>本地工作台</span><span>{root?basename(root):'添加目录即可开始'}<span className="status-divider"/>{status.scanning?'正在同步索引':'文件信息保存在本机'}</span><span className="statusbar-right"><button onClick={()=>setQuick(true)} title={quickShortcutHint}>快捷面板 <kbd>Ctrl K</kbd></button><IconButton label={dark?'切换浅色':'切换深色'} onClick={()=>void run(async()=>saved(await api<Settings>('save_settings',{next:{...settings,theme:dark?'light':'dark'}})))}>{dark?<Sun/>:<Moon/>}</IconButton></span></footer>
-      <Suspense fallback={null}><Assistant onWorkspaceSettings={()=>openSettings('assistant')} settings={settings} onPricingSettings={()=>openSettings('pricing')} onLocate={path=>{const found=settings.roots.find(r=>isWithin(path,r));if(!found){setNotice('目录不在当前搜索范围');return;}setRoot(found);setTrail(locateTrail(found,path));setQuery('');setPage('files');setAssistant(false);}} open={assistant} onClose={()=>setAssistant(false)} context={viewContext} onProposal={p=>{setProposal(p);setProposalError('');}}/></Suspense>
+      <Suspense fallback={null}><Assistant onWorkspaceSettings={()=>openSettings('assistant')} settings={settings} onPricingSettings={()=>openSettings('pricing')} onLocate={path=>{const found=settings.roots.find(r=>isWithin(path,r));if(!found){void run(()=>api('open_path',{path,reveal:false}));return;}setRoot(found);setTrail(locateTrail(found,path));setQuery('');setPage('files');setAssistant(false);}} open={assistant} onClose={()=>setAssistant(false)} context={viewContext} onProposal={p=>{setProposal(p);setProposalError('');}}/></Suspense>
       {about&&<AboutView onClose={()=>setAbout(false)}/>}
       <SetupWizard settings={settings} onSaved={saved} onAddRoot={addRoot}/>
       {settingsTab&&<SettingsView settings={settings} initialTab={settingsTab} onSaved={saved} onClose={()=>setSettingsTab(null)}/>}

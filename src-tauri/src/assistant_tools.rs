@@ -102,7 +102,7 @@ pub fn from_trace(state:&AppState,args:&Value,trace:&[Value],workspace:Option<&s
 }
 
 pub fn open_report(state:&AppState,id:&str)->Result<(),String>{
-    let reports=state.reports.lock().unwrap();let path=reports.get(id).ok_or("报告已失效，请重新生成")?;
-    if !["txt","docx","xlsx","html","pptx"].contains(&Path::new(path).extension().and_then(|s|s.to_str()).unwrap_or("")){return Err("无效生成文件".into());}
-    open::that_detached(path).map_err(|e|e.to_string())
+    let path=state.reports.lock().unwrap().get(id).cloned().ok_or("报告已失效，请在工作目录中查找文件")?;
+    if !["txt","docx","xlsx","html","pptx","pdf"].contains(&path.extension().and_then(|s|s.to_str()).unwrap_or("")){return Err("无效生成文件".into());}
+    open::that_detached(crate::authorize_user_path(state,&path.to_string_lossy())?).map_err(|e|e.to_string())
 }

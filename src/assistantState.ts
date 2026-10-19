@@ -5,7 +5,7 @@ import type { AssistantStats } from './assistantMetrics';
 import { imageReferences, type AssistantImage } from './assistantImages';
 export type Link={kind:'report'|'folder'|'file'|'web';label:string;target:string;contentKind?:'summary'|'fulltext';truncated?:boolean};
 export type Message={role:'user'|'assistant';text:string;images?:AssistantImage[];activityKey?:string;activities?:Activity[];trace?:AIResult['trace'];proposals?:Proposal[];links?:Link[];status?:AIResult['status'];fault?:AIResult['fault'];route?:string;delivery?:AIResult['delivery'];taskContext?:TaskContext;stats?:AssistantStats};
-export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;recoverTask?:string};
+export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;deadline?:number;recoverTask?:string};
 export const sessionKey='office-assistant-conversations-v1';
 export function newConversation():Conversation{return {id:crypto.randomUUID(),title:'新会话',messages:[],draft:'',workspace:'',error:'',lastPrompt:'',task:'',progress:'',started:0};}
 export function loadConversations():{sessions:Conversation[];active:string}{

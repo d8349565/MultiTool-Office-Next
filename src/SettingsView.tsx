@@ -14,6 +14,7 @@ import { SearchConnection } from './SearchConnection';
 import { NetworkSettings, openSetup } from './NetworkControls';
 import { rebaseSettings, settingsEqual, settingsFieldEqual, searchSettingsKeys } from './settingsDraft';
 import { AssistantWorkspaceSettings } from './AssistantWorkspaceSettings';
+import './settingsLaunchers.css';
 
 const modules = [
   {id:'workspace',label:'工作台',description:'设置文件搜索范围、外观和默认浏览方式。',keys:['roots','theme','recursive','filter']},
@@ -34,6 +35,12 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   function acceptSaved(saved:Settings,keys:readonly string[]=[]){const before=baseline.current;baseline.current=saved;setSavedSettings(saved);setDraft(previous=>rebaseSettings(previous,before,saved,keys));setClosing(false);onSaved(saved);}
   useEffect(()=>{const before=baseline.current;if(settingsEqual(before,settings))return;baseline.current=settings;setSavedSettings(settings);setDraft(previous=>rebaseSettings(previous,before,settings));},[settings]);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[secret,setSecret]=useState(''),[provider,setProvider]=useState('jev'),[message,setMessage]=useState('');
+  const addedLauncher=useRef('');
+  useEffect(()=>{
+    if(busy||tab!=='tools'||!addedLauncher.current)return;
+    const input=document.getElementById('launcher-name-'+addedLauncher.current);
+    addedLauncher.current='';input?.focus({preventScroll:true});input?.scrollIntoView({block:'center'});
+  },[draft.launchers,tab,busy]);
   const [closing,setClosing]=useState(false),[roleDirty,setRoleDirty]=useState(false);
   const [connectionDirty,setConnectionDirty]=useState(false),[searchDirty,setSearchDirty]=useState(false);
   const [searchSaveBlocked,setSearchSaveBlocked]=useState(''),[searchResetVersion,setSearchResetVersion]=useState(0);
@@ -56,8 +63,8 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   function guardSecret(action:()=>void){if(secret.trim()){setClosing(false);setPendingSecretAction(()=>action);}else action();}
   function switchTab(next:ModuleId){if(next===tab)return;guardSecret(()=>{setClosing(false);setTab(next);setError('');setMessage('');setSecret('');setProvider('jev');});}
   async function addRoot(){const path=await pick(true);if(path&&!draft.roots.includes(path))change('roots',[...draft.roots,path]);}
-  async function addLauncher(){const path=await pick(false);if(path)change('launchers',[...draft.launchers,{id:crypto.randomUUID(),name:basename(path),path,group:'常用工具'}]);}
-  function addWebLauncher(){change('launchers',[...draft.launchers,{id:crypto.randomUUID(),name:'',path:'https://',group:'网页入口'}]);}
+  async function addLauncher(){const path=await pick(false);if(path){const id=crypto.randomUUID();addedLauncher.current=id;change('launchers',[...draft.launchers,{id,name:basename(path),path,group:'常用工具'}]);}}
+  function addWebLauncher(){const id=crypto.randomUUID();addedLauncher.current=id;change('launchers',[...draft.launchers,{id,name:'',path:'https://',group:'网页入口'}]);}
   function editLauncher(index:number,field:keyof Launcher,value:string){change('launchers',draft.launchers.map((l,i)=>i===index?{...l,[field]:value}:l));}
   function move(index:number,delta:number){const next=[...draft.launchers];[next[index],next[index+delta]]=[next[index+delta],next[index]];change('launchers',next);}
   function numberField(key:NumberKey,label:string,fallback:number,min:number,max:number,hint:string){return <label>{label}<input aria-label={label} aria-describedby={'settings-hint-'+key} type="number" min={min} max={max} step={1} required value={draft[key]??fallback} onChange={e=>change(key,e.target.value===''?NaN:Number(e.target.value))}/><small id={'settings-hint-'+key}>{hint}</small></label>;}
@@ -100,24 +107,34 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
           <section className="settings-section"><h3>外观与浏览</h3><div className="form-grid"><label>主题<select value={draft.theme} onChange={e=>change('theme',e.target.value as Settings['theme'])}><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label><label>默认文件筛选<input value={draft.filter} onChange={e=>change('filter',e.target.value)} placeholder="文件名或后缀"/></label></div><Switch checked={draft.recursive} onChange={(_,d)=>change('recursive',d.checked)} label="默认包含子文件夹"/></section>
         </div>
         <div id="settings-panel-tools" role="tabpanel" aria-labelledby="settings-tab-tools" hidden={tab!=='tools'}>
-          <section className="settings-section"><h3>快捷启动列表</h3><p>按这里的顺序展示，程序启动由你手动触发。系统会自动识别工具类型与格式。</p>
-            {draft.launchers.map((l,i)=>{
+          <section className="settings-section launcher-tools-section">
+            <div className="launcher-section-heading">
+              <h3>快捷启动列表<span className="launcher-count">{draft.launchers.length} 项</span></h3>
+              <div className="launcher-add-actions">
+                <Button type="button" size="small" icon={<Plus/>} onClick={()=>void run(addLauncher)}>添加工具</Button>
+                <Button type="button" size="small" icon={<Plus/>} onClick={addWebLauncher}>添加网页入口</Button>
+              </div>
+            </div>
+            <p className="launcher-section-note">按列表顺序显示，自动识别文件类型；保存后可在“常用工具”中启动。</p>
+            <div className="launcher-editor-list">{draft.launchers.map((l,i)=>{
               const visual=getLauncherVisual(l);
               const IconComp=visual.icon;
-              return <div className="launcher-editor" key={l.id}>
+              return <div className="launcher-editor" key={l.id} role="group" aria-label={`工具 ${i+1}：${l.name||'未命名工具'}`}>
                 <div className="launcher-editor-preview" style={{color:visual.theme.primary,backgroundColor:visual.theme.subtle,borderColor:visual.theme.border}} title={`识别为：${visual.label} (${visual.badge})`}>
-                  <IconComp size={16} weight="duotone"/>
+                  <IconComp size={18} weight="duotone" aria-hidden="true"/>
                   <span>{visual.badge}</span>
                 </div>
-                <label>名称<input required value={l.name} onChange={e=>editLauncher(i,'name',e.target.value)}/></label>
-                <label>分组<input value={l.group} onChange={e=>editLauncher(i,'group',e.target.value)}/></label>
-                <label className="target-input">目标路径或网址<input required value={l.path} onChange={e=>editLauncher(i,'path',e.target.value)}/></label>
-                <IconButton label="上移" disabled={i===0} onClick={()=>move(i,-1)}><ArrowUp/></IconButton>
-                <IconButton label="下移" disabled={i===draft.launchers.length-1} onClick={()=>move(i,1)}><ArrowDown/></IconButton>
-                <IconButton label="删除工具" onClick={()=>change('launchers',draft.launchers.filter((_,j)=>j!==i))}><Trash/></IconButton>
+                <label className="launcher-editor-name">名称<input id={'launcher-name-'+l.id} required title={l.name} value={l.name} onChange={e=>editLauncher(i,'name',e.target.value)}/></label>
+                <label className="launcher-editor-group">分组<input title={l.group} value={l.group} onChange={e=>editLauncher(i,'group',e.target.value)}/></label>
+                <label className="launcher-editor-target">目标路径或网址<input required title={l.path} value={l.path} onChange={e=>editLauncher(i,'path',e.target.value)}/></label>
+                <div className="launcher-editor-actions" role="group" aria-label="排列与删除">
+                  <IconButton label="上移" disabled={i===0} onClick={()=>move(i,-1)}><ArrowUp/></IconButton>
+                  <IconButton label="下移" disabled={i===draft.launchers.length-1} onClick={()=>move(i,1)}><ArrowDown/></IconButton>
+                  <IconButton label="删除工具" onClick={()=>change('launchers',draft.launchers.filter((_,j)=>j!==i))}><Trash/></IconButton>
+                </div>
               </div>;
-            })}
-            {!draft.launchers.length&&<p className="settings-empty">把常用程序、文件、快捷方式或网页加入列表。</p>}<Button icon={<Plus/>} onClick={()=>void run(addLauncher)}>添加工具</Button><Button type="button" icon={<Plus/>} onClick={addWebLauncher}>添加网页入口</Button>
+            })}</div>
+            {!draft.launchers.length&&<p className="launcher-empty">还没有快捷入口，添加常用程序、文件或网页即可开始。</p>}
           </section>
         </div>
         <div id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model" hidden={tab!=='model'}>
@@ -128,15 +145,15 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
             {numberField('translationOutputTokens','翻译输出上限',0,0,384000,'0 使用服务默认。此上限用于每个翻译分段。')}
           </div><p>输出上限以标记数计，思考和正文可能共用额度。填写的值还需符合所选模型的限制。</p></section>
           <section className="settings-section"><h3>等待与恢复</h3><div className="form-grid">
-            {numberField('modelRequestTimeoutSecs','单次请求等待（秒）',300,10,600,'单次请求总预算；持续输出也不能超过这个上限。')}
-            {numberField('modelFirstResponseTimeoutSecs','首响应等待（秒）',45,10,600,'等待首段思考、正文或工具参数；连接等待另限10秒。')}
-            {numberField('modelIdleTimeoutSecs','输出停滞等待（秒）',60,10,600,'持续有效输出会重新计时，心跳不会延长等待。')}
-            {numberField('assistantTaskTimeoutSecs','助手任务等待（秒）',600,30,1800,'整个任务的上限，应不小于单次请求等待。')}
+            {numberField('modelRequestTimeoutSecs','单次请求等待（秒）',600,10,1800,'推荐 600 秒；单次模型请求的总预算，持续输出也受此限制。')}
+            {numberField('modelFirstResponseTimeoutSecs','首响应等待（秒）',120,10,1800,'推荐 120 秒；等待首段思考、正文或工具参数，连接等待另限10秒。')}
+            {numberField('modelIdleTimeoutSecs','输出停滞等待（秒）',120,10,1800,'推荐 120 秒；持续有效输出会重新计时，心跳不会延长等待。')}
+            {numberField('assistantTaskTimeoutSecs','助手任务等待（秒）',1800,30,7200,'推荐 1800 秒（30 分钟），可设至 2 小时；包含模型、工具及等待文件确认的时间。')}
             {numberField('modelRetryCount','服务繁忙重试次数',2,0,2,'仅对短暂连接失败、限流或繁忙重试；0 不重试。')}
             {numberField('assistantContinueTokens','截断后补写上限',16384,256,384000,'自动补写仅收尾，不再执行工具。')}
           </div><Switch checked={draft.assistantAutoContinue??true} onChange={(_,d)=>change('assistantAutoContinue',d.checked)} label="回复截断后自动补写一次"/></section>
           <section className="settings-section"><div className="settings-budget-heading"><h3>上下文与工具预算</h3><Button type="button" size="small" onClick={()=>{setDraft(d=>({...d,assistantReasoning:'none',assistantOutputTokens:8192,assistantToolRounds:6,assistantSearchLimit:3,assistantHistoryMessages:6,assistantHistoryChars:2000,assistantAutoContinue:true,assistantContinueTokens:4096}));setMessage('高效配置已填入草稿，点击“保存此模块”后生效。');}}>使用高效配置</Button></div><p>适合检索、计数和日常问答：关闭长思考，最多六轮、三次联网检索；复杂任务仍可手动调整。</p><div className="form-grid">
-            {numberField('modelContextTokens','模型上下文容量',0,0,10000000,'用于底栏占用率；0 自动识别 DeepSeek Flash / V4 为 1000000，其他模型显示未知。可按服务实际规格填写。')}
+            {numberField('modelContextTokens','模型上下文容量',0,0,10000000,'用于占用率与自动压缩；0 自动识别 DeepSeek Flash / V4，未识别模型采用保守发送预算。建议按服务实际容量填写。')}
             {numberField('assistantHistoryMessages','发送历史消息条数',12,0,12,'0 不发送聊天历史，最多最近 12 条。')}
             {numberField('assistantHistoryChars','每条历史文字上限',4000,500,12000,'只影响发送给模型的历史，保留本机完整记录。')}
             {numberField('assistantToolRounds','任务模型轮数上限',25,1,25,'包含最后汇报的一轮；1 只回复，不调用工具。')}

@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "office-next"
-version = "2026.1017.2242"
+version = "2026.1019.2128"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2760,7 +2760,9 @@ dependencies = [
  "tokio",
  "uuid",
  "walkdir",
+ "webview2-com",
  "windows 0.62.2",
+ "windows-core 0.61.2",
  "winreg",
  "zip",
 ]

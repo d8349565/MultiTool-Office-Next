@@ -42,6 +42,17 @@ pub fn reveal(paths:Vec<PathBuf>)->Result<Value,String>{
     }).join().map_err(|_|"资源管理器定位线程失败".into())
 }
 
+pub fn drag_file(hwnd:isize,path:PathBuf)->Result<Value,String>{
+    static ACTIVE:std::sync::atomic::AtomicBool=std::sync::atomic::AtomicBool::new(false);
+    use std::sync::atomic::Ordering;
+    if ACTIVE.swap(true,Ordering::SeqCst){return Err("已有文件正在拖拽，请先完成或按 Esc 取消".into());}
+    struct DragGuard;
+    impl Drop for DragGuard{fn drop(&mut self){ACTIVE.store(false,Ordering::SeqCst);}}
+    let _guard=DragGuard;
+    #[cfg(windows)] {windows::drag(hwnd,&path)}
+    #[cfg(not(windows))] {let _=(hwnd,path);Err("系统文件拖拽目前仅支持 Windows 桌面版".into())}
+}
+
 #[cfg(windows)] mod windows {
     use std::{ffi::c_void,os::windows::ffi::OsStrExt,path::{Path,PathBuf},ptr};
     // Windows SDK SHOpenFolderAndSelectItems / SHParseDisplayName signatures.
@@ -72,5 +83,19 @@ pub fn reveal(paths:Vec<PathBuf>)->Result<Value,String>{
         let children=items.iter().map(|p|unsafe{ILFindLastID(p.0)}).collect::<Vec<_>>();
         let hr=unsafe{SHOpenFolderAndSelectItems(folder.0,children.len() as u32,children.as_ptr(),0)};
         if hr<0{Err(format!("资源管理器拒绝定位请求：{hr:#x}"))}else{Ok(())}
+    }
+    pub fn drag(hwnd:isize,path:&Path)->Result<serde_json::Value,String>{
+        use ::windows::{core::PCWSTR,Win32::{Foundation::HWND,System::{Com::IDataObject,Ole::{OleInitialize,OleUninitialize,DROPEFFECT_COPY,DROPEFFECT_NONE}},UI::Shell::{IShellItem,SHCreateItemFromParsingName,SHDoDragDrop,BHID_DataObject}}};
+        // 必须在窗口的 STA 线程调用；Shell 提供拖拽图像、光标反馈及默认拖拽源。
+        unsafe{OleInitialize(None)}.map_err(|e|format!("无法初始化系统拖拽：{e}"))?;
+        struct OleApartment;
+        impl Drop for OleApartment{fn drop(&mut self){unsafe{OleUninitialize();}}}
+        let _apartment=OleApartment;
+        let text=path.to_string_lossy();let display=if let Some(rest)=text.strip_prefix("\\\\?\\UNC\\"){format!("\\\\{rest}")}else{text.strip_prefix("\\\\?\\").unwrap_or(&text).to_owned()};
+        let wide=std::ffi::OsStr::new(&display).encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let item:IShellItem=unsafe{SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()),None)}.map_err(|e|format!("文件已移动或无法拖拽：{e}"))?;
+        let data:IDataObject=unsafe{item.BindToHandler(None,&BHID_DataObject)}.map_err(|e|format!("无法向系统提供文件：{e}"))?;
+        let effect=unsafe{SHDoDragDrop(Some(HWND(hwnd as *mut c_void)),&data,None,DROPEFFECT_COPY)}.map_err(|e|format!("系统文件拖拽失败：{e}"))?;
+        Ok(serde_json::json!({"status":if effect==DROPEFFECT_NONE{"cancelled"}else{"drop_requested"}}))
     }
 }

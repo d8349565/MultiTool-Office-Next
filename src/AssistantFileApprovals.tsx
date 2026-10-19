@@ -19,12 +19,12 @@ export function AssistantFileApprovals({taskId,open,onSelectTask}:{taskId:string
       listen<string>('assistant-file-approval-closed',e=>{version++;settled.current.add(e.payload);if(alive)setItems(old=>old.filter(a=>a.id!==e.payload));}),
       listen('assistant-file-approvals-refresh',reload),listen('assistant-workspace-updated',reload),
     ];
-    void Promise.all(subscriptions).then(()=>{if(alive)reload();});
+    void Promise.all(subscriptions).then(()=>{if(alive)reload();}).catch(e=>{if(alive)setError(String(e));});
     // Recover missed events after navigation or reconnecting to a running task.
-    const timer=open?setInterval(reload,3000):undefined;
-    return()=>{alive=false;clearInterval(timer);for(const stop of subscriptions)void stop.then(fn=>fn());};
+    const timer=setInterval(reload,3000);
+    return()=>{alive=false;clearInterval(timer);for(const stop of subscriptions)void stop.then(fn=>fn()).catch(()=>{});};
   },[open]);
-  useEffect(()=>{if(!items.length||!open)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[items.length,open]);
+  useEffect(()=>{if(!items.length)return;setNow(Date.now());const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[items.length]);
   const pending=items.filter(a=>a.expiresAt*1000>now).sort((a,b)=>a.expiresAt-b.expiresAt||a.id.localeCompare(b.id));
   const selected=pending.find(a=>a.taskId===taskId)||pending[0];
   useEffect(()=>{setAck('');setDismissed('');},[selected?.id]);
@@ -35,9 +35,8 @@ export function AssistantFileApprovals({taskId,open,onSelectTask}:{taskId:string
     catch(e){setError(String(e));}
     finally{submitting.current=false;setBusy('');}
   }
-  if(!open)return null;
   return <>
-    {!!pending.length&&<div className="assistant-file-waiting" role="status"><span>有 {pending.length} 项文件操作等待你确认</span><Button size="small" onClick={()=>{setDismissed('');if(selected)onSelectTask(selected.taskId);}}>查看并确认</Button></div>}
+    {open&&!!pending.length&&<div className="assistant-file-waiting" role="status"><span>有 {pending.length} 项文件操作等待你确认</span><Button size="small" onClick={()=>{setDismissed('');if(selected)onSelectTask(selected.taskId);}}>查看并确认</Button></div>}
     {error&&(!selected||dismissed===selected.id)&&<p role="alert" className="inline-error assistant-file-error">{error}</p>}
     {selected&&dismissed!==selected.id&&createPortal(<Modal key={selected.id} className="file-approval-dialog" title={selected.kind==='read'?'确认读取并发送文件':selected.interactiveHtml?'确认生成交互网页':'确认生成新文件'} onClose={()=>{if(!busy){setDismissed(selected.id);setAck('');}}}>
       <div className="file-approval-summary"><strong>{selected.filename}</strong><span>{selected.format.toUpperCase()} · {(selected.size/1024).toFixed(1)} KB{selected.taskId!==taskId?' · 来自另一会话':''}</span><p>{selected.kind==='read'?'读取目录':'保存目录'}：{selected.directory}</p><p role="status">剩余确认时间：{Math.max(0,Math.ceil((selected.expiresAt*1000-now)/1000))} 秒；也受本次任务总预算限制。</p></div>

@@ -1,6 +1,29 @@
 use crate::settings::Settings;
 use serde_json::{json,Value};
 
+fn safe_error_detail(text:&str)->String{
+    static SECRETS:std::sync::OnceLock<regex::Regex>=std::sync::OnceLock::new();
+    let pattern=SECRETS.get_or_init(||regex::Regex::new(r#"(?i)(?:bearer\s+[^\s,;'\"]+|(?:sk-|tvly-)[a-z0-9_-]+|(?:api[_ -]?key|access[_ -]?token|password|secret)\s*[:=]\s*['\"]?[^\s,;'\"]+|[a-z0-9_-]{48,}(?:\.[a-z0-9_-]+){0,2})"#).unwrap());
+    let bounded=text.chars().take(2000).map(|c|if c.is_control(){' '}else{c}).collect::<String>();
+    pattern.replace_all(&bounded,"[凭据已隐藏]").chars().take(500).collect()
+}
+pub fn service_error(value:&Value)->Option<String>{
+    let error=&value["error"];let base=&value["base_resp"];
+    if error.is_null()&&!base["status_code"].as_i64().is_some_and(|code|code!=0){return None;}
+    let field=|value:&Value|match value{Value::String(s)=>Some(s.clone()),Value::Number(n)=>Some(n.to_string()),_=>None};
+    let message=error["message"].as_str().or_else(||error.as_str()).or_else(||base["status_msg"].as_str()).unwrap_or("服务未提供详细原因");
+    let code=field(&error["code"]).or_else(||field(&base["status_code"]));
+    let kind=field(&error["type"]);
+    let request=value["request_id"].as_str().or_else(||error["request_id"].as_str()).or_else(||value["trace_id"].as_str());
+    let diagnostic=format!("{} {} {message}",code.as_deref().unwrap_or(""),kind.as_deref().unwrap_or(""));
+    let prefix=if crate::model_context::is_context_error(&diagnostic){"模型上下文容量不足"}else{"模型服务返回错误"};
+    let mut text=format!("{prefix}：{}",safe_error_detail(message));
+    if let Some(code)=code{text.push_str(&format!("；错误码 {}",safe_error_detail(&code)));}
+    if let Some(kind)=kind{text.push_str(&format!("；类型 {}",safe_error_detail(&kind)));}
+    if let Some(request)=request{text.push_str(&format!("；请求标识 {}",safe_error_detail(request)));}
+    Some(text)
+}
+
 #[derive(Clone,Copy)]
 pub struct Capabilities { pub thinking_switch:bool, pub automatic_output:u32 }
 pub fn capabilities(url:&str)->Capabilities{
