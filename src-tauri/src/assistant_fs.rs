@@ -36,7 +36,7 @@ fn read_error(error:std::io::Error)->String{
     match error.raw_os_error(){
         Some(32|33)=>"文件被其他程序独占，请保存并关闭该文件后重试".into(),
         _=>match error.kind(){
-            std::io::ErrorKind::NotFound=>"文件不存在或已移动，请重新选择文件并确认相对路径".into(),
+            std::io::ErrorKind::NotFound=>"文件不存在或已移动，请先用 workspace_list_files 列出助理目录，按实际文件名（含扩展名）重试".into(),
             std::io::ErrorKind::PermissionDenied=>"Windows 拒绝读取此文件，请检查文件权限；助理目录授权不能替代系统权限".into(),
             _=>format!("无法打开文件，请检查文件状态后重试（系统错误：{error}）"),
         },
@@ -63,6 +63,17 @@ fn lock_directory(path:&Path)->Result<File,String>{
     if attributes&0x400!=0||attributes&0x10==0{return Err("工作目录不能包含符号链接、目录联接或重解析点".into());}Ok(file)
 }
 impl Directory{
+    pub fn relative_input(&self,raw:&str)->Result<PathBuf,String>{
+        let input=Path::new(raw);
+        if !input.is_absolute(){return relative_path(raw);}
+        let mut parts=input.components();
+        for root in self.path.components(){
+            if !parts.next().is_some_and(|part|part.as_os_str().to_string_lossy().eq_ignore_ascii_case(&root.as_os_str().to_string_lossy())){return Err("路径不在当前授权的助理工作目录内；请先列出助理目录文件，不要改用业务索引搜索".into());}
+        }
+        let relative=parts.as_path();
+        if relative.as_os_str().is_empty(){return Ok(PathBuf::new());}
+        relative_path(&relative.to_string_lossy())
+    }
     pub fn lock(path:&Path)->Result<Self,String>{
         root_path(path)?;
         #[cfg(windows)] {
@@ -74,7 +85,7 @@ impl Directory{
         #[cfg(not(windows))] {Err("此目录权限边界目前仅支持 Windows 桌面版".into())}
     }
     pub fn read_file(&self,relative:&str)->Result<SourceFile,String>{
-        let relative=relative_path(relative)?;extension(&relative)?;
+        let relative=self.relative_input(relative)?;extension(&relative)?;
         #[cfg(windows)] {
             use std::os::windows::fs::OpenOptionsExt;
             let mut folder=self.path.clone();let mut locks=vec![];
@@ -112,6 +123,13 @@ pub fn bounded_read(mut source:SourceFile)->Result<Vec<u8>,String>{
 #[cfg(all(test,windows))]
 mod tests{
     use super::*;
+    #[test]
+    fn absolute_inputs_stay_inside_the_authorized_directory(){
+        let directory=Directory{path:PathBuf::from(r"D:\multi"),identity:String::new(),_locks:vec![]};
+        assert_eq!(directory.relative_input(r"d:\MULTI\资料\表格.xlsx").unwrap(),PathBuf::from(r"资料\表格.xlsx"));
+        assert_eq!(directory.relative_input(r"D:\multi").unwrap(),PathBuf::new());
+        for path in [r"D:\multi-other\表格.xlsx",r"D:\multi\..\表格.xlsx",r"E:\multi\表格.xlsx",r"D:\multi\表格.xlsx:stream"]{assert!(directory.relative_input(path).is_err());}
+    }
     fn folder()->tempfile::TempDir{
         let root=Path::new(env!("CARGO_MANIFEST_DIR")).join("target/assistant-fs-audit");std::fs::create_dir_all(&root).unwrap();
         tempfile::Builder::new().prefix("audit-").tempdir_in(root).unwrap()

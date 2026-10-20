@@ -15,6 +15,7 @@ mod assistant_reports;
 mod assistant_fs;
 mod assistant_workspace;
 mod assistant_documents;
+mod assistant_spreadsheet;
 mod assistant_pdf;
 mod assistant_html;
 mod task_state;

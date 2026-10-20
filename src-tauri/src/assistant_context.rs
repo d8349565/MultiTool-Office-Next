@@ -6,6 +6,7 @@ use std::path::Path;
 
 // 模型工具定义、意图解析和执行校验共用，避免新增动作只更新其中一处。
 pub const OPERATIONS:&[&str]=&["query","enrich","tree","config","report","document","chat","clarify","failure"];
+pub const SCOPES:&[&str]=&["current","workspace","assistant","all","explicit","result"];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default, deny_unknown_fields)]
@@ -17,6 +18,15 @@ pub struct Intent {
     pub resume_operation:String,
     pub allowed_actions:Vec<String>,
     pub needs_tools:bool,
+}
+impl Intent{
+    pub fn bind_assistant_scope(&mut self){
+        if self.operation=="document"{self.scope="assistant".into();}
+        if self.scope!="assistant"{return;}
+        self.root=None;self.request.root=None;self.result_set_id=None;self.fields.clear();
+        if ["query","enrich","tree"].contains(&self.operation.as_str()){self.operation="document".into();}
+        if self.operation=="document"{self.needs_tools=true;}
+    }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default)]
@@ -70,6 +80,8 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
     if context["taskContextVersion"].as_u64().is_some_and(|v|v!=old.version){return Err("任务状态版本已变化，请重新打开会话后重试".into());}
     if intent.goal.trim().is_empty()||intent.goal.len()>4000{return Err("任务目标为空或过长".into());}
     if intent.relation.is_empty(){intent.relation="new".into();}
+    intent.bind_assistant_scope();
+    if !intent.scope.is_empty()&&!SCOPES.contains(&intent.scope.as_str()){return Err("无效目录范围".into());}
     if intent.scope=="explicit"&&intent.root.is_none(){intent.root=intent.request.root.clone();}
     if intent.relation=="resume"&&old.status=="waiting_input"&&old.intent.pending_field=="scope"&&intent.scope!="result"{intent.result_set_id=None;}
     if !["new","continue","correction","resume"].contains(&intent.relation.as_str())||!OPERATIONS.contains(&intent.operation.as_str())||!["","answer","table","html","file"].contains(&intent.delivery.as_str()){return Err("任务关系、动作或交付形式无效".into());}
@@ -83,8 +95,10 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
             if previous["taskContext"]["sessionId"]!=old.session_id{return Err("关联任务不属于本会话".into());}
         }
         intent.parent_task_id=Some(parent.into());
-        if intent.result_set_id.is_none()&&["enrich","report"].contains(&intent.operation.as_str()){intent.result_set_id=old.result_set_ids.last().cloned();}
+        if intent.scope!="assistant"&&intent.result_set_id.is_none()&&["enrich","report"].contains(&intent.operation.as_str()){intent.result_set_id=old.result_set_ids.last().cloned();}
     }else{intent.parent_task_id=None;}
+    // 助理文件任务使用独立的授权目录，不能被旧的业务索引结果集合重新绑定。
+    if intent.scope=="assistant"{intent.result_set_id=None;}
     let mut ids=vec![];
     let frozen=if let Some(id)=&intent.result_set_id{
         match evidence(state,&old.session_id,id){
@@ -109,8 +123,9 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
             if requested.latest_only{intent.request.latest_only=true;}
             intent.request.count_only=false;intent.request.offset=requested.offset;
         }
-    }else if intent.operation=="document"{
-        intent.root=None;intent.scope="current".into();
+    }else if intent.scope=="assistant"{
+        // 目录只由助理文件工具按冻结的权限版本解析；不回退到文件管理目录。
+        intent.root=None;
     }else{
         let scope=if intent.scope.is_empty()||intent.scope=="result"{"current"}else{intent.scope.as_str()};
         intent.root=match scope{
@@ -214,8 +229,8 @@ pub fn delivery_text(result:&Value,current:&TaskContext)->String{
     crate::assistant_work::answer(result)
 }
 pub fn validate_delivery(state:&AppState,current:&TaskContext,trace:&[Value])->Result<(),String>{
-    if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){
-        let cause=trace.iter().rev().filter(|r|["document_create","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))).find_map(|r|r["result"]["error"].as_str());
+    if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","spreadsheet_translate","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){
+        let cause=trace.iter().rev().filter(|r|["document_create","spreadsheet_translate","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))).find_map(|r|r["result"]["error"].as_str());
         return Err(cause.map_or_else(||"尚未在用户确认后生成本轮要求的文件；不能声称已完成".into(),|error|format!("文件未能生成：{error}；不能声称已完成")));
     }
     if current.intent.delivery=="html"{

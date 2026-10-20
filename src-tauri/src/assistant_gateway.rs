@@ -9,16 +9,20 @@ pub fn capability(tool:&str)->Result<Capability,String>{
         "settings_read"|"app_get_state"|"pricing_read"=>Capability::AppState,
         "web_search"|"web_fetch"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
-        "workspace_list_files"|"workspace_read_file"|"document_create"|"html_app_create"=>Capability::WorkspaceFile,
+        "workspace_list_files"|"workspace_read_file"|"document_create"|"spreadsheet_translate"|"html_app_create"=>Capability::WorkspaceFile,
         "settings_propose_change"|"pricing_propose_change"|"model_config_add"=>Capability::SettingsProposal,
         "files_reveal"|"path_open"|"launcher_run"|"clipboard_copy"|"index_refresh"|"text_translate"=>Capability::UserAction,
         "task_clarify"=>Capability::Control,
         _=>return Err("工具不存在或未授权".into()),
     })
 }
+pub fn check_scope(scope:&str,tool:&str)->Result<(),String>{
+    if scope=="assistant"&&capability(tool)?==Capability::Metadata{return Err("本轮范围是助理文件夹，不能查询文件管理目录或业务索引；请使用 workspace_list_files 和 workspace_read_file，未设置或未授权时说明设置位置，不回退到其他目录".into());}Ok(())
+}
 pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_only:bool)->Result<(),String>{
     let capability=capability(tool)?;
     if respond_only{return Err("本轮只整理已有资料，不允许新工具操作".into());}
+    check_scope(&current.intent.scope,tool)?;
     if capability==Capability::UserAction&&!current.intent.allowed_actions.iter().any(|t|t==tool){return Err("本轮用户没有授权该外部操作".into());}
     if capability==Capability::Artifact&&current.intent.delivery!="html"&&current.intent.operation!="report"{return Err("用户没有要求创建报告".into());}
     if matches!(capability,Capability::WorkspaceFile|Capability::Artifact){crate::assistant_workspace::authorize(state,current.workspace_revision)?;}
@@ -39,7 +43,20 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}
     if tool=="model_config_add"&&current.intent.operation!="config"{return Err("只有用户要求配置模型接口时才能新增模型配置".into());}
-    if tool=="path_open"{crate::authorize_user_path(state,args["path"].as_str().ok_or("缺少路径")?)?;}
-    if tool=="files_reveal"{for path in args["paths"].as_array().ok_or("缺少路径集合")?{crate::authorize_user_path(state,path.as_str().ok_or("路径无效")?)?;}}
+    if tool=="path_open"{authorize_action_path(state,current,args["path"].as_str().ok_or("缺少路径")?)?;}
+    if tool=="files_reveal"{for path in args["paths"].as_array().ok_or("缺少路径集合")?{authorize_action_path(state,current,path.as_str().ok_or("路径无效")?)?;}}
     Ok(())
+}
+fn authorize_action_path(state:&AppState,current:&TaskContext,path:&str)->Result<(),String>{
+    if current.intent.scope=="assistant"{crate::assistant_workspace::authorize(state,current.workspace_revision)?;crate::assistant_workspace::authorize_local_path(state,path)?;}else{crate::authorize_user_path(state,path)?;}Ok(())
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn assistant_scope_rejects_all_business_index_tools(){
+        for tool in ["files_query","resultset_enrich","directory_tree","files_search","files_analyze","files_list_dirs","files_missing_companion"]{assert!(check_scope("assistant",tool).is_err());assert!(check_scope("current",tool).is_ok());}
+        for tool in ["workspace_list_files","workspace_read_file","document_create","spreadsheet_translate","path_open","files_reveal","task_clarify"]{assert!(check_scope("assistant",tool).is_ok());}
+    }
 }

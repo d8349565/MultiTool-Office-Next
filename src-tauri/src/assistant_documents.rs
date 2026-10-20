@@ -30,7 +30,7 @@ impl Document{
         if args.to_string().len()>250_000{return Err("文档内容过多，请分批生成".into());}
         let doc:Self=serde_json::from_value(args).map_err(|_|"文件内容结构无效：请使用标题、文字段落、文字单元格或幻灯片要点")?;
         let path=crate::assistant_fs::relative_path(&doc.filename)?;
-        if path.components().count()!=1||crate::assistant_fs::extension(&path)?!=doc.format||!["txt","docx","xlsx","html","pptx","pdf"].contains(&doc.format.as_str()){return Err("文件名扩展名需要与 TXT、DOCX、XLSX、HTML、PPTX、PDF 格式一致，不支持子目录写入".into());}
+        if path.components().count()!=1||crate::assistant_fs::extension(&path)?!=doc.format||!["txt","md","docx","xlsx","html","pptx","pdf"].contains(&doc.format.as_str()){return Err("文件名扩展名需要与 TXT、MD、DOCX、XLSX、HTML、PPTX、PDF 格式一致，不支持子目录写入".into());}
         if doc.title.trim().is_empty()||doc.title.len()>500||doc.paragraphs.len()>200||doc.paragraphs.iter().any(|s|s.len()>8000)||doc.rows.len()>500||doc.columns.len()>30||doc.rows.iter().any(|r|r.len()>30||r.iter().any(|c|c.len()>4000))||doc.columns.iter().any(|c|c.len()>500){return Err("标题、段落或表格超过安全上限（200段、500行、30列）".into());}
         if doc.slides.len()>30||doc.slides.iter().any(|s|s.title.trim().is_empty()||s.title.chars().count()>60||s.title.contains(['\n','\r'])||s.bullets.len()>6||s.bullets.iter().any(|b|b.chars().count()>100||b.contains(['\n','\r']))){return Err("PPT最多30页，每页标题及要点为单行，最多6条、每条100字；长内容请拆成多页".into());}
         if doc.format=="pptx"&&doc.slides.is_empty(){return Err("PPT需要提供至少一页标题和要点".into());}
@@ -45,8 +45,20 @@ impl Document{
         text
     }
     pub fn render(&self)->Result<Vec<u8>,String>{match self.format.as_str(){
+        "md"=>Ok(self.markdown().into_bytes()),
         "txt"=>{let mut text=self.title.clone()+"\n\n"+&self.paragraphs.join("\n\n");if !self.columns.is_empty(){text.push_str("\n\n");text.push_str(&self.columns.join("\t"));}for row in &self.rows{text.push('\n');text.push_str(&row.join("\t"));}Ok(text.into_bytes())},
         "html"=>Ok(self.html().into_bytes()),"docx"=>self.docx(),"xlsx"=>self.xlsx(),"pptx"=>self.pptx(),_=>Err("不支持的文件格式".into())}}
+    fn markdown(&self)->String{
+        let mut text=format!("# {}\n",self.title.replace(['\r','\n']," "));
+        for paragraph in &self.paragraphs{text.push_str("\n");text.push_str(paragraph);text.push('\n');}
+        let width=self.columns.len().max(self.rows.iter().map(Vec::len).max().unwrap_or(0));
+        if width>0{
+            let row=|cells:&[String]|format!("| {} |\n",(0..width).map(|i|cells.get(i).map_or(String::new(),|s|s.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;").replace('\\',"\\\\").replace('|',"\\|").replace("\r\n","\n").replace(['\r','\n'],"<br>"))).collect::<Vec<_>>().join(" | "));
+            text.push('\n');text.push_str(&row(&self.columns));text.push_str(&format!("| {} |\n",vec!["---";width].join(" | ")));
+            for cells in &self.rows{text.push_str(&row(cells));}
+        }
+        text
+    }
     pub fn html(&self)->String{
         let mut body=format!("<h1>{}</h1>",escape(&self.title));for paragraph in &self.paragraphs{body.push_str(&format!("<p>{}</p>",escape(paragraph)));}
         if !self.rows.is_empty()||!self.columns.is_empty(){body.push_str("<table>");if !self.columns.is_empty(){body.push_str("<thead><tr>");for col in &self.columns{body.push_str(&format!("<th>{}</th>",escape(col)));}body.push_str("</tr></thead>");}body.push_str("<tbody>");for row in &self.rows{body.push_str("<tr>");for cell in row{body.push_str(&format!("<td>{}</td>",escape(cell)));}body.push_str("</tr>");}body.push_str("</tbody></table>");}
@@ -96,7 +108,7 @@ pub fn read_text(ext:&str,data:&[u8])->Result<(String,bool),String>{
     let (text,partial)=if ["docx","xlsx","pptx"].contains(&ext){office_text(ext,data)?}else{(String::from_utf8(data.to_vec()).map_err(|_|"文本不是 UTF-8 编码，请另存为 UTF-8 后读取")?.trim_start_matches('\u{feff}').to_owned(),false)};
     let truncated=partial||text.chars().count()>40_000;Ok((text.chars().take(40_000).collect(),truncated))
 }
-fn part(archive:&mut ZipArchive<Cursor<&[u8]>>,name:&str)->Result<String,String>{
+pub(crate) fn part(archive:&mut ZipArchive<Cursor<&[u8]>>,name:&str)->Result<String,String>{
     let mut file=archive.by_name(name).map_err(|_|"Office 文档结构无效或缺少内容")?;
     if file.size()>2_000_000||file.size()>file.compressed_size().max(1)*200{return Err("文档内部数据过大或压缩比异常，拒绝解压".into());}
     let mut data=vec![];file.by_ref().take(2_000_001).read_to_end(&mut data).map_err(|_|"文档内容读取失败")?;
@@ -145,7 +157,8 @@ fn sheet_text(xml:&str,shared:&[String])->Result<String,String>{
     loop{match reader.read_event().map_err(|_|"工作表结构无效")?{
         Event::DocType(_)=>return Err("不读取含 DTD 的工作表".into()),
         Event::Start(tag)=>match tag.local_name().as_ref(){"c"=>{cell.clear();kind.clear();value.clear();formula=false;for attr in tag.attributes(){let attr=attr.map_err(|_|"单元格属性无效")?;match attr.key.as_ref(){"r"=>cell=attr.value.as_ref().to_owned(),"t"=>kind=attr.value.as_ref().to_owned(),_=>()}}},"v"|"t"=>in_value=true,"f"=>formula=true,_=>()},
-        Event::End(tag)=>match tag.local_name().as_ref(){"v"|"t"=>in_value=false,"c"=>{let text=if kind=="s"{shared.get(value.parse::<usize>().map_err(|_|"共享文字索引无效")?).ok_or("共享文字索引越界")?.clone()}else if kind=="b"{if value=="1"{"TRUE".into()}else{"FALSE".into()}}else if formula&&value.is_empty(){"[公式没有缓存结果]".into()}else{value.clone()};result.push_str(&format!("[{cell}] {text}\t"));},"row"=>result.push('\n'),_=>()},
+        Event::Empty(tag) if tag.local_name().as_ref()=="f"=>formula=true,
+        Event::End(tag)=>match tag.local_name().as_ref(){"v"|"t"=>in_value=false,"c"=>{let text=if kind=="s"{shared.get(value.parse::<usize>().map_err(|_|"共享文字索引无效")?).ok_or("共享文字索引越界")?.clone()}else if kind=="b"{if value=="1"{"TRUE".into()}else{"FALSE".into()}}else if formula&&value.is_empty(){"[公式没有缓存结果]".into()}else{value.clone()};let marker=if formula{"（公式缓存，不翻译）"}else if ["s","inlineStr","str"].contains(&kind.as_str()){""}else{"（非文字，不翻译）"};result.push_str(&format!("[{cell}]{marker} {text}\t"));},"row"=>result.push('\n'),_=>()},
         Event::Text(text) if in_value=>value.push_str(&quick_xml::escape::unescape(text.as_ref()).map_err(|_|"单元格实体无效")?),
         Event::GeneralRef(reference) if in_value=>value.push_str(&quick_xml::escape::unescape(&format!("&{};",reference.as_ref())).map_err(|_|"单元格实体无效")?),
         Event::CData(text) if in_value=>value.push_str(text.as_ref()),Event::Eof=>break,_=>(),
@@ -156,6 +169,19 @@ fn sheet_text(xml:&str,shared:&[String])->Result<String,String>{
 mod tests{
     use super::*;
     use serde_json::json;
+    #[test]
+    fn markdown_keeps_syntax_and_escapes_table_cells(){
+        let doc=Document::parse(json!({"filename":"说明.md","format":"md","title":"标题","paragraphs":["## 二级标题\n\n- **重点**"],"rows":[["A|B","第一行\n第二行"],["<script>"]]})).unwrap();
+        let bytes=doc.render().unwrap();let text=String::from_utf8(bytes.clone()).unwrap();
+        assert!(text.starts_with("# 标题\n\n## 二级标题"));assert!(text.contains("- **重点**"));
+        assert!(text.contains("| --- | --- |"));assert!(text.contains("A\\|B"));assert!(text.contains("第一行<br>第二行"));assert!(text.contains("&lt;script&gt;"));
+        assert_eq!(read_text("md",&bytes).unwrap(),(text,false));
+    }
+    #[test]
+    fn spreadsheet_read_marks_formula_caches_as_not_translatable(){
+        let text=sheet_text(r#"<worksheet><row><c r="A1" t="str"><f>CONCAT(B1,C1)</f><v>cached</v></c><c r="A2" t="str"><f t="shared" si="0"/><v>shared cache</v></c><c r="B1" t="inlineStr"><is><t>translate</t></is></c></row></worksheet>"#,&[]).unwrap();
+        assert!(text.contains("[A1]（公式缓存，不翻译）"));assert!(text.contains("[A2]（公式缓存，不翻译）"));assert!(text.contains("[B1] translate"));
+    }
     #[test]
     fn whole_html_is_not_a_document_paragraph(){
         let error=Document::parse(json!({"filename":"game.html","format":"html","title":"game","paragraphs":[format!("<!doctype html><html><body>{}</body></html>","x".repeat(9000))]})).err().unwrap();

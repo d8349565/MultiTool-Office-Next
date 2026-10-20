@@ -26,7 +26,7 @@ export function resultLinks(trace:AIResult['trace']):Link[]{
   for(const item of trace||[]){
     const result=item.result as any;if(!result||typeof result!=='object')continue;
     if(['web_search','web_fetch'].includes(item.tool))for(const source of Array.isArray(result.results)?result.results:[]){if(typeof source.url==='string'&&webLink(source.url))links.push({kind:'web',target:source.url,label:source.title||source.url,contentKind:source.contentKind==='fulltext'?'fulltext':'summary',truncated:!!source.truncated});}
-    const report=result.report||(['report_create','document_create','html_app_create'].includes(item.tool)&&result.id?result:null);
+    const report=result.report||(['report_create','document_create','spreadsheet_translate','html_app_create'].includes(item.tool)&&result.id?result:null);
     if(typeof report?.id==='string')links.push({kind:'report',target:report.id,label:`打开 ${(report.format||'html').toUpperCase()}：${report.title||'生成文件'}`});
     if(['files_search','files_query','directory_tree','resultset_enrich','files_analyze','files_missing_companion','files_list_dirs'].includes(item.tool))for(const e of (Array.isArray(result)?result:result.items)||[]){
       if(typeof e.path==='string'&&!e.isDir&&item.tool!=='files_missing_companion')links.push({kind:'file',target:e.path,label:`定位文件：${e.name||e.path}`});
