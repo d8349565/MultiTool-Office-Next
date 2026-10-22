@@ -947,4 +947,13 @@ pub fn filename_with_warning(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResul
     let base=name.split('.').next().unwrap_or("").to_uppercase();if name.is_empty(){name="未命名".into();}if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"].contains(&base.as_str()){name.insert(0,'_');}(format!("{}.{}",name.trim_end_matches([' ','.']),ext),warnings.join("；"))
 }
 
-pub fn match_profile<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->Option<&'a OcrProfile>{let text=lines.iter().map(|l|l.text.to_lowercase()).collect::<Vec<_>>().join("\n");profiles.iter().enumerate().filter_map(|(i,p)|{let score=p.keywords.iter().filter(|k|text.contains(&k.to_lowercase())).count();(score>0).then_some((score,i,p))}).max_by_key(|(s,i,_)|(*s,std::cmp::Reverse(*i))).map(|(_,_,p)|p)}
+pub fn match_profile<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->Option<&'a OcrProfile>{
+    let mut best=None;let mut highest=0;let mut tied=false;
+    for profile in profiles {
+        let text=lines.iter().filter(|line|line.score.is_finite()&&line.score>=profile.threshold).map(|line|line.text.to_lowercase()).collect::<Vec<_>>().join("\n");
+        let keywords=profile.keywords.iter().map(|k|k.trim().to_lowercase()).filter(|k|!k.is_empty()).collect::<HashSet<_>>();
+        let score=keywords.iter().filter(|keyword|text.contains(keyword.as_str())).count();
+        if score>highest{highest=score;best=Some(profile);tied=false;}else if score>0&&score==highest{tied=true;}
+    }
+    if tied{None}else{best}
+}

@@ -963,3 +963,6 @@
 .ocr-row-issue{display:block;color:var(--muted);line-height:1.55;max-width:100%;white-space:normal;overflow-wrap:anywhere;margin-top:4px}
 .uniform-rows .ocr-row-issue{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .ocr-rename-list small{white-space:normal;overflow-wrap:anywhere;line-height:1.6}
+
+/* 一键任务：默认收起选项，结果与异常集中反馈。 */
+.ocr-task-options{border-top:1px solid var(--line);padding-top:8px;margin-top:4px;font-size:12px}.ocr-task-options>summary{cursor:pointer;color:var(--text);padding:3px 0}.ocr-task-options[open]>.ocr-setup-row{margin-top:10px}.ocr-task-options label{display:flex;align-items:center;gap:8px}.ocr-task-options select{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-height:32px}.ocr-output-directory{min-width:0;max-width:100%;overflow-wrap:anywhere;color:var(--muted);font-size:12px}.ocr-workflow-status{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12px;background:var(--surface-alt);flex-shrink:0}.ocr-workflow-status>strong{font-weight:550}.ocr-workflow-status>.inline-error{margin:0}.ocr-workflow-status .ocr-buttons{flex-wrap:wrap}

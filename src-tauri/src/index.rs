@@ -81,7 +81,7 @@ impl Index {
         if !self.roots.read().unwrap().iter().any(|r|within(&p,r)) {return Err("路径不在已配置的目录范围内".into());} Ok(p)
     }
     pub fn snapshot_search(&self,q:&Query)->Results {
-        let tokens=q.query.to_lowercase().split_whitespace().map(str::to_owned).collect::<Vec<_>>();let filter=q.filter.to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
+        let tokens=q.query.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase().split_whitespace().map(str::to_owned).collect::<Vec<_>>();let filter=q.filter.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
         let roots=self.roots.read().unwrap();let entries=self.entries.read().unwrap();let scope=q.root.as_deref().map(Path::new);
         let mut items=entries.iter().filter(|e|{let p=Path::new(&e.path);
             (if q.kind=="directory"{e.is_dir}else{!e.is_dir&&!temporary_name(&e.name)})&&roots.iter().any(|r|within(p,r))&&scope.is_none_or(|r|if q.recursive{within(p,r)&&p!=r}else{Path::new(&e.parent)==r})&&tokens.iter().all(|t|e.searchable.contains(t))&&e.searchable.contains(&filter)&&(ext.is_empty()||e.extension==ext)&&q.after.is_none_or(|a|e.modified>=a)&&q.before.is_none_or(|b|e.modified<=b)
@@ -181,10 +181,10 @@ impl Index {
 }
 impl SearchProvider for Index {
     fn search(&self,q:&Query)->Results {
-        let tokens=q.query.to_lowercase().split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        let filter=q.filter.to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
+        let tokens=q.query.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase().split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+        let filter=q.filter.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
         let roots=self.roots.read().unwrap();let entries=self.entries.read().unwrap();
-        let scope=q.root.as_deref().map(Path::new);let exact=q.query.to_lowercase();
+        let scope=q.root.as_deref().map(Path::new);let exact=q.query.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();
         let mut matched=entries.iter().filter(|e| {
             let p=Path::new(&e.path);
             (if q.kind=="directory" {e.is_dir} else {!e.is_dir && !temporary_name(&e.name)}) && roots.iter().any(|r|within(p,r)) && scope.is_none_or(|r|if q.recursive{within(p,r)}else{Path::new(&e.parent)==r}) &&

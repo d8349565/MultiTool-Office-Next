@@ -4,13 +4,13 @@ use serde::{Serialize,Deserialize};
 use std::{collections::{BTreeMap,HashMap,HashSet,VecDeque},io::{Read,Write},path::{Path,PathBuf},sync::{Arc,Mutex,atomic::AtomicBool}};
 use sha2::{Digest,Sha256};
 
-pub struct Data {pub profiles:Vec<OcrProfile>,pub tasks:BTreeMap<String,OcrTask>,pub batches:BTreeMap<String,OcrRenameBatch>,pub grants:HashSet<String>,pub queue:VecDeque<String>,pub running:bool,pub cancels:HashMap<String,Arc<AtomicBool>>}
-pub struct OcrStore {pub dir:PathBuf,pub exe:PathBuf,pub data:Mutex<Data>,db:Mutex<Connection>,pub unavailable_reason:Option<String>}
+pub struct Data {pub profiles:Vec<OcrProfile>,pub tasks:BTreeMap<String,OcrTask>,pub batches:BTreeMap<String,OcrRenameBatch>,pub grants:HashSet<String>,pub queue:VecDeque<String>,pub running:bool}
+pub struct OcrStore {pub dir:PathBuf,pub exe:PathBuf,pub data:Mutex<Data>,pub cancels:Mutex<HashMap<String,Arc<AtomicBool>>>,db:Mutex<Connection>,pub unavailable_reason:Option<String>}
 #[derive(Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
-struct StoredTask {id:String,created:u64,status:String,use_jev:bool,profiles:Vec<OcrProfile>,file_ids:Vec<String>}
+struct StoredTask {id:String,created:u64,status:String,use_jev:bool,profiles:Vec<OcrProfile>,file_ids:Vec<String>,#[serde(default)]auto_match:bool,#[serde(default)]workflow:OcrWorkflow}
 impl StoredTask {
-    fn from_task(t:&OcrTask)->Self{Self{id:t.id.clone(),created:t.created,status:t.status.clone(),use_jev:t.use_jev,profiles:t.profiles.clone(),file_ids:t.files.iter().map(|f|f.id.clone()).collect()}}
+    fn from_task(t:&OcrTask)->Self{Self{id:t.id.clone(),created:t.created,status:t.status.clone(),use_jev:t.use_jev,profiles:t.profiles.clone(),file_ids:t.files.iter().map(|f|f.id.clone()).collect(),auto_match:t.auto_match,workflow:t.workflow.clone()}}
 }
 fn file_path(dir:&Path,task_id:&str,file_id:&str)->PathBuf{dir.join(format!("task-{task_id}-{file_id}.json"))}
 fn stored_file(f:&OcrFileResult)->OcrFileResult{
@@ -29,7 +29,7 @@ fn stored_file(f:&OcrFileResult)->OcrFileResult{
 pub fn atomic_json(path:&Path,value:&impl Serialize)->Result<(),String>{let mut f=tempfile::NamedTempFile::new_in(path.parent().ok_or("无父目录")?).map_err(|e|e.to_string())?;serde_json::to_writer(&mut f,value).map_err(|e|e.to_string())?;f.flush().and_then(|_|f.as_file().sync_all()).map_err(|e|e.to_string())?;f.persist(path).map_err(|e|e.to_string())?;Ok(())}
 impl OcrStore{
     pub fn disabled(dir:&Path,exe:PathBuf,reason:String)->Result<Self,String>{
-        Ok(Self{dir:dir.join("workspace").join("ocr"),exe,data:Mutex::new(Data{profiles:defaults(),tasks:BTreeMap::new(),batches:BTreeMap::new(),grants:HashSet::new(),queue:VecDeque::new(),running:false,cancels:HashMap::new()}),db:Mutex::new(Connection::open_in_memory().map_err(|e|e.to_string())?),unavailable_reason:Some(reason)})
+        Ok(Self{dir:dir.join("workspace").join("ocr"),exe,data:Mutex::new(Data{profiles:defaults(),tasks:BTreeMap::new(),batches:BTreeMap::new(),grants:HashSet::new(),queue:VecDeque::new(),running:false}),cancels:Mutex::new(HashMap::new()),db:Mutex::new(Connection::open_in_memory().map_err(|e|e.to_string())?),unavailable_reason:Some(reason)})
     }
     pub fn ensure_available(&self)->Result<(),String>{if let Some(reason)=&self.unavailable_reason{Err(format!("OCR 暂不可用：{reason}"))}else{Ok(())}}
     pub fn open(dir:&Path,exe:PathBuf)->Result<Self,String>{
@@ -56,16 +56,16 @@ impl OcrStore{
                         let data=std::fs::read(file_path(&ocr,&header.id,id)).map_err(|e|serde::de::Error::custom(e.to_string()))?;
                         serde_json::from_slice::<OcrFileResult>(&data)
                     }).collect::<Result<Vec<_>,serde_json::Error>>()?;
-                    Ok(OcrTask{id:header.id,created:header.created,status:header.status,use_jev:header.use_jev,profiles:header.profiles,files})
+                    Ok(OcrTask{id:header.id,created:header.created,status:header.status,use_jev:header.use_jev,profiles:header.profiles,files,auto_match:header.auto_match,workflow:header.workflow})
                 });
-                if let Ok(mut t)=loaded{if ["queued","running"].contains(&t.status.as_str()){t.status="interrupted".into();let mut files=vec![];for (index,f) in t.files.iter_mut().enumerate(){if ["queued","running"].contains(&f.status.as_str()){f.status="interrupted".into();f.error="应用已退出，可重试未完成项".into();files.push(index);}}recovered_tasks.push((t.id.clone(),files));}for f in &t.files{grants.insert(f.path.clone());}tasks.insert(t.id.clone(),t);}
+                if let Ok(mut t)=loaded{if ["queued","running"].contains(&t.status.as_str()){t.status="interrupted".into();if t.workflow.enabled{t.workflow.status="interrupted".into();}let mut files=vec![];for (index,f) in t.files.iter_mut().enumerate(){if ["queued","running"].contains(&f.status.as_str()){f.status="interrupted".into();f.error="应用已退出，可重试未完成项".into();files.push(index);}}recovered_tasks.push((t.id.clone(),files));}for f in &t.files{grants.insert(f.path.clone());}tasks.insert(t.id.clone(),t);}
             }
         }}
         let mut batches=BTreeMap::new();let mut recovered_batches=vec![];{
             let mut stmt=db.prepare("SELECT data FROM ocr_renames").map_err(|e|e.to_string())?;let rows=stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|e|e.to_string())?;
             for row in rows{let raw=row.map_err(|e|e.to_string())?;let mut b:OcrRenameBatch=serde_json::from_str(&raw).map_err(|e|e.to_string())?;let mut recovered=false;for item in &mut b.items{if item.status=="applying"||item.status=="undoing"{recovered=true;let original=Path::new(&item.original);let target=Path::new(&item.target);item.status=if !original.exists()&&fingerprint(target).ok().as_deref()==Some(&item.fingerprint){"done"}else if !target.exists()&&fingerprint(original).ok().as_deref()==Some(&item.fingerprint){if item.status=="undoing"{"undone"}else{"pending"}}else{"conflict"}.into();item.error="已检查上次中断的文件操作".into();}}if !b.status.starts_with("rollback")&&b.items.iter().any(|i|i.status=="undone"){b.status="rollback".into();recovered=true;}if b.status=="preview"&&b.items.iter().any(|i|i.status=="done"){b.status="interrupted".into();recovered=true;}b.summarize();if recovered{recovered_batches.push(b.id.clone());}batches.insert(b.id.clone(),b);}
         }
-        let store=Self{dir:ocr,exe,data:Mutex::new(Data{profiles,tasks,batches,grants,queue:VecDeque::new(),running:false,cancels:HashMap::new()}),db:Mutex::new(db),unavailable_reason:None};
+        let store=Self{dir:ocr,exe,data:Mutex::new(Data{profiles,tasks,batches,grants,queue:VecDeque::new(),running:false}),cancels:Mutex::new(HashMap::new()),db:Mutex::new(db),unavailable_reason:None};
         {let data=store.data.lock().unwrap();for id in recovered_batches{store.save_batch(&data.batches[&id])?;}for (id,files) in recovered_tasks{let task=&data.tasks[&id];for index in files{store.save_task_file(task,index)?;}store.save_task_header(task)?;}}
         Ok(store)
     }

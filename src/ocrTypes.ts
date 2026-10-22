@@ -37,7 +37,10 @@ export interface OcrFileResult {
   proposedName: string; reviewed: boolean; elapsedMs: number; warning: string;
   diagnostics?: OcrFileDiagnostics | null;
 }
-export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[] }
+export interface OcrWorkflowOptions {exportFormat:'none'|'txt'|'csv'|'json';exportDirectory:string;rename:'review'|'preview'|'apply';renameConfirmed:boolean}
+export interface OcrWorkflow {enabled:boolean;options:OcrWorkflowOptions;status:string;exportPath:string;renameBatchId:string;error:string}
+export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow }
+export const defaultWorkflow:OcrWorkflowOptions={exportFormat:'none',exportDirectory:'',rename:'review',renameConfirmed:false};
 export interface OcrRenameItem { fileId: string; original: string; target: string; status: string; error: string; warning?:string }
 export interface OcrRenameBatch { id: string; taskId: string; status: string; items: OcrRenameItem[]; summary?:{success:number;failed:number;pending:number;blocked:number} }
 export interface OcrBootstrap { profiles: OcrProfile[]; tasks: OcrTask[]; batches: OcrRenameBatch[]; engineReady: boolean; jevReady: boolean; unavailableReason?: string | null }

@@ -51,6 +51,27 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
 }
 #[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{let settings=state.settings.lock().unwrap().clone();let model_key=model_profiles::credential(settings.active_model_profile_id.as_deref());json!({"settings":settings,"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key(&model_key).and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"jev":ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
 #[tauri::command] async fn list_dirs(state:tauri::State<'_,Arc<AppState>>,path:String)->Result<Vec<index::Entry>,String>{let idx=state.index.clone();tauri::async_runtime::spawn_blocking(move||idx.dirs(&path)).await.map_err(|e|e.to_string())?}
+#[tauri::command] async fn locate_entry(state:tauri::State<'_,Arc<AppState>>,path:String,is_dir:bool)->Result<Value,String>{
+    let idx=state.index.clone();
+    tauri::async_runtime::spawn_blocking(move||{
+        let path=idx.authorize(&path)?;
+        if is_dir&&path.file_name().is_none(){
+            std::fs::read_dir(&path).map_err(|e|format!("无法访问目录：{e}"))?;
+            let path=path.to_string_lossy().into_owned();
+            let name=path.trim_start_matches("\\\\?\\").trim_end_matches(['\\','/']);
+            return Ok(json!({"entry":{"path":path,"parent":path,"name":name,"isDir":true,"extension":"","size":0,"modified":0},"offset":0}));
+        }
+        let entry=index::Entry::from_path(&path).ok_or("目标已失效、不可访问或成为链接，请重新选择")?;
+        if entry.is_dir!=is_dir{return Err("目标类型已改变，请重新选择".into());}
+        if entry.is_dir{std::fs::read_dir(&path).map_err(|e|format!("无法访问目录：{e}"))?;}
+        let offset=if entry.is_dir{0}else{
+            let results=idx.snapshot_search(&Query{root:Some(entry.parent.clone()),..Default::default()});
+            let position=results.items.iter().position(|v|v.path==entry.path).ok_or("文件尚未完成索引，请稍后重试")?;
+            position/100*100
+        };
+        Ok(json!({"entry":entry,"offset":offset}))
+    }).await.map_err(|e|e.to_string())?
+}
 #[tauri::command] async fn search(state:tauri::State<'_,Arc<AppState>>,mut query:Query)->Result<index::Results,String>{
     let idx=state.index.clone();
     tauri::async_runtime::spawn_blocking(move||{
@@ -107,8 +128,9 @@ async fn drag_file(state:tauri::State<'_,Arc<AppState>>,window:tauri::WebviewWin
 }
 fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{let paths=paths.iter().map(|p|authorize_user_path(state,p)).collect::<Result<Vec<_>,_>>()?;shell::reveal(paths)}
 #[tauri::command] async fn reveal_paths(state:tauri::State<'_,Arc<AppState>>,paths:Vec<String>)->Result<Value,String>{let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||reveal_authorized(&state,paths)).await.map_err(|e|e.to_string())?}
-#[tauri::command] async fn launch(state:tauri::State<'_,Arc<AppState>>,id:String)->Result<(),String>{
+#[tauri::command] async fn launch(state:tauri::State<'_,Arc<AppState>>,id:String,expected_path:Option<String>)->Result<(),String>{
     let path=state.settings.lock().unwrap().launchers.iter().find(|l|l.id==id).map(|l|l.path.clone()).ok_or("工具不存在")?;
+    if expected_path.is_some_and(|expected|expected!=path){return Err("工具目标已改变，请从工具列表重新选择".into());}
     tauri::async_runtime::spawn_blocking(move||shell::launch(&path)).await.map_err(|e|e.to_string())?
 }
 #[tauri::command] async fn reveal_launcher(state:tauri::State<'_,Arc<AppState>>,id:String)->Result<(),String>{
@@ -236,6 +258,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
+        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,locate_entry,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_resume_workflow,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

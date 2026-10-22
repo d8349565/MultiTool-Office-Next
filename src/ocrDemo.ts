@@ -53,7 +53,23 @@ export async function ocrDemo(command:string,args:Record<string,unknown>):Promis
     case 'ocr_delete_profile':state.profiles=state.profiles.filter(p=>p.id!==args.id);return;
     case 'ocr_import_profiles':{const p=JSON.parse(String(args.text));return Array.isArray(p)?p:[p];}
     case 'ocr_generate_profile':throw new Error('演示模式不调用模型，请在桌面版使用 AI 配置。');
-    case 'ocr_start_task':{const p=state.profiles.find(p=>p.id===args.profileId)||state.profiles[1];const t:OcrTask={id:crypto.randomUUID(),created:Date.now()/1000,status:'completed',useJev:!!args.useJev,profiles:[p],files:(args.paths as string[]).map(path=>构造文件(p,path,!!args.useJev))};state.tasks.unshift(t);return t.id;}
+    case 'ocr_start_task':{
+      const options=args.workflow as import('./ocrTypes').OcrWorkflowOptions|null;
+      if(options&&(options.exportFormat!=='none'||options.rename!=='review'))throw new Error('浏览器演示不执行自动导出或改名，请在桌面版使用。');
+      const profiles=args.profileId==='auto'?state.profiles.filter(p=>p.keywords.some(k=>k.trim())):state.profiles.filter(p=>p.id===args.profileId);
+      if(!profiles.length)throw new Error('所选配置已失效，或没有可自动匹配的配置。');
+      const old=state.tasks.find(t=>t.id===args.retryId);
+      const paths=old?old.files.filter(f=>Array.isArray(args.retryFileIds)?args.retryFileIds.includes(f.id):['failed','cancelled','interrupted'].includes(f.status)).map(f=>f.path):args.paths as string[];
+      if(!paths.length)throw new Error('没有可处理的文件。');
+      const files=paths.map(path=>{
+        if(args.profileId!=='auto')return 构造文件(profiles[0],path,!!args.useJev);
+        const sample=匹配单据(path),lines=构造行(sample,path),text=sample.id+'\n'+lines.map(l=>l.text).join('\n');
+        const ranked=profiles.map(p=>({p,score:lines[0].score>=p.threshold?[...new Set(p.keywords.map(k=>k.trim()).filter(Boolean))].filter(k=>text.includes(k)).length:0})).sort((a,b)=>b.score-a.score);
+        if(ranked[0]?.score&&ranked[0].score!==(ranked[1]?.score||0))return 构造文件(ranked[0].p,path,!!args.useJev);
+        return {...构造文件(profiles[0],path,false),profile:null,fields:{},proposedName:'',status:'review',warning:'未命中唯一配置，请更换配置后仅重新处理此文件。'};
+      });
+      const t:OcrTask={id:crypto.randomUUID(),created:Date.now()/1000,status:'completed',useJev:!!args.useJev,profiles,files,autoMatch:args.profileId==='auto',workflow:options?{enabled:true,options,status:files.some(f=>f.status==='review')?'review':'completed',exportPath:'',renameBatchId:'',error:''}:undefined};state.tasks.unshift(t);return t.id;
+    }
     case 'ocr_get_task':return state.tasks.find(t=>t.id===args.id);
     case 'ocr_delete_task':state.tasks=state.tasks.filter(t=>t.id!==args.id);return;
     case 'ocr_clear_completed_tasks':{const count=state.tasks.filter(t=>!['queued','running'].includes(t.status)).length;state.tasks=state.tasks.filter(t=>['queued','running'].includes(t.status));return count;}

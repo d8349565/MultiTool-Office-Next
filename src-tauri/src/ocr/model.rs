@@ -94,7 +94,13 @@ pub struct OcrFileResult {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrTask {pub id:String,pub created:u64,pub status:String,pub use_jev:bool,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>}
+pub struct OcrTask {pub id:String,pub created:u64,pub status:String,pub use_jev:bool,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>,#[serde(default)]pub auto_match:bool,#[serde(default)]pub workflow:OcrWorkflow}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all="camelCase", default)]
+pub struct OcrWorkflowOptions {pub export_format:String,pub export_directory:String,pub rename:String,pub rename_confirmed:bool}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all="camelCase", default)]
+pub struct OcrWorkflow {pub enabled:bool,pub options:OcrWorkflowOptions,pub status:String,pub export_path:String,pub rename_batch_id:String,pub error:String,pub export_attempt:u32,pub export_sha256:String}
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct OcrBootstrap {pub profiles:Vec<OcrProfile>,pub tasks:Vec<OcrTask>,pub batches:Vec<OcrRenameBatch>,pub engine_ready:bool,pub jev_ready:bool,pub unavailable_reason:Option<String>}

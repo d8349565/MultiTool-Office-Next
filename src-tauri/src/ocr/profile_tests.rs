@@ -1,5 +1,73 @@
 use super::*;
 
+#[test]
+fn auto_profile_requires_unique_keywords_and_readable_evidence() {
+    let contract=OcrProfile{id:"contract".into(),keywords:vec!["采购合同".into(),"采购合同".into()," ".into()],..Default::default()};
+    let quote=OcrProfile{id:"quote".into(),keywords:vec!["报价单".into()],..Default::default()};
+    let profiles=vec![contract,quote];
+    let line=|text:&str,score:f64|OcrLine{text:text.into(),score,page:1,r#box:vec![],page_size:None};
+    assert_eq!(rules::match_profile(&profiles,&[line("采购合同",0.99)]).unwrap().id,"contract");
+    assert!(rules::match_profile(&profiles,&[line("采购合同 报价单",0.99)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("采购合同",0.2)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("无匹配内容",0.99)]).is_none());
+}
+
+#[test]
+fn automatic_rename_requires_explicit_confirmation() {
+    let mut options=OcrWorkflowOptions{export_format:"none".into(),rename:"apply".into(),..Default::default()};
+    assert!(validate_workflow(&mut options).is_err());
+    options.rename_confirmed=true;
+    assert!(validate_workflow(&mut options).is_ok());
+}
+
+#[test]
+fn naming_warnings_require_review_without_repeating_or_discarding_other_warnings() {
+    let mut file:OcrFileResult=serde_json::from_value(json!({
+        "id":"file","path":"scan.pdf","originalName":"scan.pdf","status":"ready","error":"",
+        "profile":OcrProfile{filename_pattern:"a".repeat(141),..Default::default()},
+        "lines":[],"fields":{},"proposedName":format!("{}.pdf","a".repeat(140)),
+        "reviewed":false,"elapsedMs":0,"warning":"已有提示"
+    })).unwrap();
+    assert!(review_naming_warning(&mut file));
+    assert_eq!(file.status,"review");
+    assert!(file.warning.starts_with("已有提示；"));
+    assert!(file.warning.contains("已截断"));
+    let warning=file.warning.clone();
+    assert!(!review_naming_warning(&mut file));
+    assert_eq!(file.warning,warning);
+    file.reviewed=true;
+    assert!(!review_naming_warning(&mut file));
+    file.reviewed=false;file.proposed_name="人工命名.pdf".into();
+    assert!(!review_naming_warning(&mut file));
+    file.profile.as_mut().unwrap().filename_pattern="合同/编号".into();
+    file.proposed_name="合同_编号.pdf".into();file.status="ready".into();
+    assert!(review_naming_warning(&mut file));
+    assert!(file.warning.contains("非法文件名字符"));
+}
+
+#[test]
+fn export_recovery_checks_content_and_atomic_writes_preserve_existing_files() {
+    use sha2::{Digest,Sha256};
+    let dir=tempfile::tempdir().unwrap();
+    let path=dir.path().join("OCR-task.txt");
+    let expected=format!("{:x}",Sha256::digest(b"complete export"));
+    assert!(!export_matches(&path,&expected).unwrap());
+    write_export("txt",path.to_str().unwrap(),b"complete export").unwrap();
+    assert!(export_matches(&path,&expected).unwrap());
+    assert!(write_export("txt",path.to_str().unwrap(),b"replacement").is_err());
+    assert_eq!(std::fs::read(&path).unwrap(),b"complete export");
+    let partial=dir.path().join("partial.txt");
+    std::fs::write(&partial,b"complete").unwrap();
+    assert!(!export_matches(&partial,&expected).unwrap());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(),2);
+    let old:OcrWorkflow=serde_json::from_str("{}").unwrap();
+    assert_eq!(old.export_attempt,0);
+    assert!(old.export_sha256.is_empty());
+    let restored:OcrWorkflow=serde_json::from_str(&serde_json::to_string(&OcrWorkflow{export_attempt:2,export_sha256:expected.clone(),..Default::default()}).unwrap()).unwrap();
+    assert_eq!(restored.export_attempt,2);
+    assert_eq!(restored.export_sha256,expected);
+}
+
 fn profile() -> OcrProfile {
     OcrProfile {
         fields: vec![

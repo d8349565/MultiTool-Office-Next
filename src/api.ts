@@ -37,6 +37,11 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
     case 'assistant_workspace': return {path:'',readWrite:false,interactiveHtml:false,revision:0,needsReconfirmation:false,modelHost:''} as T;
     case 'index_status': return status as T;
     case 'list_dirs': return dirs.filter(d => cleanPath(d.parent) === cleanPath(String(args.path))) as T;
+    case 'locate_entry': {
+      const found=[...dirs,...files].find(e=>cleanPath(e.path).toLowerCase()===cleanPath(String(args.path)).toLowerCase()&&e.isDir===args.isDir);
+      if(!found)throw new Error('目标不存在或已超出工作目录范围');
+      return {entry:found,offset:0} as T;
+    }
     case 'search': {
       const q = args.query as Query, tokens=(q.query||'').toLowerCase().split(/\s+/).filter(Boolean);
       const pool = q.kind === 'directory' ? dirs : files;
