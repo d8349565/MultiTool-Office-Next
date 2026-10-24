@@ -48,6 +48,13 @@ pub struct Status { pub scanning: bool, pub count: usize, pub scanned: usize, pu
 pub struct Query {pub query:String,pub kind:String,pub root:Option<String>,pub recursive:bool,pub filter:String,pub extension:String,pub after:Option<u64>,pub before:Option<u64>,pub offset:usize,pub limit:usize}
 #[derive(Serialize)] pub struct Results {pub items:Vec<Entry>,pub total:usize}
 pub trait SearchProvider { fn search(&self, query: &Query) -> Results; }
+fn search_rank(entry:&Entry,exact:&str,scope:Option<&Path>)->u8 {
+    let exact=if entry.is_dir{exact.trim()}else{exact};
+    let name=entry.searchable.rsplit(['\\','/']).next().unwrap_or("");
+    let relative_exact=entry.is_dir&&exact.contains(std::path::MAIN_SEPARATOR)&&scope.and_then(|root|Path::new(&entry.path).strip_prefix(root).ok())
+        .is_some_and(|path|path.to_string_lossy().to_lowercase()==exact);
+    if name==exact||relative_exact{0}else if !exact.is_empty()&&name.starts_with(exact){1}else{2}
+}
 pub struct Index {
     pub entries: RwLock<Vec<Entry>>, pub status: Mutex<Status>,
     pub roots: RwLock<Vec<PathBuf>>, pub db: Mutex<Connection>,
@@ -81,12 +88,13 @@ impl Index {
         if !self.roots.read().unwrap().iter().any(|r|within(&p,r)) {return Err("路径不在已配置的目录范围内".into());} Ok(p)
     }
     pub fn snapshot_search(&self,q:&Query)->Results {
-        let tokens=q.query.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase().split_whitespace().map(str::to_owned).collect::<Vec<_>>();let filter=q.filter.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
+        let exact=q.query.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();let tokens=exact.split_whitespace().map(str::to_owned).collect::<Vec<_>>();let filter=q.filter.replace(['\\','/'],std::path::MAIN_SEPARATOR_STR).to_lowercase();let ext=q.extension.trim_start_matches('.').to_lowercase();
         let roots=self.roots.read().unwrap();let entries=self.entries.read().unwrap();let scope=q.root.as_deref().map(Path::new);
         let mut items=entries.iter().filter(|e|{let p=Path::new(&e.path);
             (if q.kind=="directory"{e.is_dir}else{!e.is_dir&&!temporary_name(&e.name)})&&roots.iter().any(|r|within(p,r))&&scope.is_none_or(|r|if q.recursive{within(p,r)&&p!=r}else{Path::new(&e.parent)==r})&&tokens.iter().all(|t|e.searchable.contains(t))&&e.searchable.contains(&filter)&&(ext.is_empty()||e.extension==ext)&&q.after.is_none_or(|a|e.modified>=a)&&q.before.is_none_or(|b|e.modified<=b)
-        }).cloned().collect::<Vec<_>>();
-        items.sort_unstable_by(|a,b|a.sort_key.cmp(&b.sort_key).then_with(||a.path.cmp(&b.path)));Results{total:items.len(),items}
+        }).map(|e|(if q.kind=="directory"{search_rank(e,&exact,scope)}else{0},e)).collect::<Vec<_>>();
+        items.sort_unstable_by(|a,b|a.0.cmp(&b.0).then_with(||a.1.sort_key.cmp(&b.1.sort_key)).then_with(||a.1.path.cmp(&b.1.path)));
+        Results{total:items.len(),items:items.into_iter().map(|(_,e)|e.clone()).collect()}
     }
     pub fn dirs(&self,path:&str)->Result<Vec<Entry>,String> {
         let p=self.authorize(path)?;let key=p.to_string_lossy().into_owned();
@@ -189,15 +197,65 @@ impl SearchProvider for Index {
             let p=Path::new(&e.path);
             (if q.kind=="directory" {e.is_dir} else {!e.is_dir && !temporary_name(&e.name)}) && roots.iter().any(|r|within(p,r)) && scope.is_none_or(|r|if q.recursive{within(p,r)}else{Path::new(&e.parent)==r}) &&
             tokens.iter().all(|t|e.searchable.contains(t)) && e.searchable.contains(&filter) && (ext.is_empty()||e.extension==ext) && q.after.is_none_or(|a|e.modified>=a) && q.before.is_none_or(|b|e.modified<=b)
-        }).map(|e| {
-            let name=e.searchable.rsplit(['\\','/']).next().unwrap_or("");
-            let rank=if name==exact{0}else if !exact.is_empty()&&name.starts_with(&exact){1}else{2};(rank,e)
-        }).collect::<Vec<_>>();
+        }).map(|e|(search_rank(e,&exact,scope),e)).collect::<Vec<_>>();
         let total=matched.len();
         let compare=|a:&(u8,&Entry),b:&(u8,&Entry)|a.0.cmp(&b.0).then_with(||a.1.sort_key.cmp(&b.1.sort_key)).then_with(||a.1.path.cmp(&b.1.path));
         let end=q.offset.saturating_add(q.limit.clamp(1,200)).min(total);
         if end<total {matched.select_nth_unstable_by(end,compare);matched.truncate(end);}
         matched.sort_unstable_by(compare);
         Results{total,items:matched.into_iter().skip(q.offset).map(|(_,e)|e.clone()).collect()}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(root:&Path,relative:&str,is_dir:bool)->Entry {
+        let path=root.join(relative.replace('/',std::path::MAIN_SEPARATOR_STR));
+        let name=path.file_name().unwrap().to_string_lossy().into_owned();
+        let parent=path.parent().unwrap().to_string_lossy().into_owned();
+        let path=path.to_string_lossy().into_owned();
+        Entry {sort_key:name_sort_key(&name),searchable:path.to_lowercase(),path,name,parent,is_dir,
+            extension:String::new(),size:0,modified:0,created:None}
+    }
+
+    #[test]
+    fn exact_directory_matches_precede_partial_matches_before_pagination() {
+        // All entries and the database stay in memory; no workspace files are read or created.
+        let root=PathBuf::from("directory-rank-test");
+        let target=entry(&root,"archive/target",true);
+        let peer=entry(&root,"backup/target",true);
+        let file_target=entry(&root,"files/z/target",false);
+        let file_partial=entry(&root,"files/z/target-old/a00",false);
+        let mut entries=(1..=45).flat_map(|i|[
+            entry(&root,&format!("target-old/a{i:02}"),true),
+            entry(&root,&format!("archive/target-old/a{i:02}"),true),
+        ]).collect::<Vec<_>>();
+        entries.extend([target.clone(),peer.clone(),entry(&root,"archive/target-old",true),
+            entry(&root,"archive/target/a00",true),file_target.clone(),file_partial.clone()]);
+        let index=Index {entries:RwLock::new(entries),roots:RwLock::new(vec![root.clone()]),
+            status:Mutex::new(Status::default()),db:Mutex::new(Connection::open_in_memory().unwrap()),
+            cache:Mutex::new(HashMap::new()),refresh:mpsc::channel().0};
+        for (text,same_name) in [("target",true),(" TARGET ",true),("archive/target",false),(" ARCHIVE\\TARGET ",false)] {
+            let query=Query {query:text.into(),kind:"directory".into(),root:Some(root.to_string_lossy().into_owned()),
+                recursive:true,limit:40,..Default::default()};
+            let snapshot=index.snapshot_search(&query);
+            assert!(snapshot.total>40);
+            assert_eq!(snapshot.items[0].path,target.path,"exact match: {text}");
+            if same_name {assert_eq!(snapshot.items[1].path,peer.path,"same-name path order: {text}");}
+            let mut paged=vec![];
+            for offset in (0..snapshot.total).step_by(40) {
+                let page=index.search(&Query {offset,..query.clone()});
+                assert_eq!(page.total,snapshot.total);
+                assert_eq!(page.items.len(),40.min(snapshot.total-offset));
+                paged.extend(page.items.into_iter().map(|e|e.path));
+            }
+            assert_eq!(paged,snapshot.items.into_iter().map(|e|e.path).collect::<Vec<_>>(),"page order: {text}");
+        }
+        let query=Query {query:"target".into(),root:Some(root.to_string_lossy().into_owned()),recursive:true,limit:40,..Default::default()};
+        assert_eq!(index.search(&query).items[0].path,file_target.path);
+        assert_eq!(index.snapshot_search(&query).items[0].path,file_partial.path);
+        assert_eq!(index.search(&Query {query:"files/z/target".into(),..query}).items[0].path,file_partial.path);
     }
 }
