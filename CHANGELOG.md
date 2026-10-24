@@ -1,5 +1,30 @@
 # 变更日志
 
+## v0.5.1 - 2026-10-24
+
+### Improvements
+
+- Directory filters prioritize exact directory-name or relative-path matches before partial matches, with ranking applied before pagination.
+- Clearing file-search keywords returns focus to the search box while retaining other filters.
+- The default README is now in English, with a complete Simplified Chinese edition, language switching, clearer Windows download instructions, and existing screenshots and demos.
+
+### 修复与完善
+
+- 目录筛选优先展示目录名或相对路径精确匹配的结果，在候选分页前完成排序，避免目标被大量模糊结果挤到后页。
+- 清空文件搜索关键词后，焦点返回搜索框，方便继续输入；其他筛选条件保留。
+- 默认 README 改为英文首页，提供完整中文版和语言切换，突出 Windows 下载与快速上手，并保留已有真实截图和演示。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models are bundled and run locally. The app and installer remain in Simplified Chinese; optional connected services may charge provider fees.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型随安装包提供并在本机处理。软件界面和安装器仍为简体中文，可选联网服务可能产生服务商费用。
+- Application build / 应用构建版本：`2026.1024.1522`。
+
+### Verification scope / 验证范围
+
+- Production build and installer checksum verification, with existing Rust static-check and test-target compilation results reused. No simulated tests, real OCR, or fresh-install verification in this release.
+- 本次验证范围为程序编译、安装包构建及校验，复用已有 Rust 静态检查和测试目标编译结果；未运行模拟测试、真实 OCR 或全新环境安装验收，未读取用户业务数据。
+
 ## v0.5.0 - 2026-10-22
 
 ### 新增
