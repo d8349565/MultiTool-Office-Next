@@ -1,0 +1,209 @@
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+# MultiTool Office Next
+
+**在一个 Windows 窗口中找文件、预览文档、整理扫描件名称。**
+
+MultiTool Office Next（MTO）是一款免费开源的 Windows 办公工具箱，集成文件分栏浏览、本地文件搜索、文档预览和离线 OCR 批量命名。浏览、搜索、预览和默认 OCR 均在本机处理，无需注册应用账号或配置 AI Key；AI 助手和翻译可按需连接自己的服务。
+
+[**下载 Windows x64 安装包**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [快速上手](#快速上手) · [核心功能](#核心功能) · [反馈问题](https://github.com/d8349565/MultiTool-Office-Next/issues)
+
+![支持 Windows x64](https://img.shields.io/badge/Windows-x64-0078D4?logo=windows) [![Apache-2.0 开源许可](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
+
+**当前软件界面和安装器使用简体中文。**
+
+## 下载与安装
+
+1. 打开 [最新 Releases 下载页](https://github.com/d8349565/MultiTool-Office-Next/releases/latest)。
+2. 下载以 `_x64-setup.exe` 结尾的 Windows 安装包并运行，无需下载源码 ZIP。
+3. 按向导安装，完成后打开 **MultiTool Office Next**。
+
+运行环境为 **Windows x64 + Microsoft Edge WebView2**。缺少 WebView2 时，安装程序可能联网下载运行时；OCR 模型随安装包提供。应用窗口沿用 **MultiTool Office** 名称。
+
+应用本身免费；可选模型、搜索和评分服务可能需要服务商账号及付费 API。安装包包含哪些变更以发布说明为准，`main` 分支可能包含尚未发布的修复。
+
+## 快速上手
+
+1. **添加工作目录**：在首次引导或“文件工作区”中点击“添加工作目录”，选择常用文件夹并等待本地索引完成。AI 配置可以稍后再做。
+2. **找一份文件**：按 `Ctrl + F`，输入文件名中的部分文字。
+3. **确认内容再打开**：在结果上按住 `Ctrl` 悬停即可预览；双击用系统默认程序打开。
+
+完成后，就能在同一个窗口中浏览目录层级、搜索所选工作目录并预览文件。
+
+## 界面预览
+
+截图与 GIF 来自已有软件版本，新版部分控件已有调整。
+
+| 浅色模式 | 深色模式 |
+| :---: | :---: |
+| ![浅色模式下的分栏文件浏览与本地 PDF 预览](images/light.png) | ![深色模式下的文件工作区与预览面板](images/dark.png) |
+
+## 核心功能
+
+### 文件分栏浏览与本地搜索
+
+在客户资料或项目目录中逐层浏览时，同时保留多个目录层级，减少反复前进、后退。
+
+- 按文件名跨工作目录搜索，结合扩展名、修改时间或路径条件缩小范围。
+- 按目录名或相对路径跨层查找目录，选定后定位并限定文件结果；× 清除目录条件，保留浏览位置。
+- 文件搜索关键词也可用 × 清空，其他筛选条件继续保留。
+- 复制文件名或路径、用默认程序打开，或在 Windows 文件资源管理器中定位。
+
+索引记录文件名、路径等元数据，不是文档正文的全文搜索。
+
+<details>
+<summary>查看分栏浏览与文件搜索演示</summary>
+
+![在分栏目录中浏览资料并快速搜索文件](images/快速检索.gif)
+
+</details>
+
+### 本地文档预览
+
+按住 `Ctrl` 悬停临时预览；使用 `Ctrl + 左键` 或 `Ctrl + Enter` 固定预览。
+
+- 支持 PDF、常见图片、文本、Markdown、CSV，以及 Word（`.docx`）和 Excel（`.xlsx`）。
+- PDF 可翻页，Excel 可切换工作表，预览窗口可调整大小。
+- 预览内容留在本机，不会自动加入 AI 对话，不执行文档中的宏、公式或脚本。
+
+Word 以正文预览为主；Excel 有行列与内容限制，公式使用已有缓存值。复杂排版、图表及完整编辑请用原程序打开。
+
+### 离线 OCR 与批量命名
+
+导入扫描 PDF 或图片，提取公司、日期、单据编号等字段，再按自己的规则组合文件名。
+
+**添加文件 → 自动匹配或指定配置 → 一键完成 → 核对结果。**
+
+- 本地 OCR 支持定位标签、正则、画框及日期格式整理。
+- 按首页关键词逐文件匹配配置；无唯一匹配或文字质量不足时保留待复核，更换配置后可仅重试该文件。
+- 配置可复用、导入和导出，也可让可选 AI 服务生成配置草稿，核对后保存。
+- 识别值可人工修正、查看来源、导出；失败或中断项目可单独重试。
+- 一键任务默认停在结果核对，可保存 TXT / CSV / JSON 自动导出、改名预览或自动改名选项。自动改名首次启用或规则变化时先确认，待复核项不会直接处理。
+- 改名前检查文件状态和名称冲突，明确报告部分失败，支持撤销。可导出异常 CSV；解决文件占用或冲突后，可再次尝试失败的撤销操作。
+
+批量改名只修改名称，不改写文档正文；撤销时检查文件是否变化、原名称是否被占用。识别结果取决于单据和配置，应用前请核对拟命名。
+
+首次配置可参考 [OCR 提示词与案例使用指南](ocr-samples/OCR提示词与案例使用指南.md)，包含采购合同、报价单、送货单等表单的配置说明。
+
+<details>
+<summary>查看 OCR 提取与批量命名演示</summary>
+
+![导入单据、提取字段、核对结果并批量命名](images/OCR演示.gif)
+
+</details>
+
+### 可选 AI 助手
+
+连接自己的模型服务后，可以用自然语言检索文件、核对配套件是否缺失，或根据结果生成文档。例如：“列出有 Contract.docx 但缺少 Contract.pdf 的文件夹。”
+
+- 处理时展示工具调用过程；可选 Tavily 或 DeepSeek 公开资讯搜索，图片问答需要支持视觉的模型。
+- 读取文档正文或生成文件，需要单独授权助理工作目录，并逐项确认操作。
+- 可创建 TXT、Markdown、Word、Excel、PowerPoint、HTML 和 PDF 基础文档，以文字、简单表格和要点幻灯片为主；只新建文件，不覆盖已有文件。
+- PDF 支持创建和本地预览，目前尚不支持通过助理读取 PDF 正文。
+
+DeepSeek 额外网页抓取默认关闭，与搜索共用任务联网次数上限。AI、翻译等联网功能会向所选服务商发送相关信息，详见[数据与隐私](#数据与隐私)。
+
+<details>
+<summary>查看 AI 助手搜索公开资讯演示</summary>
+
+![AI 助手搜索公开资讯并整理回答](images/AI助理资讯搜索.gif)
+
+</details>
+
+### 日常小工具
+
+| 工具 | 用法与场景 |
+| :--- | :--- |
+| 快捷启动 | `Ctrl + K` 展示用过的工具及最近访问的文件、目录；文件和目录在应用内定位，工具直接启动，支持搜索和清理历史。`Ctrl + Shift + Space` 可从其他应用唤回。 |
+| 即时翻译 | 主动提交文本、Markdown 或 HTML 内容，双栏对照阅读；需要连接模型服务。 |
+| 待办与提醒 | 用四象限或清单安排事项，添加日期、步骤，恢复误删任务。 |
+
+设置具体日期和时间的待办可在到期前 10 分钟提醒。提醒需要应用保持运行；关闭主窗口后可驻留托盘。
+
+<details>
+<summary>查看快捷启动、翻译和待办演示</summary>
+
+![搜索并打开常用程序、文档和模板的快捷面板](images/ctrl+k.png)
+
+![双栏对照翻译与段落对应及同步滚动演示](images/快速翻译.gif)
+
+![待办四象限视图](images/todo.png)
+
+</details>
+
+## 可选 AI 配置
+
+顶栏“配置引导”和设置中均可重新打开配置流程。本地文件功能和默认 OCR 无需完成这些配置。
+
+<details>
+<summary>连接模型与可选联网搜索</summary>
+
+1. **模型**：在 [DeepSeek 官方平台](https://platform.deepseek.com/api_keys)创建 Key，或使用其他 OpenAI 兼容服务。在“模型参数”核对接口和模型，填写 Key、测试并保存，再点击“使用此配置”；既有配置继续保留。
+2. **联网搜索**：在“联网与评分”选择 Tavily 或 DeepSeek。DeepSeek 可复用一份已保存的官方模型配置，或单独填写搜索 Key；Tavily 需从[官方平台](https://app.tavily.com/)获取独立 Key。测试成功后启用搜索，再点击“保存此模块”。搜索测试成功不代表模型已配置。
+3. **网页正文与费用**：DeepSeek 搜索有正文就使用正文，没有则使用摘要；额外网页抓取默认关闭。Search / Fetch 费用计入会话费用，可在“费用计价”核对单价。详见[搜索与计费说明](docs/deepseek-search.md)。
+
+连接测试只发送固定内容，不携带业务文件，但可能消耗服务额度。无效的新 Key 不会替换原有效 Key。DeepSeek 搜索测试费用在测试结果和联网活动中查看；可选 Jev 辅助判定需单独配置。
+
+</details>
+
+## 常用快捷键
+
+| 快捷键 | 作用 |
+| :--- | :--- |
+| `Ctrl + F` | 在文件工作区聚焦文件搜索，在待办视图聚焦待办搜索 |
+| `Ctrl + 悬停` | 临时预览文件 |
+| `Ctrl + 左键` / `Ctrl + Enter` | 固定文件预览 |
+| `Ctrl + K` | 打开或关闭快捷面板 |
+| `Ctrl + Shift + Space` | 唤回应用并打开快捷面板 |
+| `Alt + 1` 至 `Alt + 5` | 切换主要模块 |
+| `Esc` | 关闭当前弹窗或预览 |
+
+## 数据与隐私
+
+| 操作 | 数据如何处理 |
+| :--- | :--- |
+| 浏览、索引、文件搜索 | 本机处理文件名、路径、大小、时间等元数据，不索引文档正文。 |
+| 文档预览 | 在本机读取所选文件的有限内容，不上传，不自动加入 AI 上下文。 |
+| 默认 OCR | 在本机读取所选 PDF 或图片并提取文字。 |
+| AI 助手、翻译、AI 配置草稿 | 相关输入发给所配置的模型服务；助手请求可能包含历史对话、图片、角色文件、文件名、完整路径及经确认读取的正文。 |
+| Tavily / DeepSeek 搜索及可选抓取 | 公开搜索词或网址发给所选服务商，返回资料交给模型；接触本地工作目录资料的会话不能继续公开搜索或抓取。 |
+| 可选 Jev 辅助判定 | 发送候选信息；OCR 候选行先过滤敏感数字，但不代表翻译文字、对话、图片或角色文件均已匿名化。 |
+
+文件浏览目录与助理读写目录分别授权。API Key 保存在 **Windows 凭据管理器**；会话、OCR 结果、待办和生成文件可能在本机留存，按需清理。
+
+联网功能首次使用及更换服务、账号或数据范围时会请求授权。“隐私与联网”可撤销授权、开启仅本地模式或查看活动；仅本地模式阻止应用内 API 请求，本地文件功能和 OCR 可继续使用。
+
+活动保留类别等元信息及 DeepSeek 工具费用快照，最长 30 天、最多 1000 条，不额外记录正文、完整路径或 Key。引导进度、授权和活动记录不随配置导出迁移。
+
+详细说明：[使用与数据安全说明](USAGE_AND_PRIVACY.txt) · [助理文件夹权限](docs/assistant-workspace-security.md) · [本版调整与人工验收清单](docs/next-release.md)。
+
+## 常见问题
+
+- **缺少 WebView2 或安装失败**：使用[微软官方 WebView2 下载页](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)安装运行时，再重新运行应用安装包。
+- **模型或搜索连接测试失败**：根据报错检查 Key、余额、模型权限、接口地址和网络。
+- **文档格式显示有差异**：预览和 AI 生成文档存在上述限制；完整排版与编辑请使用原程序。
+
+## 参与贡献
+
+欢迎提交 Bug、功能建议和 Pull Request。[反馈问题](https://github.com/d8349565/MultiTool-Office-Next/issues)时，请附上应用版本、Windows 版本和复现步骤。发布历史见 [CHANGELOG.md](CHANGELOG.md)。
+
+<details>
+<summary>在 Windows 上从源码运行与打包</summary>
+
+项目使用 Tauri 2、React、TypeScript 和 Rust。开发需要 Windows x64、Node.js/npm、Rust，以及 Windows C++ 构建工具和 SDK；OCR 组件构建需要 **Python 3.12（64 位）**。
+
+```powershell
+git clone https://github.com/d8349565/MultiTool-Office-Next.git
+cd MultiTool-Office-Next
+npm.cmd ci
+npm.cmd run ocr:build
+npm.cmd run desktop
+```
+
+启动后应出现桌面工作台窗口。执行 `npm.cmd run package:keep` 按当前项目版本生成 Windows 安装包。脚本详情见 [package.json](package.json) 和 [Windows 构建脚本](scripts/windows.ps1)。
+
+</details>
+
+## 开源许可
+
+采用 [Apache License 2.0](LICENSE) 开源。Copyright 2026 Lee；署名信息见 [NOTICE](NOTICE)。第三方依赖、字体和图标遵循各自许可证。

@@ -1,185 +1,209 @@
-# MTO - 免费开源的 Windows 办公工具箱（文件分栏管理/原生预览/OCR自动命名/AI助手）
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-**找资料、确认内容、整理扫描件，少一些重复操作。**
+# MultiTool Office Next
 
-MTO（MultiTool Office Next）是一款 Windows 桌面办公工具箱。如果你经常处理合同、报价单、PDF、表格和项目文档，它可以帮你在一个窗口里浏览多层目录、搜索和预览文件，再把扫描件中的关键信息提取出来，用于批量命名。
+**Find files, preview documents, and rename scans in one Windows desktop app.**
 
-**文件浏览、搜索、预览和默认 OCR 均在本机处理，无需配置 AI。** 需要问答、翻译或公开资讯搜索时，再按需接入自己的模型与搜索服务；调用时会向对应服务发送相关信息。
+MultiTool Office Next (MTO) is a free, open-source toolbox for column-based file browsing, local file search, document previews, and offline OCR batch renaming. Browsing, search, preview, and default OCR run on your PC without an app account or AI API key. An AI assistant and translation are available through services you choose to connect.
 
-[**下载 Windows 安装包**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [快速上手](#快速上手) · [功能演示](#核心功能) · [数据处理说明](#数据与隐私) · [反馈建议](https://github.com/d8349565/MultiTool-Office-Next/issues)
+[**Download for Windows x64**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [Quick start](#quick-start) · [Features](#features) · [Report an issue](https://github.com/d8349565/MultiTool-Office-Next/issues)
 
-![支持 Windows x64](https://img.shields.io/badge/Windows-x64-0078D4?logo=windows) [![Apache-2.0 开源许可](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
+![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4?logo=windows) [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
-## 能帮你解决什么问题？
+**Current app and installer language: Simplified Chinese.**
 
-| 日常遇到的麻烦 | 用 MTO 怎么处理 |
-| :--- | :--- |
-| 项目资料分了好几层文件夹，找东西总要反复前进、后退 | 分栏展示多个目录层级，配合跨目录搜索、文件格式和修改时间筛选 |
-| 文件名相似，要逐个打开才知道哪份是需要的 | 按住 `Ctrl` 悬停预览内容，确认后再打开 |
-| 扫描合同、报价单、送货单堆在一起，文件名全是编号或扫描时间 | 本地 OCR 提取公司、日期、合同编号等字段，按规则生成文件名，核对后批量改名 |
-| 要检查项目资料是否缺少配套文件，或把结果整理成清单 | 用自然语言让 AI 助手检索、核对，并按需生成文档 |
+## Installation
 
-## 快速上手
+1. Open the [latest release](https://github.com/d8349565/MultiTool-Office-Next/releases/latest).
+2. Download the Windows installer ending in `_x64-setup.exe` and run it. You do not need the source-code ZIP.
+3. Follow the installation wizard, then open **MultiTool Office Next**.
 
-1. **下载安装**：前往 [Releases 下载页](https://github.com/d8349565/MultiTool-Office-Next/releases/latest)，选择以 `_x64-setup.exe` 结尾的 Windows 安装包，按向导安装。
-2. **添加资料目录**：打开应用，在首次引导或文件工作区中选择常用文件夹，等待本地索引完成。AI 和联网搜索可以稍后配置。
-3. **找一份文件试试**：按 `Ctrl + F` 输入文件名关键词，在结果上按住 `Ctrl` 悬停查看内容，双击即可用系统默认程序打开。
+Requires **Windows x64 and Microsoft Edge WebView2**. The installer may download WebView2 if it is missing; OCR models are bundled with the installer. The app window uses the name **MultiTool Office**.
 
-完成后，你就能在一个窗口中浏览目录、搜索文件并预览内容。
+The app is free to use. Optional model, search, and scoring services may require provider accounts and paid API access. See the release notes for what the downloadable build includes; `main` may contain newer fixes.
 
-运行环境为 **Windows x64 + Microsoft Edge WebView2**。安装包和应用内沿用 **MultiTool Office Next / MultiTool Office** 名称；缺少 WebView2 时，安装程序可能需要联网下载运行时。OCR 模型随安装包提供。
+## Quick start
 
-**连接 AI 与联网搜索：** 首次引导会主动说明配置步骤，允许稍后继续；顶栏“配置引导”和设置中都可重新打开。
+1. **Add a working folder:** in the first-run setup or File Workspace (`文件工作区`), choose `添加工作目录` and wait for local indexing. You can skip AI setup.
+2. **Find a file:** press `Ctrl + F` and enter part of its filename.
+3. **Check its contents:** hold `Ctrl` while hovering over a result to preview it. Double-click to open it in the default application.
 
-- **DeepSeek**：打开 [官方 Key 页面](https://platform.deepseek.com/api_keys)，注册或登录后创建并复制 Key。返回“模型参数”，使用预填的 DeepSeek 地址与模型，填写 Key、测试并保存，再点击“使用此配置”。也可手动填写其他 OpenAI 兼容服务；既有配置不会自动替换。
-- **联网搜索**：在“联网与评分”选择 Tavily 或 DeepSeek，测试成功后打开“启用联网搜索”，点击底栏“保存此模块”。DeepSeek 可以复用一份已保存的官方模型配置，也可以单独填写 Key；Tavily 从[官方平台](https://app.tavily.com/)获取独立 Key，与 DeepSeek 的 Key 不通用。搜索测试成功不代表模型已配置。
-- **DeepSeek 正文与费用**：搜索有正文就使用正文，没有则使用摘要；额外网页抓取默认关闭。Search / Fetch 费用会纳入会话费用，单价可在“费用计价”中核对。参见[配置、计费与人工验收说明](docs/deepseek-search.md)。
+You can now browse folder levels, search your selected working folders, and preview files from one window.
 
-测试只发送固定内容，不携带业务文件，可能消耗服务额度。无效的新模型或搜索 Key 不会替换原有效配置。DeepSeek 搜索测试的费用在测试结果和“隐私与联网”的活动中查看。OCR 的 Jev 辅助判定保留按需配置。
+## Screenshots
 
-**遇到问题**：WebView2 下载或安装失败时，可使用[微软官方 x64 独立安装包](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)后重新运行安装包；API 测试失败时，按界面提示检查 Key、余额、模型权限、地址或网络。
+Screenshots and GIFs come from existing app builds; some controls have changed in newer versions.
 
-应用本身免费；第三方模型、搜索和评分服务的配额或费用由各服务商决定。
-
-**想先用样例试试？** 仓库提供 [11 份纯虚构演示文件与预期结果](samples/README.md)，覆盖分栏检索、Word / Excel / PDF 预览、缺少配套文件和 OCR 命名。先把 `samples/workspace` 复制到临时文件夹再使用；OCR 可直接导入配套配置，无需配置 AI。
-
-## 界面预览
-
-| 深色模式 | 浅色模式 |
+| Light mode | Dark mode |
 | :---: | :---: |
-| ![深色模式下的文件工作区与 AI 助手](images/dark.png) | ![浅色模式下的办公工作台](images/light.png) |
+| ![Column-based file browsing with a local PDF preview in light mode](images/light.png) | ![The file workspace and preview panel in dark mode](images/dark.png) |
 
-## 核心功能
+## Features
 
-### 文件分栏管理：在多层资料中保持位置感
+### File browsing and local search
 
-把多个目录层级和文件列表同时放在眼前，进入子目录时仍能看见上层位置。适合按“客户 → 项目 → 合同 / 报价 / 交付”归档资料的工作方式。
+Keep several folder levels visible while moving through project or client folders.
 
-- **跨目录搜索**：在已添加的工作目录中按文件名查找资料。
-- **跨层目录筛选**：输入目录名或相对路径，选定后定位并限定文件范围；× 清除目录条件，保留浏览位置。
-- **缩小查找范围**：按文件格式、修改时间和当前目录范围筛选。
-- **找到后接着用**：复制文件名或路径、用默认程序打开，或在 Windows 文件资源管理器中定位。
+- Search filenames across your configured working folders; narrow results by file extension, modification date, or path.
+- Find directories at any depth by name or relative path, then select one to navigate there and limit the file results. Clear the directory condition with × while keeping your browsing position.
+- Clear file-search keywords with × while retaining other filters.
+- Copy names or paths, open files in their default applications, or reveal them in Windows File Explorer.
 
-搜索索引记录文件名、路径等元数据，不是文档正文的全文搜索。
-
-![在分栏目录中浏览资料并快速搜索文件](images/快速检索.gif)
-
-### 原生预览：先看内容，再决定是否打开
-
-直接在工作台内查看本地文件，查资料时减少窗口切换。
-
-- 按住 `Ctrl` 悬停文件，临时查看；`Ctrl + 左键` 固定预览，方便继续阅读。
-- 支持 PDF、常见图片、文本、Markdown、CSV，以及 Word（`.docx`）和 Excel（`.xlsx`）。
-- PDF 支持翻页，Excel 支持切换工作表；预览窗口可调整大小。
-
-预览在本机读取，不会自动上传或加入 AI 对话。Word 以正文预览为主；Excel 有行列与内容限制，公式使用已有缓存值。复杂排版、图表及完整编辑请用原程序打开。
-
-### OCR 自动命名：让文件名带上业务信息
-
-导入 PDF 或图片，从合同、报价单、送货单中提取公司名称、合同编号、日期、产品等字段，再按你设定的格式组合文件名。
-
-例如，按“日期 + 公司 + 合同编号”的规则，把 `扫描件001.pdf` 命名为 `20261015_示例公司_HT-001.pdf`。这是命名示意，实际结果取决于识别内容和配置规则。
-
-**添加文件 → 自动匹配或指定配置 → 一键完成 → 核对结果。** 一键任务默认到结果核对，可预先保存自动导出、改名预览或自动改名选项；保留“仅识别”的分步模式。自动改名首次启用或规则变化时先确认，异常项集中保留。
-
-- 默认使用本地 OCR 与提取规则，支持定位标签、正则、画框及日期格式整理。
-- 按首页关键词逐文件自动匹配配置；无唯一匹配或文字质量不足时待复核，可更换配置仅重新处理该文件。
-- 配置可复用、导入和导出，也可让 AI 根据文字需求生成配置草稿，核对保存后使用。
-- 识别结果可人工修正、查看来源并导出；支持失败、中断、待复核筛选和单项重试。
-- 改名前逐项预检名称与文件状态，异常项可排除；结果明确区分全部成功、部分成功和失败。可导出异常 CSV，撤销失败项保留记录，处理占用后可再次尝试。
-
-批量改名只修改文件名称，不改写文档正文；撤销时会检查文件是否发生变化、原名称是否被占用。首次配置可参考 [采购合同、商务报价单和销售送货单示例](ocr-samples/OCR提示词与案例使用指南.md)。
-
-![导入单据、提取字段、核对结果并批量命名](images/OCR演示.gif)
-
-### AI 助手：用日常语言描述资料整理任务
-
-连接模型服务后，可以直接描述任务，例如：
-
-- “找出文件名包含‘报价单’的 PDF 文件。”
-- “列出有‘合同.docx’但缺少‘合同.pdf’的文件夹。”
-- “把整理结果生成一份 Excel 清单。”
-
-助手可调用文件检索和配套件核对工具，展示工具调用过程；启用 Tavily 或 DeepSeek 搜索后，还可查询公开资讯。DeepSeek 额外网页抓取需另行开启，搜索与抓取共用任务联网次数上限。支持图片问答，需使用支持视觉的模型。
-
-需要读取文档正文或生成 Word、Excel、PPT、HTML、PDF 等基础文档时，先在“设置 → 助理配置”中授权专用工作目录；每次读写仍需单项确认。生成内容以标题、段落、简单表格或要点幻灯片为主。PDF 当前支持创建和本地预览，尚不支持通过助理工具读取正文；所有格式都只新建文件，不覆盖原文件。
-
-![AI 助手搜索公开资讯并整理回答](images/AI助理资讯搜索.gif)
-
-## 日常小工具
-
-| 工具 | 用法与场景 |
-| :--- | :--- |
-| **快捷启动** | `Ctrl + K` 优先展示用过的工具与最近访问；文件 / 目录在应用内定位，工具直接启动，支持搜索与清理记录；`Ctrl + Shift + Space` 可从其他应用唤回 |
-| **即时翻译** | 粘贴文本、Markdown 或网页格式内容，主动提交后双栏对照阅读；需要连接模型服务 |
-| **待办与提醒** | 用四象限或清单安排事项，设置日期、时间和多级步骤；误删事项可恢复 |
-
-设置具体日期和时间的待办支持到期前 10 分钟提醒。提醒需要应用保持运行，关闭主窗口后可驻留托盘。
+The index stores filenames, paths, and other metadata. Search does not index document body text.
 
 <details>
-<summary>查看快捷启动、翻译和待办演示</summary>
+<summary>Watch file browsing and search</summary>
 
-![搜索并打开常用程序、文档和模板的快捷面板](images/ctrl+k.png)
-
-![双栏对照翻译与段落对应演示](images/快速翻译.gif)
-
-![待办四象限、清单与时间安排界面](images/todo.png)
+![Navigating folder columns and searching for files](images/快速检索.gif)
 
 </details>
 
-## 常用快捷键
+### Local document previews
 
-| 操作 | 作用 |
-| :--- | :--- |
-| `Ctrl + F` | 在文件工作区聚焦文件搜索，在待办页面聚焦待办搜索 |
-| `Ctrl + 悬停` | 临时预览文件 |
-| `Ctrl + 左键 / Ctrl + Enter` | 固定文件预览 |
-| `Ctrl + K` | 打开或关闭快捷面板 |
-| `Ctrl + Shift + Space` | 从其他应用唤回工作台并展开快捷面板 |
-| `Alt + 1` 至 `Alt + 5` | 按主导航顺序切换模块 |
-| `Esc` | 关闭当前弹窗或预览 |
+Hold `Ctrl` and hover to preview; use `Ctrl + left-click` or `Ctrl + Enter` to keep a preview open.
 
-## 数据与隐私
+- Preview PDF, common image formats, text, Markdown, CSV, Word (`.docx`), and Excel (`.xlsx`).
+- Turn PDF pages, switch Excel worksheets, and resize the preview window.
+- Preview content stays local and is not automatically added to AI conversations. Macros, formulas, and scripts are not executed.
 
-| 操作 | 数据如何处理 |
-| :--- | :--- |
-| 浏览、索引、搜索文件 | 在本机处理文件名、路径、大小、时间等元数据，不读取办公文档正文 |
-| 主动预览文件 | 在本机读取所选文件的有限内容，不上传、不自动进入 AI 对话，不执行文档中的宏、公式或脚本 |
-| 默认 OCR 识别 | 在本机读取 PDF 或图片并识别文字，使用本地规则提取字段与生成拟命名 |
-| AI 助手、翻译、AI 配置生成等 | 任务文字等相关信息发送给你配置的模型服务；助手请求还可能包含对话、图片、角色文件、文件名和完整路径，以及经确认读取的正文 |
-| Tavily / DeepSeek 公开搜索 | 公开搜索词发送给所选渠道，返回的摘要与正文交给当前模型；接触本地资料的助理会话不能继续公开搜索，查公开资讯请新建会话 |
-| 可选 DeepSeek 网页抓取 | 将公开网页网址发送给 DeepSeek，返回的正文交给当前模型；默认关闭，首次调用需确认数据范围 |
-| 可选 Jev 辅助判定 | 发送候选信息；OCR 候选行中的金额、长号码等数字会先进行过滤，该处理不适用于你主动提交的助手对话、图片或翻译文字 |
+Word previews focus on text. Excel previews have row, column, and content limits and use cached formula values. Use the original application for complex layouts, charts, and editing.
 
-文件工作区目录用于浏览与检索；助理读取正文和新建文件需要另行授权并逐项确认。API Key 保存在 **Windows 凭据管理器** 中，不写入普通设置文件。会话、OCR 结果、待办及生成文档可能在本机留存，按需清理。
+### Offline OCR and batch renaming
 
-各项联网功能首次使用时会说明服务与数据类别并请求授权；更换服务、账号或数据范围变化时重新确认。“设置 → 隐私与联网”可撤销授权、开启仅本地模式及查看活动摘要。活动记录类别、结果及 DeepSeek 工具费用快照，不额外保存正文、完整路径或 Key，保留最近 30 天、最多 1000 条。引导进度、联网授权与活动记录不随配置导出迁移。
+Import scanned PDFs or images, extract fields such as company, date, and document number, and assemble filenames using your rules.
 
-[本版调整与人工验收清单](docs/next-release.md)。
+**Add files → match or select a profile → run the task → review the results.**
 
-详细说明见 [使用与数据安全说明](USAGE_AND_PRIVACY.txt) 和 [助理文件权限与安全边界](docs/assistant-workspace-security.md)。
+- Local OCR supports label-based extraction, regular expressions, drawn regions, and date normalization.
+- Match profiles per file using first-page keywords. Ambiguous matches or low-quality text stay available for review; change the profile and retry only the affected file.
+- Reuse, import, and export profiles, or ask the optional AI service to draft one for review.
+- Edit extracted values, inspect their sources, export results, and retry failed or interrupted items.
+- One-click tasks stop at review by default. You can save options for TXT / CSV / JSON export, rename previews, or automatic renaming. Automatic renaming requires confirmation when first enabled or when rules change; items needing review are held back.
+- Renaming checks file state and naming conflicts, reports partial failures, and supports undo. Export an exceptions CSV and retry failed undo operations after resolving file locks or conflicts.
 
-## 反馈与参与开发
+Renaming changes filenames, not document contents. Undo checks whether files have changed or their original names are already occupied. Recognition results depend on the document and profile; review names before applying them.
 
-欢迎通过 [Issues](https://github.com/d8349565/MultiTool-Office-Next/issues) 提交问题和建议，或通过 Pull Request 参与改进。反馈问题时，请附上应用版本、Windows 版本和复现步骤。
+See the [OCR profile and example guide](ocr-samples/OCR提示词与案例使用指南.md) (Chinese) for purchase contracts, quotations, delivery notes, and other forms.
 
 <details>
-<summary>从源码运行与打包</summary>
+<summary>Watch OCR extraction and batch renaming</summary>
 
-项目使用 Tauri 2、React、TypeScript 和 Rust。开发需要 Windows x64、Node.js / npm、Rust 及 Windows C++ 构建工具与 SDK；OCR 组件构建需要 Python 3.12（64 位）。
+![Importing documents, reviewing extracted fields, and batch renaming files](images/OCR演示.gif)
+
+</details>
+
+### Optional AI assistant
+
+Connect your own model service to ask for file searches, check whether related files are missing, or prepare a document from the results. For example: “List folders that contain Contract.docx but are missing Contract.pdf.”
+
+- Tool calls are shown as the assistant works. Public web search is optional through Tavily or DeepSeek; image questions require a vision-capable model.
+- Reading document contents or creating files requires a separately authorized assistant folder and confirmation for each operation.
+- Create basic TXT, Markdown, Word, Excel, PowerPoint, HTML, and PDF documents. Outputs focus on text, simple tables, and bullet slides; new files do not overwrite existing ones.
+- PDF creation and local preview are supported; reading PDF body text through the assistant is not currently supported.
+
+Extra DeepSeek page fetching is off by default and shares the task's web-request limit with search. AI, translation, and other connected services send relevant information to your chosen providers; see [Privacy and data](#privacy-and-data).
+
+<details>
+<summary>Watch the AI assistant search public information</summary>
+
+![The AI assistant searching public sources and organizing a response](images/AI助理资讯搜索.gif)
+
+</details>
+
+### Everyday tools
+
+| Tool | What you can do |
+| :--- | :--- |
+| Quick launcher | Press `Ctrl + K` for frequently used tools and recent files or folders. Files and folders open at their location in the app; tools launch directly. Search or remove history entries. Use `Ctrl + Shift + Space` to bring the app back from another application. |
+| Translation | Submit text, Markdown, or HTML content and read the source and translation side by side. Requires a connected model service. |
+| Tasks and reminders | Organize work in a quadrant or list view, add dates and steps, and restore deleted tasks. |
+
+Tasks with a specific date and time can remind you 10 minutes before they are due. The app must remain running; closing the main window can leave it in the system tray.
+
+<details>
+<summary>See the launcher, translation, and task views</summary>
+
+![Quick launcher for applications, documents, and templates](images/ctrl+k.png)
+
+![Side-by-side translation with corresponding passages and synchronized scrolling](images/快速翻译.gif)
+
+![Tasks organized in a quadrant view](images/todo.png)
+
+</details>
+
+## Optional AI setup
+
+You can reopen the setup guide from `配置引导` in the top bar or from Settings. Local file tools and default OCR work without completing this setup.
+
+<details>
+<summary>Connect a model and optional web search</summary>
+
+1. **Model:** create an API key on the [official DeepSeek platform](https://platform.deepseek.com/api_keys), or use another OpenAI-compatible service. In `模型参数` (Model parameters), check the endpoint and model, enter the key, test and save, then choose `使用此配置` (Use this configuration). Existing configurations are retained.
+2. **Web search:** in `联网与评分` (Network and scoring), select Tavily or DeepSeek. DeepSeek can reuse a saved official DeepSeek model profile or use a separate search key. Tavily requires its own key from the [Tavily platform](https://app.tavily.com/). After a successful test, enable search and choose `保存此模块` (Save this module). A successful search test does not configure an AI model.
+3. **Page content and costs:** DeepSeek search uses page content when available and otherwise uses summaries. Extra page fetching is off by default. DeepSeek Search / Fetch costs are included in session costs; review their prices in `费用计价` (Pricing). See the [search and billing guide](docs/deepseek-search.md) (Chinese).
+
+Connection tests send fixed test content, not your business files, and may incur provider charges. Invalid replacement keys do not replace existing valid keys. DeepSeek search-test costs appear in the test result and network activity. Optional Jev-assisted scoring has its own configuration.
+
+</details>
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| :--- | :--- |
+| `Ctrl + F` | Focus file search in File Workspace or task search in the task view |
+| `Ctrl + hover` | Temporarily preview a file |
+| `Ctrl + left-click` / `Ctrl + Enter` | Keep a file preview open |
+| `Ctrl + K` | Toggle the quick launcher |
+| `Ctrl + Shift + Space` | Bring the desktop app back and open the launcher |
+| `Alt + 1` through `Alt + 5` | Switch between the main modules |
+| `Esc` | Close the current dialog or preview |
+
+## Privacy and data
+
+| Operation | Data handling |
+| :--- | :--- |
+| Browsing, indexing, and file search | Local metadata processing: filenames, paths, size, and dates; document body text is not indexed. |
+| Document preview | Reads limited content from the selected file locally; does not upload it or automatically include it in AI context. |
+| Default OCR | Reads selected PDFs or images and extracts text locally. |
+| AI assistant, translation, and AI profile drafting | Sends relevant input to the configured model service. Assistant requests can include chat history, images, role files, filenames, full paths, and document content you approved for reading. |
+| Tavily / DeepSeek search and optional fetching | Sends public queries or URLs to the selected provider and passes returned material to the model. A session that has accessed local workspace material cannot continue with public search or fetching. |
+| Optional Jev scoring | Sends candidate information. Sensitive numeric strings in OCR candidate lines are filtered first; this does not anonymize all translation text, chats, images, or role files. |
+
+File-browser folders and the assistant's authorized read/create folder have separate permissions. API keys are stored in **Windows Credential Manager**. Conversations, OCR results, tasks, and generated files may remain on your PC until you clear them.
+
+Connected features request consent on first use and when the service, account, or data scope changes. In `隐私与联网` (Privacy and network), revoke consent, enable local-only mode, or inspect activity. Local-only mode blocks application API requests while local file tools and OCR remain available.
+
+Activity keeps metadata and DeepSeek tool-cost snapshots for up to 30 days and 1,000 entries, without additionally recording body text, full file paths, or keys. Setup progress, consent, and activity records are not transferred with exported settings.
+
+Further details (Chinese): [Usage and data safety](USAGE_AND_PRIVACY.txt) · [Assistant folder permissions](docs/assistant-workspace-security.md) · [Release changes and manual checks](docs/next-release.md).
+
+## Troubleshooting
+
+- **WebView2 is missing or installation fails:** install the runtime using [Microsoft's official WebView2 download](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), then run the app installer again.
+- **A model or search connection test fails:** check the key, account balance, model permissions, endpoint, and network using the reported error.
+- **Document formatting looks different:** previews and AI-created documents have the limits described above. Open the file in its original application for full layout and editing.
+
+## Contributing
+
+Bug reports, feature requests, and pull requests are welcome. When [opening an issue](https://github.com/d8349565/MultiTool-Office-Next/issues), include the app version, Windows version, and steps to reproduce. See [CHANGELOG.md](CHANGELOG.md) for release history (Chinese).
+
+<details>
+<summary>Build and run from source on Windows</summary>
+
+The desktop app uses Tauri 2, React, TypeScript, and Rust. Development requires Windows x64, Node.js/npm, Rust, and Windows C++ build tools with the SDK. Building the OCR component requires **64-bit Python 3.12**.
 
 ```powershell
 git clone https://github.com/d8349565/MultiTool-Office-Next.git
 cd MultiTool-Office-Next
-npm ci
-npm run ocr:build
-npm run desktop
+npm.cmd ci
+npm.cmd run ocr:build
+npm.cmd run desktop
 ```
 
-启动后应出现桌面工作台窗口。执行 `npm run package:keep` 可按当前项目版本生成 Windows 安装包。具体脚本见 [package.json](package.json) 和 [Windows 构建脚本](scripts/windows.ps1)。
+The desktop workspace should open. Use `npm.cmd run package:keep` to create a Windows installer using the current project version. Script details: [package.json](package.json) and [Windows build script](scripts/windows.ps1).
 
 </details>
 
-## 开源许可
+## License
 
-采用 [Apache License 2.0](LICENSE) 开源，第三方依赖、字体和图标遵循各自许可证。
+[Apache License 2.0](LICENSE). Copyright 2026 Lee; see [NOTICE](NOTICE) for attribution. Third-party dependencies, fonts, and icons retain their respective licenses.
