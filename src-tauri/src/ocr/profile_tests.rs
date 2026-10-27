@@ -45,6 +45,24 @@ fn automatic_rename_requires_explicit_confirmation() {
 }
 
 #[test]
+fn one_click_completion_requires_every_file_to_be_renamed(){
+    let mut task:OcrTask=serde_json::from_value(json!({"id":"task","created":1,"status":"completed","useJev":false,"profiles":[],"workflow":{"enabled":true,"options":{"rename":"apply","renameConfirmed":true}},"files":[
+        {"id":"one","path":"one.pdf","originalName":"one.pdf","status":"ready","error":"","profile":null,"lines":[],"fields":{},"proposedName":"new-one.pdf","reviewed":true,"elapsedMs":0,"warning":""},
+        {"id":"two","path":"two.pdf","originalName":"two.pdf","status":"ready","error":"","profile":null,"lines":[],"fields":{},"proposedName":"new-two.pdf","reviewed":true,"elapsedMs":0,"warning":""}
+    ]})).unwrap();
+    let mut renamed=HashSet::new();
+    assert_eq!(workflow_completion_status(&task,&renamed),"review");
+    renamed.insert("one".into());
+    assert_eq!(workflow_completion_status(&task,&renamed),"review");
+    renamed.insert("two".into());
+    assert_eq!(workflow_completion_status(&task,&renamed),"completed");
+    task.workflow.options.rename="preview".into();
+    assert_eq!(workflow_completion_status(&task,&renamed),"review");
+    task.workflow.options.rename="review".into();
+    assert_eq!(workflow_completion_status(&task,&HashSet::new()),"completed");
+}
+
+#[test]
 fn naming_warnings_require_review_without_repeating_or_discarding_other_warnings() {
     let mut file:OcrFileResult=serde_json::from_value(json!({
         "id":"file","path":"scan.pdf","originalName":"scan.pdf","status":"ready","error":"",

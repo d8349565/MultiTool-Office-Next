@@ -1,5 +1,28 @@
 # 变更日志
 
+## v0.5.3 - 2026-10-27
+
+### Improvements
+
+- The OCR action is now explicitly “Recognize and rename in one click.” It runs recognition and automatic renaming continuously, without another rename button or filename confirmation for eligible files. Old review-only or preview-only preferences no longer interrupt new one-click tasks; the OCR-only action remains available.
+- One-click tasks report completion only when every file has a successful rename record. Uncertain results, errors, locked files, and conflicts remain visible for review. Identity checks, non-replacing renames, execution records, and undo protections are retained.
+
+### 修复与完善
+
+- OCR 的一键入口明确为“一键识别并改名”，按当前配置连续完成识别与自动重命名，正常项无需再次点击改名或确认名称；兼容旧的只核对/只预览设置，保留“仅识别”分步入口。
+- 只有本批全部文件都有成功改名记录时，才显示“识别与重命名已完成”。需复核、失败、占用或冲突项集中保留，继续沿用文件身份校验、不覆盖、执行记录与撤销保护。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models are bundled and run locally; optional connected services may charge provider fees. Clicking the clearly labelled one-click action authorizes that task's recognition and renaming using the current profiles; uncertain items are not forced through.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型随安装包提供并在本机处理，可选联网服务可能产生服务商费用。点击明确标注的一键入口即按当前配置执行本次识别与改名；不确定或异常项不会被强行处理。
+- Application build / 应用构建版本：`2026.1027.1553`（最小递增）。
+
+### Verification scope / 验证范围
+
+- Reused passing checks from this session: 12 legacy-option/export-format combinations, the rename-completion regression, the existing task-authorization regression, and the frontend build. The final version is production-built and its installer configuration, versions, and SHA-256 checksums are verified. No complete GUI walkthrough, fresh-install acceptance, real OCR, or connected-service validation was performed; no user business files were read. No GitHub Actions workflows are configured.
+- 复用本会话已通过的 12 种旧选项/导出格式组合、改名完成条件回归、原有任务级授权回归与前端构建；最终版本完成生产构建、安装配置、版本与 SHA-256 核验。未进行完整界面走查、全新安装验收、真实 OCR 或联网服务验证，未读取用户业务文件；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.2 - 2026-10-27
 
 ### Improvements

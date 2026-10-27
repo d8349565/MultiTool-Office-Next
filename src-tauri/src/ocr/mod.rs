@@ -396,6 +396,7 @@ fn should_reset_engine(error:&str)->bool{["OCR 引擎","OCR 协议","OCR 返回"
 
 fn finish_workflow(state:&AppState,task:&mut OcrTask,app:&tauri::AppHandle,cancel:&AtomicBool)->Result<(),String>{
     let options=task.workflow.options.clone();
+    let mut done=HashSet::new();
     let cancelled=||if cancel.load(Ordering::Relaxed){Err("任务已取消".to_owned())}else{Ok(())};
     cancelled()?;
     for i in 0..task.files.len(){
@@ -409,7 +410,7 @@ fn finish_workflow(state:&AppState,task:&mut OcrTask,app:&tauri::AppHandle,cance
     }
     cancelled()?;
     if options.rename!="review"{
-        let done={let d=state.ocr.data.lock().unwrap();d.batches.values().filter(|b|b.task_id==task.id).flat_map(|b|b.items.iter().filter(|i|i.status=="done").map(|i|i.file_id.clone())).collect::<HashSet<_>>()};
+        done={let d=state.ocr.data.lock().unwrap();d.batches.values().filter(|b|b.task_id==task.id).flat_map(|b|b.items.iter().filter(|i|i.status=="done").map(|i|i.file_id.clone())).collect::<HashSet<_>>()};
         let ids=task.files.iter().filter(|f|!done.contains(&f.id)&&f.profile.is_some()&&(f.status=="ready"||f.status=="review"&&f.reviewed)&&(options.rename!="apply"||f.warning.is_empty()||f.reviewed)).map(|f|f.id.clone()).collect::<Vec<_>>();
         if !ids.is_empty(){
             let preview=preview_rename(state,task.id.clone(),ids,true)?;
@@ -419,13 +420,19 @@ fn finish_workflow(state:&AppState,task:&mut OcrTask,app:&tauri::AppHandle,cance
                 let result=apply_rename(state,preview.id,false,Some(cancel));
                 if let Some(saved)=state.ocr.data.lock().unwrap().tasks.get(&task.id){task.files=saved.files.clone();}
                 let applied=result?;
+                done.extend(applied.items.iter().filter(|i|i.status=="done").map(|i|i.file_id.clone()));
                 cancelled()?;
                 if applied.summary.failed>0||applied.summary.blocked>0{return Err(format!("自动改名：{} 项成功、{} 项失败、{} 项被阻止。处理原因后可仅继续未完成步骤。",applied.summary.success,applied.summary.failed,applied.summary.blocked));}
             }
         }
     }
-    task.workflow.status=if task.files.iter().any(|f|f.status!="ready"&&!f.reviewed||!f.warning.is_empty()&&!f.reviewed){"review"}else if options.rename=="preview"{"review"}else{"completed"}.into();
+    task.workflow.status=workflow_completion_status(task,&done).into();
     Ok(())
+}
+fn workflow_completion_status(task:&OcrTask,renamed:&HashSet<String>)->&'static str{
+    if task.files.iter().any(|f|f.status!="ready"&&!f.reviewed||!f.warning.is_empty()&&!f.reviewed)
+        ||task.workflow.options.rename=="preview"
+        ||task.workflow.options.rename=="apply"&&task.files.iter().any(|f|!renamed.contains(&f.id)){"review"}else{"completed"}
 }
 
 fn naming_warning(file:&OcrFileResult)->String{

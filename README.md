@@ -75,16 +75,16 @@ Word previews focus on text. Excel previews have row, column, and content limits
 
 Import scanned PDFs or images, extract fields such as company, date, and document number, and assemble filenames using your rules.
 
-**Add files → match or select a profile → run the task → review the results.**
+**Add files → match or select a profile → recognize and rename in one click → view the results.**
 
 - Local OCR supports label-based extraction, regular expressions, drawn regions, and date normalization.
 - Match profiles per file using first-page keywords. Ambiguous matches or low-quality text stay available for review; change the profile and retry only the affected file.
 - Reuse, import, and export profiles, or ask the optional AI service to draft one for review.
 - Edit extracted values, inspect their sources, export results, and retry failed or interrupted items.
-- One-click tasks stop at review by default. You can save options for TXT / CSV / JSON export, rename previews, or automatic renaming. Automatic renaming requires confirmation when first enabled or when rules change; items needing review are held back.
+- The one-click action runs OCR and renames eligible files using the selected profiles, without another rename button or filename confirmation. Optional TXT / CSV / JSON export settings are retained. Uncertain results and errors are held for review; use the OCR-only action for the step-by-step flow.
 - Renaming checks file state and naming conflicts, reports partial failures, and supports undo. Export an exceptions CSV and retry failed undo operations after resolving file locks or conflicts.
 
-Renaming changes filenames, not document contents. Undo checks whether files have changed or their original names are already occupied. Recognition results depend on the document and profile; review names before applying them.
+Renaming changes filenames, not document contents. Undo checks whether files have changed or their original names are already occupied. One-click tasks follow the selected profiles' naming rules; uncertain recognition results are held for review.
 
 See the [OCR profile and example guide](ocr-samples/OCR提示词与案例使用指南.md) (Chinese) for purchase contracts, quotations, delivery notes, and other forms.
 
