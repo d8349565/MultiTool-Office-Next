@@ -56,6 +56,7 @@ fn search_rank(entry:&Entry,exact:&str,scope:Option<&Path>)->u8 {
     if name==exact||relative_exact{0}else if !exact.is_empty()&&name.starts_with(exact){1}else{2}
 }
 pub struct Index {
+    pub mutation: Mutex<()>,
     pub entries: RwLock<Vec<Entry>>, pub status: Mutex<Status>,
     pub roots: RwLock<Vec<PathBuf>>, pub db: Mutex<Connection>,
     cache: Mutex<HashMap<String,(Instant,Vec<Entry>)>>, pub refresh: mpsc::Sender<()>,
@@ -75,9 +76,10 @@ impl Index {
         db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, kind TEXT, status TEXT, elapsed_ms INTEGER, model TEXT, usage TEXT, created INTEGER);").map_err(|e|e.to_string())?;
         crate::task_state::init(&db)?;
         let (tx,rx)=mpsc::channel();
-        Ok((Arc::new(Self{entries:RwLock::new(vec![]),status:Mutex::new(Status::default()),roots:RwLock::new(vec![]),db:Mutex::new(db),cache:Mutex::new(HashMap::new()),refresh:tx}),rx))
+        Ok((Arc::new(Self{mutation:Mutex::new(()),entries:RwLock::new(vec![]),status:Mutex::new(Status::default()),roots:RwLock::new(vec![]),db:Mutex::new(db),cache:Mutex::new(HashMap::new()),refresh:tx}),rx))
     }
     fn load_cached(&self)->Result<(),String> {
+        let _mutation=self.mutation.lock().unwrap();
         let entries={let db=self.db.lock().unwrap();let mut stmt=db.prepare("SELECT data FROM files").map_err(|e|e.to_string())?;
             let result=stmt.query_map([],|row|row.get::<_,String>(0)).map_err(|e|e.to_string())?.filter_map(Result::ok).filter_map(|s|serde_json::from_str::<Entry>(&s).ok()).map(|mut e|{e.searchable=e.path.to_lowercase();e.sort_key=name_sort_key(&e.name);e}).collect::<Vec<_>>();result};
         let count=entries.len();*self.entries.write().unwrap()=entries;
@@ -97,11 +99,12 @@ impl Index {
         Results{total:items.len(),items:items.into_iter().map(|(_,e)|e.clone()).collect()}
     }
     pub fn dirs(&self,path:&str)->Result<Vec<Entry>,String> {
+        let generation=self.status.lock().unwrap().generation;
         let p=self.authorize(path)?;let key=p.to_string_lossy().into_owned();
         if let Some((time,items))=self.cache.lock().unwrap().get(&key) {if time.elapsed()<Duration::from_secs(2){return Ok(items.clone());}}
         let mut items=std::fs::read_dir(&p).map_err(|e|if e.kind()==std::io::ErrorKind::NotFound {format!("路径已不存在：{}",p.display())}else{e.to_string()})?.filter_map(Result::ok).filter_map(|e|Entry::from_path(&e.path())).filter(|e|e.is_dir).collect::<Vec<_>>();
         items.sort_by(|a,b|a.sort_key.cmp(&b.sort_key).then_with(||a.path.cmp(&b.path)));
-        let mut cache=self.cache.lock().unwrap(); if cache.len()>300 {cache.clear();} cache.insert(key,(Instant::now(),items.clone()));Ok(items)
+        let mut cache=self.cache.lock().unwrap(); if cache.len()>300 {cache.clear();} if self.status.lock().unwrap().generation==generation{cache.insert(key,(Instant::now(),items.clone()));}Ok(items)
     }
     pub fn configure(&self, roots:&[String]) {
         *self.roots.write().unwrap()=roots.iter().map(|r|normalize(Path::new(r)).unwrap_or_else(|_|PathBuf::from(r))).collect();
@@ -116,6 +119,7 @@ impl Index {
     }
     fn error(&self,msg:String){let mut s=self.status.lock().unwrap();if s.errors.len()<20 {s.errors.push(msg);}}
     fn scan(&self) {
+        let _mutation=self.mutation.lock().unwrap();
         {let mut s=self.status.lock().unwrap();s.scanning=true;s.scanned=0;s.errors.clear();}
         let roots=self.roots.read().unwrap().clone();let mut files=HashMap::new();let mut batch=vec![];
         for root in &roots {
@@ -141,6 +145,7 @@ impl Index {
         let mut entries=self.entries.write().unwrap();entries.retain(|e| !replacement.contains(e.path.as_str()) && !removed.iter().any(|p|Path::new(&e.path).starts_with(p)));entries.extend_from_slice(additions);
     }
     fn update(&self,paths:HashSet<PathBuf>) {
+        let _mutation=self.mutation.lock().unwrap();
         self.cache.lock().unwrap().clear();let roots=self.roots.read().unwrap().clone();
         let paths=paths.into_iter().filter(|p|roots.iter().any(|r|within(p,r))).collect::<Vec<_>>();
         let mut fresh=HashMap::new();
@@ -157,6 +162,22 @@ impl Index {
         let fresh=fresh.into_values().collect::<Vec<_>>();
         if let Err(e)=self.persist(&fresh,&removed,false){self.error(e);}
         self.merge(&fresh,&paths);let mut s=self.status.lock().unwrap();s.count=self.entries.read().unwrap().len();s.generation+=1;
+    }
+    // Caller holds mutation across the disk rename, so a scan cannot restore old paths.
+    pub fn renamed(&self,from:&Path,to:&Path)->Result<(),String>{
+        let mut entries=self.entries.write().unwrap();let mut fresh=vec![];let mut removed=vec![];
+        for entry in entries.iter_mut(){
+            if let Ok(relative)=Path::new(&entry.path).strip_prefix(from){
+                removed.push(entry.path.clone());let path=if relative.as_os_str().is_empty(){to.to_path_buf()}else{to.join(relative)};
+                entry.path=path.to_string_lossy().into_owned();entry.parent=path.parent().unwrap().to_string_lossy().into_owned();
+                entry.name=path.file_name().unwrap().to_string_lossy().into_owned();entry.extension=path.extension().map(|v|v.to_string_lossy().to_lowercase()).unwrap_or_default();
+                entry.searchable=entry.path.to_lowercase();entry.sort_key=name_sort_key(&entry.name);fresh.push(entry.clone());
+            }
+        }
+        let count=entries.len();drop(entries);
+        {let mut status=self.status.lock().unwrap();status.count=count;status.generation+=1;}
+        self.cache.lock().unwrap().clear();
+        self.persist(&fresh,&removed,false)
     }
     pub fn spawn(self:Arc<Self>,rx:mpsc::Receiver<()>) {
         self.status.lock().unwrap().scanning=true;
@@ -234,7 +255,7 @@ mod tests {
         ]).collect::<Vec<_>>();
         entries.extend([target.clone(),peer.clone(),entry(&root,"archive/target-old",true),
             entry(&root,"archive/target/a00",true),file_target.clone(),file_partial.clone()]);
-        let index=Index {entries:RwLock::new(entries),roots:RwLock::new(vec![root.clone()]),
+        let index=Index {mutation:Mutex::new(()),entries:RwLock::new(entries),roots:RwLock::new(vec![root.clone()]),
             status:Mutex::new(Status::default()),db:Mutex::new(Connection::open_in_memory().unwrap()),
             cache:Mutex::new(HashMap::new()),refresh:mpsc::channel().0};
         for (text,same_name) in [("target",true),(" TARGET ",true),("archive/target",false),(" ARCHIVE\\TARGET ",false)] {

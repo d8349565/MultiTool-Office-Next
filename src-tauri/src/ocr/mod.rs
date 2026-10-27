@@ -192,6 +192,7 @@ fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
         t.created=now();
         t.status="queued".into();
         t.files.retain(|f|if let Some(ids)=&retry_file_ids{ids.contains(&f.id)}else{["failed","cancelled","interrupted"].contains(&f.status.as_str())});
+        if t.files.iter().any(|f|f.status=="relocated"){return Err("文件位置已被工作区改名影响，请从新位置重新导入，不再使用旧任务路径".into());}
         t.profiles=profiles;
         t.auto_match=auto_match;
         t.workflow=workflow;
@@ -451,6 +452,7 @@ fn review_naming_warning(file:&mut OcrFileResult)->bool{
     let mut d=state.ocr.data.lock().unwrap();let mut task=d.tasks.get(&id).cloned().ok_or("任务不存在")?;
     if ["queued","running"].contains(&task.status.as_str())||state.ocr.cancels.lock().unwrap().contains_key(&id){return Err("任务仍在执行或正在收尾，请稍后重试".into());}
     if !task.workflow.enabled{return Err("此任务未启用一键完成".into());}
+    if task.files.iter().any(|f|f.status=="relocated"){return Err("文件位置已变化，请重新导入文件后建立新任务".into());}
     if d.tasks.values().any(|other|other.id!=id&&["queued","running"].contains(&other.status.as_str())&&other.files.iter().any(|f|task.files.iter().any(|next|next.path.eq_ignore_ascii_case(&f.path)))){return Err("这些文件已有其他任务运行，请等待完成".into());}
     let mut options=task.workflow.options.clone();
     if !task.workflow.export_path.is_empty(){options.export_format="none".into();}
@@ -470,10 +472,32 @@ fn review_naming_warning(file:&mut OcrFileResult)->bool{
     f.proposed_name=if proposed_name.is_empty(){if let Some(p)=&f.profile{rules::filename(p,&f.fields,&f.path)}else{f.original_name.clone()}}else{valid_name(&proposed_name,&f.path)?;proposed_name};
     f.reviewed=reviewed;let index=task.files.iter().position(|f|f.id==file_id).unwrap();state.ocr.save_task_file(&task,index)?;d.tasks.insert(task_id,task.clone());Ok(task)
 }
+// Invalidate before a workspace rename. Even a crash between moving the file and
+// updating the UI cannot leave a durable OCR write grant pointing at the old name.
+pub(crate) fn invalidate_workspace_paths(store:&OcrStore,d:&mut store::Data,original:&str,target:&str)->Result<(),String>{
+    let affected=|path:&str|crate::workspace_rename::affects(path,original,target);
+    for task in d.tasks.values_mut(){
+        let mut changed=false;
+        for i in 0..task.files.len(){
+            if affected(&task.files[i].path){
+                let file=&mut task.files[i];file.status="relocated".into();file.fingerprint.clear();file.reviewed=false;
+                file.error="此路径受工作区改名影响，旧结果已失效，请从实际位置重新导入".into();
+                store.save_task_file(task,i)?;changed=true;
+            }
+        }
+        if changed{task.workflow.status="interrupted".into();task.workflow.error="文件位置发生变化，请重新导入后建立新任务".into();store.save_task_header(task)?;}
+    }
+    for batch in d.batches.values_mut(){
+        let mut changed=false;
+        for item in &mut batch.items{if affected(&item.original)||affected(&item.target){item.status="conflict".into();item.error="工作区改名已使旧路径失效；禁止继续改名或撤销，请人工核对".into();changed=true;}}
+        if changed{batch.status="invalidated".into();batch.summarize();store.save_batch(batch)?;}
+    }
+    d.grants.retain(|path|!affected(path));Ok(())
+}
 fn valid_name(name:&str,source:&str)->Result<(),String>{
-    if name.is_empty()||name.len()>600||name.chars().any(|c|c.is_control()||"\\/:*?\"<>|".contains(c))||name.ends_with([' ','.'])||name=="."||name==".."{return Err("文件名包含非法字符或过长".into());}
-    let path=Path::new(name);if path.extension().map(|s|s.to_string_lossy().to_lowercase())!=Path::new(source).extension().map(|s|s.to_string_lossy().to_lowercase()){return Err("必须保留原文件扩展名".into());}
-    let stem=name.split('.').next().unwrap_or("").to_uppercase();if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9","COM¹","COM²","COM³","LPT¹","LPT²","LPT³"].contains(&stem.as_str()){return Err("Windows 保留文件名不可用".into());}Ok(())
+    crate::workspace_rename::validate_name(name)?;
+    if Path::new(name).extension().map(|s|s.to_string_lossy().to_lowercase())!=Path::new(source).extension().map(|s|s.to_string_lossy().to_lowercase()){return Err("必须保留原文件扩展名".into());}
+    Ok(())
 }
 #[tauri::command]pub async fn ocr_preview_rename(state:tauri::State<'_,Arc<AppState>>,task_id:String,file_ids:Vec<String>)->Result<OcrRenameBatch,String>{
     let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||preview_rename(&state,task_id,file_ids,false)).await.map_err(|e|e.to_string())?
@@ -533,7 +557,7 @@ fn apply_rename(state:&AppState,batch_id:String,undo:bool,cancel:Option<&AtomicB
     batch.status=if undo{"rollback"}else if cancel.is_some_and(|c|c.load(Ordering::Relaxed)){"interrupted"}else{"executed"}.into();batch.summarize();state.ocr.save_batch(&batch)?;d.batches.insert(batch.id.clone(),batch.clone());let _=state.index.refresh.send(());Ok(batch)
 }
 
-fn export_status(s:&str)->&str{match s{"ready"=>"已就绪","review"=>"需复核","failed"=>"失败","cancelled"=>"已取消","interrupted"=>"已中断","pending"=>"待执行","done"=>"已改名","undone"=>"已撤销","blocked"=>"已排除","conflict"=>"冲突","running"=>"处理中","queued"=>"排队中",_=>s}}
+fn export_status(s:&str)->&str{match s{"relocated"=>"路径已变化，请重新导入","ready"=>"已就绪","review"=>"需复核","failed"=>"失败","cancelled"=>"已取消","interrupted"=>"已中断","pending"=>"待执行","done"=>"已改名","undone"=>"已撤销","blocked"=>"已排除","conflict"=>"冲突","running"=>"处理中","queued"=>"排队中",_=>s}}
 fn csv_cell(s:&str)->String{let prefix=if s.trim_start().starts_with(['=','+','-','@','\t','\r']){"'"}else{""};format!("\"{prefix}{}\"",s.replace('"',"\"\""))}
 #[tauri::command]pub async fn ocr_export(state:tauri::State<'_,Arc<AppState>>,task_id:String,format:String,path:String,failures_only:Option<bool>,batch_id:Option<String>)->Result<String,String>{
     let state=state.inner().clone();tauri::async_runtime::spawn_blocking(move||export_task(&state,task_id,format,path,failures_only,batch_id)).await.map_err(|e|e.to_string())?
@@ -599,6 +623,6 @@ fn write_export(format:&str,path:&str,bytes:&[u8])->Result<String,String>{
     Ok(path.into())
 }
 #[tauri::command]pub async fn ocr_open_file(state:tauri::State<'_,Arc<AppState>>,task_id:String,file_id:String,reveal:bool)->Result<(),String>{
-    let path={let d=state.ocr.data.lock().unwrap();let task=d.tasks.get(&task_id).ok_or("任务不存在")?;task.files.iter().find(|f|f.id==file_id).ok_or("文件不存在")?.path.clone()};
+    let path={let d=state.ocr.data.lock().unwrap();let task=d.tasks.get(&task_id).ok_or("任务不存在")?;task.files.iter().find(|f|f.id==file_id&&f.status!="relocated").ok_or("文件位置已变化或结果已失效，请重新导入")?.path.clone()};
     tauri::async_runtime::spawn_blocking(move||{let p=store::safe_file(Path::new(&path))?;if reveal{crate::shell::reveal(vec![p])?;}else{open::that_detached(p).map_err(|e|e.to_string())?;}Ok(())}).await.map_err(|e|e.to_string())?
 }

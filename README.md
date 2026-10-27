@@ -48,6 +48,9 @@ Keep several folder levels visible while moving through project or client folder
 - Find directories at any depth by name or relative path, then select one to navigate there and limit the file results. Clear the directory condition with × while keeping your browsing position.
 - Clear file-search keywords with × while retaining other filters.
 - Copy names or paths, open files in their default applications, or reveal them in Windows File Explorer.
+- Rename one file or folder using its context menu, the selected-item action, or `F2`. Extensions are preserved by default. Review both paths before confirming; rename history supports persistent records and guarded undo.
+
+Renaming is restricted to ordinary objects inside local working folders and never replaces an existing target. Identity and state checks use Windows file IDs, sizes, and timestamps, without reading document bodies. Case-only changes, links, protected objects, target paths over 240 UTF-16 units (including descendants), and folders exceeding 10,000 descendants are currently rejected. Uncertain interrupted operations require manual review. Running OCR tasks block renaming, and affected OCR results must be imported again.
 
 The index stores filenames, paths, and other metadata. Search does not index document body text.
 
@@ -114,7 +117,7 @@ Extra DeepSeek page fetching is off by default and shares the task's web-request
 
 | Tool | What you can do |
 | :--- | :--- |
-| Quick launcher | Press `Ctrl + K` for frequently used tools and recent files or folders. Files and folders open at their location in the app; tools launch directly. Search or remove history entries. Use `Ctrl + Shift + Space` to bring the app back from another application. |
+| Quick launcher | Press `Ctrl + K` for frequently used tools and recently opened files or folders. Selecting, browsing, locating, and previewing do not add history entries. Files and folders are located inside the app; tools launch directly. Search or remove history entries. Use `Ctrl + Shift + Space` to bring the app back from another application. |
 | Translation | Submit text, Markdown, or HTML content and read the source and translation side by side. Requires a connected model service. |
 | Tasks and reminders | Organize work in a quadrant or list view, add dates and steps, and restore deleted tasks. |
 

@@ -1,0 +1,12 @@
+.workspace-rename .rename-help{font-size:13px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere;margin:0 0 12px}
+.workspace-rename .rename-input-label{display:block;margin-bottom:7px;font-weight:600}
+.rename-input{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.rename-input input{flex:1;min-width:0;width:100%;font-size:15px;padding:10px}
+.rename-input input:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+.rename-input>span{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.rename-paths{display:grid;grid-template-columns:82px minmax(0,1fr);gap:8px 12px;padding:14px;background:var(--surface-alt);border:1px solid var(--line);border-radius:8px;margin:12px 0;font-size:12px;line-height:1.7;user-select:text}
+.rename-paths dt{color:var(--muted)}.rename-paths dd{margin:0;overflow-wrap:anywhere}
+.rename-history{display:flex;flex-direction:column;gap:14px}.rename-history article{padding:14px;border:1px solid var(--line);border-radius:8px}
+.rename-history article>div{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between;font-size:13px;overflow-wrap:anywhere}
+.rename-history article>div>span{color:var(--muted);font-size:12px}
+.workspace-rename .dialog-actions{position:static;flex-wrap:wrap}

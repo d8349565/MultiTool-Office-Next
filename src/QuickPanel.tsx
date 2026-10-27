@@ -24,7 +24,7 @@ export function QuickPanel({roots,launchers,history,historyError,onRemove,onClea
   for(const item of [...history.filter(v=>v.kind==='tool').sort((a,b)=>b.uses-a.uses||b.usedAt-a.usedAt).slice(0,tokens.length?100:8),...history.filter(v=>v.kind!=='tool')]){
     if(!matches(item.name,item.path))continue;
     const tool=item.kind==='tool'?currentTool(item,launchers):undefined;
-    candidates.push({key:item.key,name:tool?.name||item.name,path:item.path,kind:item.kind,tool,recent:item,group:item.kind==='tool'?'常用工具':'最近访问',invalid:item.kind==='tool'?!tool?'工具已删除或目标已改变，请从工具列表重新选择。':undefined:!roots.some(root=>isWithin(item.path,root))?'已超出当前工作目录范围':undefined});
+    candidates.push({key:item.key,name:tool?.name||item.name,path:item.path,kind:item.kind,tool,recent:item,group:item.kind==='tool'?'常用工具':'最近打开',invalid:item.kind==='tool'?!tool?'工具已删除或目标已改变，请从工具列表重新选择。':undefined:!roots.some(root=>isWithin(item.path,root))?'已超出当前工作目录范围':undefined});
   }
   for(const tool of launchers){if(matches(tool.name,tool.path)&&!candidates.some(v=>v.tool?.id===tool.id))candidates.push({key:`tool:${tool.id}`,name:tool.name,path:tool.path,kind:'tool',tool,group:'工具'});}
   for(const entry of results){const key=`path:${cleanPath(entry.path).toLowerCase()}`;if(!candidates.some(v=>v.key===key))candidates.push({key,name:entry.name,path:entry.path,kind:entry.isDir?'directory':'file',group:'搜索结果'});}
@@ -51,9 +51,9 @@ export function QuickPanel({roots,launchers,history,historyError,onRemove,onClea
           <Icon aria-hidden="true" size={21}/><span><strong>{item.name}<em>{item.kind==='tool'?'启动工具':item.kind==='directory'?'定位目录':'定位文件'}</em></strong><small>{item.invalid||item.path}</small></span>{item.kind==='tool'?<ArrowUpRight aria-hidden="true"/>:<CaretRight aria-hidden="true"/>}
         </button>{item.recent&&<IconButton label={`移除记录：${item.name}`} onClick={()=>onRemove(item.recent!.key)}><X/></IconButton>}</div>
       </div>;})}
-      {!candidates.length&&<p className="muted">{busy?'正在查找…':query?'没有匹配项，请调整关键词。':'访问文件、目录或启动工具后，会在这里显示。'}</p>}
+      {!candidates.length&&<p className="muted">{busy?'正在查找…':query?'没有匹配项，请调整关键词。':'打开文件、文件夹或启动工具后，会在这里显示。'}</p>}
     </div>
-    <div className="quick-footer"><span role="status">{executing?'正在执行…':busy?'正在查找…':total>60?'显示前 60 项，输入关键词可缩小范围':'↑↓ 选择 · Enter 执行 · Esc 关闭'}</span>{history.length>0&&(confirmClear?<><span>清空访问记录？</span><Button size="small" onClick={()=>{onClear();setConfirmClear(false);}}>清空</Button><Button size="small" onClick={()=>setConfirmClear(false)}>取消</Button></>:<Button size="small" appearance="subtle" onClick={()=>setConfirmClear(true)}>清空记录</Button>)}</div>
+    <div className="quick-footer"><span role="status">{executing?'正在执行…':busy?'正在查找…':total>60?'显示前 60 项，输入关键词可缩小范围':'↑↓ 选择 · Enter 执行 · Esc 关闭'}</span>{history.length>0&&(confirmClear?<><span>清空最近使用记录？</span><Button size="small" onClick={()=>{onClear();setConfirmClear(false);}}>清空</Button><Button size="small" onClick={()=>setConfirmClear(false)}>取消</Button></>:<Button size="small" appearance="subtle" onClick={()=>setConfirmClear(true)}>清空记录</Button>)}</div>
     <p className="notice">{shortcut}</p>
   </Modal>;
 }

@@ -3,6 +3,7 @@ export const samePath = (a: string, b: string) => cleanPath(a).toLowerCase() ===
 export const basename = (p: string) => cleanPath(p).split('/').at(-1) || p;
 export const dirname = (p: string) => { const path = cleanPath(p); const index = path.lastIndexOf('/'); return index < 0 ? '' : path.slice(0, index) || '/'; };
 export function isWithin(path: string, root: string) { const p = cleanPath(path).toLowerCase(); const r = cleanPath(root).toLowerCase(); return p === r || p.startsWith(r + '/'); }
+export function renamedPath(path:string,from:string,to:string){return isWithin(path,from)?cleanPath(to)+cleanPath(path).slice(cleanPath(from).length):path;}
 export function selectLevel(trail: string[], level: number, path: string) { return [...trail.slice(0, level), path]; }
 export function locateTrail(root: string, parent: string) {
   if (!isWithin(parent, root)) throw new Error('文件不在此工作目录内');

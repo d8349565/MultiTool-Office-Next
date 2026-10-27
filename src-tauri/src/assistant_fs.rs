@@ -17,7 +17,7 @@ pub fn extension(path:&Path)->Result<String,String>{
     if ["credential","password","secret","api-key","api_key","id_rsa"].iter().any(|s|name.contains(s)){return Err("不允许助理读取凭据或密钥类文件".into());}
     Ok(ext)
 }
-fn root_path(path:&Path)->Result<(),String>{
+pub(crate) fn root_path(path:&Path)->Result<(),String>{
     if !path.is_absolute()||path.components().count()<3{return Err("请选择一个本地专用文件夹，不能选择磁盘根目录或网络路径".into());}
     #[cfg(windows)] if !matches!(path.components().next(),Some(Component::Prefix(p)) if matches!(p.kind(),std::path::Prefix::Disk(_))){return Err("不允许网络、设备或特殊路径".into());}
     for part in path.components(){if let Component::Normal(part)=part{let part=part.to_string_lossy().to_ascii_lowercase();if part.chars().any(|c|c.is_control()||matches!(c,'\u{200b}'..='\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}'|'\u{feff}')){return Err("目录名称含不可见控制字符，不能安全授权".into());}if part.starts_with('.')||["windows","program files","program files (x86)","programdata","appdata","$recycle.bin","system volume information"].contains(&part.as_str()){return Err("不能授权系统、应用、隐藏或凭据目录；请新建一个专用文件夹".into());}}}
@@ -43,7 +43,7 @@ fn read_error(error:std::io::Error)->String{
     }
 }
 #[cfg(windows)]
-fn information(file:&File)->Result<(PathBuf,String,u32,u32),String>{
+pub(crate) fn information(file:&File)->Result<(PathBuf,String,u32,u32),String>{
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::{Foundation::HANDLE,Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION,GetFileInformationByHandle,GetFinalPathNameByHandleW,FILE_NAME_NORMALIZED}};
     let handle=HANDLE(file.as_raw_handle());let mut info=BY_HANDLE_FILE_INFORMATION::default();

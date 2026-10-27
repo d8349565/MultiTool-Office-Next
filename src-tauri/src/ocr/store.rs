@@ -58,7 +58,7 @@ impl OcrStore{
                     }).collect::<Result<Vec<_>,serde_json::Error>>()?;
                     Ok(OcrTask{id:header.id,created:header.created,status:header.status,use_jev:header.use_jev,profiles:header.profiles,files,auto_match:header.auto_match,workflow:header.workflow})
                 });
-                if let Ok(mut t)=loaded{if ["queued","running"].contains(&t.status.as_str()){t.status="interrupted".into();if t.workflow.enabled{t.workflow.status="interrupted".into();}let mut files=vec![];for (index,f) in t.files.iter_mut().enumerate(){if ["queued","running"].contains(&f.status.as_str()){f.status="interrupted".into();f.error="应用已退出，可重试未完成项".into();files.push(index);}}recovered_tasks.push((t.id.clone(),files));}for f in &t.files{grants.insert(f.path.clone());}tasks.insert(t.id.clone(),t);}
+                if let Ok(mut t)=loaded{if ["queued","running"].contains(&t.status.as_str()){t.status="interrupted".into();if t.workflow.enabled{t.workflow.status="interrupted".into();}let mut files=vec![];for (index,f) in t.files.iter_mut().enumerate(){if ["queued","running"].contains(&f.status.as_str()){f.status="interrupted".into();f.error="应用已退出，可重试未完成项".into();files.push(index);}}recovered_tasks.push((t.id.clone(),files));}for f in &t.files{if f.status!="relocated"{grants.insert(f.path.clone());}}tasks.insert(t.id.clone(),t);}
             }
         }}
         let mut batches=BTreeMap::new();let mut recovered_batches=vec![];{

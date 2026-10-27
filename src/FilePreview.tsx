@@ -19,7 +19,6 @@ interface Props {
   onEnter:()=>void;
   onLeave:()=>void;
   onOpen:(entry:Entry)=>void;
-  onViewed?:(entry:Entry)=>void;
 }
 interface Cached {data:FilePreviewData;time:number;size:number}
 const cache=new Map<string,Cached>();
@@ -37,14 +36,13 @@ function remember(key:string,data:FilePreviewData){
   while(cache.size>6||[...cache.values()].reduce((sum,item)=>sum+item.size,0)>6_000_000)cache.delete(cache.keys().next().value!);
 }
 
-export function FilePreview({target,request,generation,onClose,onPin,onEnter,onLeave,onOpen,onViewed}:Props) {
+export function FilePreview({target,request,generation,onClose,onPin,onEnter,onLeave,onOpen}:Props) {
   const {entry,anchor,pinned}=target;
   const [page,setPage]=useState(1),[sheet,setSheet]=useState(0),[retry,setRetry]=useState(0);
   const [result,setResult]=useState<{key:string;data?:FilePreviewData;error?:string}>({key:''});
   const [viewport,setViewport]=useState({width:window.innerWidth,height:window.innerHeight});
   const [dimensions,setDimensions]=useState(savedSize),[placement,setPlacement]=useState<{left:number;top:number}|null>(null);
   const panel=useRef<HTMLElement>(null);
-  const viewed=useRef(false);
   const drag=useRef<{pointerId:number;corner:'start'|'end';x:number;y:number;left:number;top:number;width:number;height:number}|null>(null);
   const position=previewPosition(anchor,viewport.width,viewport.height,dimensions);
   if(placement){position.left=Math.max(12,Math.min(placement.left,viewport.width-position.width-12));position.top=Math.max(12,Math.min(placement.top,viewport.height-position.height-12));}
@@ -56,7 +54,6 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
   }
   const key=`${entry.path}|${entry.modified}|${entry.size}|${generation}|${page}|${sheet}`;
   const data=result.key===key?result.data:undefined,error=result.key===key?result.error:undefined;
-  useEffect(()=>{if(data&&!viewed.current){viewed.current=true;onViewed?.(entry);}},[data,entry,onViewed]);
   const columns=Math.max(0,...(data?.rows||[]).map(row=>row.length));
   useEffect(()=>{const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
   useEffect(()=>{

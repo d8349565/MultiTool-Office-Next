@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn workspace_rename_invalidates_durable_results_batches_and_old_write_grants(){
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("target/workspace-rename-checks");std::fs::create_dir_all(&base).unwrap();
+    let dir=tempfile::Builder::new().prefix("ocr-check-").tempdir_in(base).unwrap();
+    let store=OcrStore::open(dir.path(),"missing-test-worker.exe".into()).unwrap();
+    let task_id=uuid::Uuid::new_v4().to_string();let file_id=uuid::Uuid::new_v4().to_string();let original=r"D:\synthetic\before\child.pdf";
+    let task:OcrTask=serde_json::from_value(json!({"id":task_id,"created":1,"status":"completed","useJev":false,"profiles":[],"files":[{
+        "id":file_id,"path":original,"originalName":"child.pdf","status":"ready","error":"","profile":null,
+        "lines":[],"fields":{},"proposedName":"new.pdf","reviewed":true,"elapsedMs":0,"warning":"","fingerprint":"old-fingerprint"
+    }]})).unwrap();
+    let batch:OcrRenameBatch=serde_json::from_value(json!({"id":uuid::Uuid::new_v4().to_string(),"taskId":task_id,"status":"preview","items":[{
+        "fileId":file_id,"original":original,"target":r"D:\synthetic\before\new.pdf","status":"pending","error":"","fingerprint":"old-fingerprint"
+    }]})).unwrap();
+    store.save_task(&task).unwrap();store.save_batch(&batch).unwrap();
+    {let mut data=store.data.lock().unwrap();data.tasks.insert(task.id.clone(),task);data.batches.insert(batch.id.clone(),batch.clone());data.grants.insert(original.into());data.grants.insert(r"D:\synthetic\before-other\keep.pdf".into());
+        invalidate_workspace_paths(&store,&mut data,r"D:\synthetic\before",r"D:\synthetic\after").unwrap();
+        assert_eq!(data.tasks[&task_id].files[0].status,"relocated");assert!(data.tasks[&task_id].files[0].fingerprint.is_empty());
+        assert_eq!(data.batches[&batch.id].items[0].status,"conflict");assert!(!data.grants.contains(original));assert!(data.grants.contains(r"D:\synthetic\before-other\keep.pdf"));
+    }
+    drop(store);
+    let reopened=OcrStore::open(dir.path(),"missing-test-worker.exe".into()).unwrap();let data=reopened.data.lock().unwrap();
+    assert_eq!(data.tasks[&task_id].files[0].status,"relocated");assert!(!data.grants.contains(original));assert_eq!(data.batches[&batch.id].items[0].status,"conflict");
+}
+
+#[test]
 fn auto_profile_requires_unique_keywords_and_readable_evidence() {
     let contract=OcrProfile{id:"contract".into(),keywords:vec!["采购合同".into(),"采购合同".into()," ".into()],..Default::default()};
     let quote=OcrProfile{id:"quote".into(),keywords:vec!["报价单".into()],..Default::default()};

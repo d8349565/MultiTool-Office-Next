@@ -28,6 +28,7 @@ mod shell;
 mod window_state;
 mod ocr;
 mod file_preview;
+mod workspace_rename;
 mod todo_reminders;
 use std::{collections::HashMap, path::Path, sync::{Arc, Mutex, atomic::{AtomicBool,Ordering}},time::Instant};
 use serde_json::{json,Value};
@@ -35,6 +36,7 @@ use tauri::{Manager, Emitter};
 use index::{Index,SearchProvider,Query};
 
 pub struct AppState {
+    workspace_renames:workspace_rename::Renames,
     workspace:assistant_workspace::Workspace,
     file_previews: file_preview::Previews,
     todo_reminders: todo_reminders::TodoReminders,
@@ -243,11 +245,11 @@ fn main(){
             if let Some(window)=app.get_webview_window("main"){window_state::install(window,&dir);}
             let settings=settings::load(&dir).map_err(std::io::Error::other)?;
             network::init(&dir,app.handle().clone(),!settings.roots.is_empty()||!settings.model_url.is_empty(),settings.search_enabled).map_err(std::io::Error::other)?;
-            let (index,rx)=Index::open(&dir).map_err(std::io::Error::other)?;index.configure(&settings.roots);index.clone().spawn(rx);
+            let (index,rx)=Index::open(&dir).map_err(std::io::Error::other)?;workspace_rename::init(&index).map_err(std::io::Error::other)?;index.configure(&settings.roots);index.clone().spawn(rx);
             let reports=std::fs::read(dir.join("reports.json")).ok().and_then(|data|serde_json::from_slice::<HashMap<String,std::path::PathBuf>>(&data).ok()).unwrap_or_default();
             let ocr_exe=if cfg!(debug_assertions){std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/ocr-worker/ocr-worker.exe")}else{app.path().resource_dir()?.join("ocr-worker/ocr-worker.exe")};
             let ocr=match ocr::OcrStore::open(&dir,ocr_exe.clone()){Ok(store)=>store,Err(error)=>{eprintln!("OCR initialization failed: {error}");ocr::OcrStore::disabled(&dir,ocr_exe,error).map_err(std::io::Error::other)?}};
-            app.manage(Arc::new(AppState{workspace:assistant_workspace::Workspace::load(&dir),file_previews:file_preview::Previews::default(),dir,ocr,todo_reminders:todo_reminders::TodoReminders::default(),settings:Mutex::new(settings),index,reports:Mutex::new(reports),proposals:Mutex::new(HashMap::new()),tasks:Mutex::new(HashMap::new()),task_results:Mutex::new(HashMap::new()),pi_sessions:Mutex::new(HashMap::new())}));
+            app.manage(Arc::new(AppState{workspace_renames:workspace_rename::Renames::default(),workspace:assistant_workspace::Workspace::load(&dir),file_previews:file_preview::Previews::default(),dir,ocr,todo_reminders:todo_reminders::TodoReminders::default(),settings:Mutex::new(settings),index,reports:Mutex::new(reports),proposals:Mutex::new(HashMap::new()),tasks:Mutex::new(HashMap::new()),task_results:Mutex::new(HashMap::new()),pi_sessions:Mutex::new(HashMap::new())}));
             todo_reminders::TodoReminders::start(app.handle().clone());
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             if let Err(e)=app.global_shortcut().register("CommandOrControl+Shift+Space"){eprintln!("Shortcut unavailable: {e}");}
@@ -258,6 +260,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,locate_entry,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_resume_workflow,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
+        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,workspace_rename::workspace_rename_preview,workspace_rename::workspace_rename_apply,workspace_rename::workspace_rename_history,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,locate_entry,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_start_task,ocr::ocr_resume_workflow,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

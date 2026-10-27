@@ -4,13 +4,13 @@ import { Plus, Files, FolderOpen, Scan, Sparkle, ArrowCounterClockwise, Download
 import { listen } from '@tauri-apps/api/event';
 import { api, copy as copyText, desktop, pick } from './api';
 import { Empty, IconButton, Modal } from './components';
-import { basename, dirname } from './domain';
+import { basename, dirname, isWithin } from './domain';
 import { defaultWorkflow, newField, newProfile, updateProfileField, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
 import './ocr.css';
 import { OcrRegions } from './OcrRegions';
 import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
 
-const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',jev:'Jev',manual:'人工修正',missing:'未识别'};
+const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',jev:'Jev',manual:'人工修正',missing:'未识别',relocated:'路径已变化，请重新导入'};
 const active=(t?:OcrTask)=>!!t&&['running','queued'].includes(t.status);
 const preferenceKey=desktop?'ocr-task-options':'ocr-demo-task-options';
 function taskPreferences():{profileId:string;workflow:OcrWorkflowOptions;confirmedPlan:string}{
@@ -49,6 +49,10 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     }
     return next;
   },[]);
+  useEffect(()=>{
+    const changed=(event:Event)=>{const {from,to}=(event as CustomEvent<{from:string;to:string}>).detail;setPaths(paths=>paths.filter(path=>!isWithin(path,from)&&!isWithin(path,to)));setBatch(null);setCorrection(null);setRecheckPrompt(null);void refresh().catch(e=>setError(String(e)));};
+    window.addEventListener('workspace-renamed',changed);return()=>window.removeEventListener('workspace-renamed',changed);
+  },[refresh]);
   const refreshTask=useCallback(async(id:string)=>{const next=await api<OcrTask>('ocr_get_task',{id});if(mounted.current)setData(current=>{if(!current.tasks.some(t=>t.id===id))return current;const tasks=current.tasks.map(t=>t.id===id?next:t);tasksRef.current=tasks;return {...current,tasks};});},[]);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(visible)void refresh().catch(e=>setError(String(e)));},[visible,refresh]);

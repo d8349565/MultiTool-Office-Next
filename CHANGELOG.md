@@ -1,5 +1,32 @@
 # 变更日志
 
+## v0.5.2 - 2026-10-27
+
+### Improvements
+
+- Rename a single file or folder from its context menu, selected-item action, or F2. Extensions are preserved by default; review the original and target paths before confirming.
+- Renaming uses a pinned Windows source handle without replacing existing targets. Persistent intent/result records support guarded undo and interrupted-operation checks; affected paths, navigation, and indexes are refreshed, and stale OCR results require reimport.
+- Ctrl+K history now records files and folders only after a successful system-open request. Selection, browsing, locating, and previews no longer add entries. Frequently used program history is retained; older mixed file/folder history starts accumulating again from explicit opens.
+
+### 修复与完善
+
+- 文件工作区新增单个文件/文件夹安全重命名：右键菜单、所选项按钮及 F2，默认保留扩展名，核对原路径和目标路径后再确认。
+- 通过 Windows 源对象句柄执行不覆盖目标的改名，操作前后保留本地记录，支持安全撤销和中断状态核对。同步索引、目录后代路径、导航与最近打开记录；受影响的旧 OCR 结果需重新导入，OCR 运行期间禁止改名。
+- Ctrl+K 只记录成功发起系统打开的文件/文件夹，选择、浏览、定位和预览不计入。常用程序历史继续保留；旧文件历史未区分操作来源，从实际打开重新累计。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models are bundled and run locally. The app and installer remain in Simplified Chinese; optional connected services may charge provider fees.
+- Rename checks use file IDs, sizes, and Windows timestamps without reading document bodies. Only local working folders are supported. Case-only changes, links, protected objects, target paths over 240 UTF-16 units (including descendants), folders exceeding 10,000 descendants, and file systems without reliable change timestamps are rejected. Undo stops on changes or conflicts; uncertain interrupted operations require manual review. Other programs are not transactionally frozen during folder renames.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型随安装包提供并在本机处理。软件界面和安装器仍为简体中文，可选联网服务可能产生服务商费用。
+- 重命名仅核对文件标识、大小和 Windows 时间，不读取正文。仅支持本地工作目录；暂不支持只改大小写、链接、受保护对象、完整目标路径（含子项）超过 240 个 UTF-16 字符、目录超过 10,000 个子项或缺少可靠变更时间的文件系统。撤销遇到状态变化或名称占用会停止，无法确认的中断记录需人工处理；目录改名不能事务性冻结其他程序。
+- Application build / 应用构建版本：`2026.1027.1552`。
+
+### Verification scope / 验证范围
+
+- Reused passing checks from this session: 15 workspace/OCR rename safety cases, one index regression, path checks, and Rust static checks. The final version is production-built and its installer configuration, versions, and SHA-256 checksum are verified. No complete GUI walkthrough, fresh-install acceptance, real OCR, or connected-service validation was performed; no user business documents were read. No GitHub Actions workflows are configured.
+- 复用本会话已通过的 15 项改名/OCR 安全用例、1 项索引回归、路径检查和 Rust 静态检查；最终版本完成生产构建、安装配置、版本及 SHA-256 核验。未进行完整界面走查、全新安装验收、真实 OCR 或联网服务验证，未读取用户业务正文；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.1 - 2026-10-24
 
 ### Improvements
