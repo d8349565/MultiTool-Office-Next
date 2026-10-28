@@ -19,7 +19,8 @@ export interface Settings { schemaVersion: number; revision: number; roots: stri
 export interface Status { scanning: boolean; count: number; scanned: number; errors: string[]; generation: number }
 export interface Query { query?: string; kind?: 'file' | 'directory'; root?: string; recursive?: boolean; filter?: string; extension?: string; after?: number; before?: number; offset?: number; limit?: number }
 export interface Results { items: Entry[]; total: number }
-export interface Proposal { id: string; before: Partial<Settings>; after: Partial<Settings>; reason?: string; impact?: string }
+export interface OcrProposal { id:string; before:import('./ocrTypes').OcrProfile|null; after:import('./ocrTypes').OcrProfile; reason:string; impact:string; status:'pending'|'applied'|'rejected'|'expired'; expiresAt:number }
+export interface Proposal { id: string; before: Partial<Settings>; after: Partial<Settings>; reason?: string; impact?: string; ocr?:OcrProposal }
 export interface TaskFault { code:string; message:string; recovery:string }
 export type TaskStatus='running'|'waiting_input'|'completed'|'partial'|'failed'|'cancelled'|'interrupted';
 export interface TaskContext { schemaVersion:number;version:number;sessionId:string;taskId:string;status:TaskStatus;intent:{goal:string;operation:string;scope:string;root?:string;fields:string[];delivery:string;pendingField?:string;question?:string};resultSetIds:string[];evidenceIds:string[] }

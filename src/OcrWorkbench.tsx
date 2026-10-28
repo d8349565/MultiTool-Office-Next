@@ -56,6 +56,12 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
   const refreshTask=useCallback(async(id:string)=>{const next=await api<OcrTask>('ocr_get_task',{id});if(mounted.current)setData(current=>{if(!current.tasks.some(t=>t.id===id))return current;const tasks=current.tasks.map(t=>t.id===id?next:t);tasksRef.current=tasks;return {...current,tasks};});},[]);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(visible)void refresh().catch(e=>setError(String(e)));},[visible,refresh]);
+  useEffect(()=>{
+    if(!desktop)return;
+    let disposed=false;let stop:(()=>void)|undefined;
+    void listen('ocr-profiles-changed',()=>{void refresh().catch(e=>setError(String(e)));}).then(unlisten=>{if(disposed)unlisten();else stop=unlisten;}).catch(e=>setError(String(e)));
+    return()=>{disposed=true;stop?.();};
+  },[refresh]);
   useEffect(()=>{try{localStorage.setItem(preferenceKey,JSON.stringify({profileId,workflow}));}catch{setError('任务选项无法保存，下次启动需重新设置。');}},[profileId,workflow]);
   const run=async(fn:()=>Promise<void>)=>{if(operation.current)return;operation.current=true;setBusy(true);setError('');try{await fn();}catch(e){setError(String(e));}finally{operation.current=false;setBusy(false);}};
   const importPaths=useCallback(async(values:string[])=>{

@@ -6,11 +6,11 @@ pub enum Capability { Metadata, AppState, PublicSearch, Artifact, WorkspaceFile,
 pub fn capability(tool:&str)->Result<Capability,String>{
     Ok(match tool{
         "files_query"|"resultset_enrich"|"directory_tree"|"files_search"|"files_analyze"|"files_list_dirs"|"files_missing_companion"=>Capability::Metadata,
-        "settings_read"|"app_get_state"|"pricing_read"=>Capability::AppState,
+        "settings_read"|"app_get_state"|"pricing_read"|"ocr_profiles_read"=>Capability::AppState,
         "web_search"|"web_fetch"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
         "workspace_list_files"|"workspace_read_file"|"document_create"|"spreadsheet_translate"|"html_app_create"=>Capability::WorkspaceFile,
-        "settings_propose_change"|"pricing_propose_change"|"model_config_add"=>Capability::SettingsProposal,
+        "settings_propose_change"|"pricing_propose_change"|"model_config_add"|"ocr_profile_propose_change"=>Capability::SettingsProposal,
         "files_reveal"|"path_open"|"launcher_run"|"clipboard_copy"|"index_refresh"|"text_translate"=>Capability::UserAction,
         "task_clarify"=>Capability::Control,
         _=>return Err("工具不存在或未授权".into()),
@@ -23,6 +23,7 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
     let capability=capability(tool)?;
     if respond_only{return Err("本轮只整理已有资料，不允许新工具操作".into());}
     check_scope(&current.intent.scope,tool)?;
+    if ["ocr_profiles_read","ocr_profile_propose_change"].contains(&tool)&&current.intent.operation!="config"{return Err("仅在用户要求查看、创建或调整 OCR 配置时使用此工具；请按配置任务处理".into());}
     if capability==Capability::UserAction&&!current.intent.allowed_actions.iter().any(|t|t==tool){return Err("本轮用户没有授权该外部操作".into());}
     if capability==Capability::Artifact&&current.intent.delivery!="html"&&current.intent.operation!="report"{return Err("用户没有要求创建报告".into());}
     if matches!(capability,Capability::WorkspaceFile|Capability::Artifact){crate::assistant_workspace::authorize(state,current.workspace_revision)?;}

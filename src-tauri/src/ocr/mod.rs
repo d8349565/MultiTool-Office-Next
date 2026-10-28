@@ -1,4 +1,5 @@
 pub(crate) mod model;mod rules;mod store;pub(crate) mod worker;
+pub(crate) mod assistant;
 #[cfg(test)]
 #[path = "profile_tests.rs"]
 mod profile_tests;
