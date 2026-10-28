@@ -37,6 +37,65 @@ fn auto_profile_requires_unique_keywords_and_readable_evidence() {
 }
 
 #[test]
+fn auto_profile_normalizes_only_within_a_line() {
+    let profiles=vec![OcrProfile{keywords:vec!["报价单".into(),"Quotation".into()],..Default::default()}];
+    let line=|text:&str,page:u32|OcrLine{text:text.into(),score:0.99,page,r#box:vec![],page_size:None};
+    assert!(rules::match_profile(&profiles,&[line("报 价　单",1)]).is_some());
+    assert!(rules::match_profile(&profiles,&[line("Ｑｕｏｔａｔｉｏｎ",1)]).is_some());
+    assert!(rules::match_profile(&profiles,&[line("报",1),line("价单",1)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("报\n价单",1)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("报\t价单",1)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("报  价单",1)]).is_none());
+    assert!(rules::match_profile(&profiles,&[line("报价单",2)]).is_none());
+}
+
+#[test]
+fn auto_profile_diagnostics_explain_filtering_ties_and_missing_keywords() {
+    let quote=OcrProfile{id:"quote".into(),name:"报价单".into(),keywords:vec!["报价单".into(),"报 价 单".into()],threshold:0.8,..Default::default()};
+    let strict=OcrProfile{id:"strict".into(),threshold:0.95,..quote.clone()};
+    let no_keywords=OcrProfile{id:"name-only".into(),name:"报价单".into(),..Default::default()};
+    let profiles=vec![quote,strict,no_keywords.clone()];
+    let line=|score:f64|OcrLine{text:"报 价 单".into(),score,page:1,r#box:vec![],page_size:None};
+    let (selected,diagnostic)=rules::diagnose_profile_match(&profiles,&[line(0.85)]);
+    assert_eq!(selected.unwrap().id,"quote");
+    assert_eq!(diagnostic.outcome,"matched");
+    assert_eq!(diagnostic.candidates[0].score,1); // Normalized duplicates get one vote.
+    assert_eq!(diagnostic.candidates[1].score,0);
+    assert_eq!(diagnostic.candidates[1].keywords[0].hits[0].score,Some(0.85));
+    assert!(!diagnostic.candidates[1].keywords[0].hits[0].accepted);
+    assert!(diagnostic.candidates[2].keywords.is_empty());
+    let (selected,tied)=rules::diagnose_profile_match(&profiles,&[line(0.99)]);
+    assert!(selected.is_none());assert_eq!(tied.outcome,"tied");
+    for score in [0.2,f64::NAN,f64::INFINITY]{
+        let (selected,low)=rules::diagnose_profile_match(&profiles,&[line(score)]);
+        assert!(selected.is_none());assert_eq!(low.outcome,"low_confidence");
+        assert_eq!(low.candidates[0].keywords[0].hits[0].accepted,false);
+        assert!(serde_json::to_string(&low).is_ok());
+    }
+    assert_eq!(rules::diagnose_profile_match(&[no_keywords],&[line(0.99)]).1.outcome,"no_keywords");
+    assert_eq!(rules::diagnose_profile_match(&profiles,&[]).1.outcome,"no_text");
+    let mut other=line(0.99);other.text="无标题".into();
+    assert_eq!(rules::diagnose_profile_match(&profiles,&[other]).1.outcome,"no_match");
+    let (_,best)=rules::diagnose_profile_match(&profiles,&[line(0.1),line(0.85)]);
+    assert_eq!(best.candidates[0].keywords[0].hits[0].line_index,1);
+}
+
+#[test]
+fn auto_profile_import_and_diagnostics_roundtrip_keep_match_inputs() {
+    let profiles=ocr_import_profiles("templates:\n  - name: 报价单\n    match_keywords: [报价单]\n    fields: []\n".into()).unwrap();
+    let imported=ocr_import_profiles(serde_json::to_string(&profiles).unwrap()).unwrap();
+    assert_eq!(imported[0].keywords,vec!["报价单"]);
+    let lines=vec![OcrLine{text:"报价单".into(),score:0.99,page:1,r#box:vec![],page_size:None}];
+    let (_,matched)=rules::diagnose_profile_match(&imported,&lines);
+    let diag=OcrFileDiagnostics{profile_match:Some(matched),..Default::default()};
+    let saved=serde_json::to_value(&diag).unwrap();
+    let restored:OcrFileDiagnostics=serde_json::from_value(saved.clone()).unwrap();
+    assert_eq!(restored.profile_match.unwrap().outcome,"matched");
+    let mut legacy=saved;legacy.as_object_mut().unwrap().remove("profileMatch");
+    assert!(serde_json::from_value::<OcrFileDiagnostics>(legacy).unwrap().profile_match.is_none());
+}
+
+#[test]
 fn automatic_rename_requires_explicit_confirmation() {
     let mut options=OcrWorkflowOptions{export_format:"none".into(),rename:"apply".into(),..Default::default()};
     assert!(validate_workflow(&mut options).is_err());

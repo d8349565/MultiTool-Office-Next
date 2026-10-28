@@ -29,6 +29,14 @@ export interface OcrDecisionLog {
 }
 export interface OcrFileDiagnostics {
   ocrLinesCount: number; ocrElapsedMs: number; jev: OcrJevLog; decisions: OcrDecisionLog[]; logs: string[];
+  profileMatch?: OcrProfileMatch | null;
+}
+export interface OcrProfileMatch {
+  outcome: string; message: string; page: number; dpi: number; linesCount: number;
+  candidates: {
+    profileId: string; profileName: string; threshold: number; score: number;
+    keywords: { keyword: string; normalized: string; hits: { lineIndex: number; score: number | null; accepted: boolean }[] }[];
+  }[];
 }
 export interface OcrFieldResult { value: string; source: string; confidence: number | null; evidence: number[]; review: boolean }
 export interface OcrFileResult {

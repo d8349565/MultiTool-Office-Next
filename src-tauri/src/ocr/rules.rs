@@ -947,13 +947,70 @@ pub fn filename_with_warning(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResul
     let base=name.split('.').next().unwrap_or("").to_uppercase();if name.is_empty(){name="未命名".into();}if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"].contains(&base.as_str()){name.insert(0,'_');}(format!("{}.{}",name.trim_end_matches([' ','.']),ext),warnings.join("；"))
 }
 
-pub fn match_profile<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->Option<&'a OcrProfile>{
-    let mut best=None;let mut highest=0;let mut tied=false;
-    for profile in profiles {
-        let text=lines.iter().filter(|line|line.score.is_finite()&&line.score>=profile.threshold).map(|line|line.text.to_lowercase()).collect::<Vec<_>>().join("\n");
-        let keywords=profile.keywords.iter().map(|k|k.trim().to_lowercase()).filter(|k|!k.is_empty()).collect::<HashSet<_>>();
-        let score=keywords.iter().filter(|keyword|text.contains(keyword.as_str())).count();
-        if score>highest{highest=score;best=Some(profile);tied=false;}else if score>0&&score==highest{tied=true;}
+fn normalize_match_text(text:&str)->String{
+    let width=text.chars().map(|c|match c{
+        '\u{3000}'=>' ',
+        '\u{ff01}'..='\u{ff5e}'=>char::from_u32(c as u32-0xfee0).unwrap(),
+        _=>c,
+    }).collect::<String>().to_lowercase();
+    let cjk=|c:char|matches!(c,'\u{3400}'..='\u{4dbf}'|'\u{4e00}'..='\u{9fff}'|'\u{20000}'..='\u{2fa1f}');
+    let mut chars=width.chars().peekable();
+    let mut normalized=String::new();
+    while let Some(c)=chars.next(){
+        if c==' '{
+            let mut spaces=1;
+            while chars.peek()==Some(&' '){chars.next();spaces+=1;}
+            // Only ordinary spaces between Han characters in one OCR line.
+            // Never join lines/blocks, tab-separated fields, or Latin words.
+            if spaces==1&&normalized.chars().next_back().is_some_and(cjk)&&chars.peek().copied().is_some_and(cjk){continue;}
+            normalized.extend(std::iter::repeat_n(' ',spaces));
+        }else{normalized.push(c);}
     }
-    if tied{None}else{best}
+    normalized.trim().to_owned()
+}
+
+pub fn diagnose_profile_match<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->(Option<&'a OcrProfile>,OcrProfileMatch){
+    let probe=lines.iter().enumerate().filter(|(_,line)|line.page==1)
+        .map(|(index,line)|(index,normalize_match_text(&line.text),
+            if line.score.is_finite()&&(0.0..=1.0).contains(&line.score){Some(line.score)}else{None}))
+        .collect::<Vec<_>>();
+    let candidates=profiles.iter().map(|profile|{
+        let mut seen=HashSet::new();
+        let keywords=profile.keywords.iter().filter_map(|keyword|{
+            let normalized=normalize_match_text(keyword);
+            if normalized.is_empty()||!seen.insert(normalized.clone()){return None;}
+            // The strongest occurrence suffices to reproduce this keyword's vote;
+            // retain its index and score, never copy document bodies into diagnostics.
+            let hits=probe.iter().filter(|(_,text,_)|text.contains(&normalized))
+                .max_by(|a,b|a.2.unwrap_or(-1.0).total_cmp(&b.2.unwrap_or(-1.0)))
+                .map(|(index,_,score)|OcrKeywordHit{line_index:*index,score:*score,
+                    accepted:score.is_some_and(|score|score>=profile.threshold)})
+                .into_iter().collect();
+            Some(OcrKeywordMatch{keyword:keyword.clone(),normalized,hits})
+        }).collect::<Vec<_>>();
+        let score=keywords.iter().filter(|keyword|keyword.hits.iter().any(|hit|hit.accepted)).count();
+        OcrProfileCandidate{profile_id:profile.id.clone(),profile_name:profile.name.clone(),threshold:profile.threshold,score,keywords}
+    }).collect::<Vec<_>>();
+    let highest=candidates.iter().map(|candidate|candidate.score).max().unwrap_or(0);
+    let winners=candidates.iter().enumerate().filter(|(_,candidate)|highest>0&&candidate.score==highest).map(|(index,_)|index).collect::<Vec<_>>();
+    let selected=if winners.len()==1{Some(&profiles[winners[0]])}else{None};
+    let (outcome,message)=if let Some(profile)=selected{
+        ("matched",format!("已唯一匹配配置“{}”（命中 {highest} 个关键词）",profile.name))
+    }else if candidates.iter().all(|candidate|candidate.keywords.is_empty()){
+        ("no_keywords","已保存的配置均未设置自动匹配关键词，请填写关键词并保存后重试；配置名称和附加标题不参与匹配。".into())
+    }else if probe.is_empty(){
+        ("no_text","首页未识别出文字，请检查首页或手动选择配置后重试。".into())
+    }else if winners.len()>1{
+        ("tied",format!("{} 个配置并列最高分（各命中 {highest} 个关键词），请设置更有区分度的关键词，或手动选择配置。",winners.len()))
+    }else if candidates.iter().any(|candidate|candidate.keywords.iter().any(|keyword|!keyword.hits.is_empty())){
+        ("low_confidence","首页含匹配关键词，但相关行分数无效或低于对应配置阈值；请核对识别文字与分数，或手动选择配置。".into())
+    }else{
+        ("no_match","首页未命中已保存的自动匹配关键词；请核对关键词并保存。关键词仅在后续页或被拆成多行/多块时，请手动选择配置。".into())
+    };
+    (selected,OcrProfileMatch{outcome:outcome.into(),message,page:1,dpi:200,lines_count:probe.len(),candidates})
+}
+
+#[cfg(test)]
+pub fn match_profile<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->Option<&'a OcrProfile>{
+    diagnose_profile_match(profiles,lines).0
 }

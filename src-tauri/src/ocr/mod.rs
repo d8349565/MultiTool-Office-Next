@@ -177,8 +177,8 @@ fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
     let mut d=state.ocr.data.lock().unwrap();if d.queue.len()>=20{return Err("排队任务过多".into());}
     let auto_match=profile_id=="auto";
     let profiles=if auto_match{
-        let profiles=d.profiles.iter().filter(|p|p.keywords.iter().any(|k|!k.trim().is_empty())).cloned().collect::<Vec<_>>();
-        if profiles.is_empty(){return Err("没有可自动匹配的配置，请先为识别配置填写自动匹配关键词，或手动选择配置".into());}
+        let profiles=d.profiles.clone();
+        if !profiles.iter().any(|p|p.keywords.iter().any(|k|!k.trim().is_empty())){return Err("已保存的配置中没有自动匹配关键词；配置名称、字段标签和附加标题不参与匹配。请填写关键词并保存，或手动选择配置".into());}
         profiles
     }else{vec![d.profiles.iter().find(|p|p.id==profile_id).ok_or("所选识别配置已删除，请重新选择")?.clone()]};
     for profile in &profiles{rules::validate(profile)?;}
@@ -279,9 +279,16 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                     engine.as_mut().unwrap().recognize(&file,&first,&[],&cancel,|lines|{task.files[i].lines.extend(lines);Ok(())})?;
                     if cancel.load(Ordering::Relaxed){return Err("任务已取消".into());}
                     if store::fingerprint(Path::new(&task.files[i].path))?!=task.files[i].fingerprint{return Err("文件在识别期间被修改，请重新识别".into());}
-                    task.files[i].profile=rules::match_profile(&task.profiles,&task.files[i].lines).cloned();
+                    let (matched,profile_match)=rules::diagnose_profile_match(&task.profiles,&task.files[i].lines);
+                    task.files[i].profile=matched.cloned();
+                    logs.push(profile_match.message.clone());
+                    let match_message=profile_match.message.clone();
+                    task.files[i].diagnostics=Some(OcrFileDiagnostics{
+                        ocr_lines_count:task.files[i].lines.len(),ocr_elapsed_ms:ocr_start.elapsed().as_millis() as u64,
+                        logs:logs.clone(),profile_match:Some(profile_match),..Default::default()
+                    });
                     if task.files[i].profile.is_none(){
-                        task.files[i].warning="首页未命中唯一配置，或关键词文字低于配置阈值。已保留文字，请更换配置后仅重试此文件；尚未生成拟命名。".into();
+                        task.files[i].warning=format!("{match_message} 已保留首页文字，可在详情查看自动匹配诊断；尚未生成拟命名或自动改名。");
                         task.files[i].status="review".into();return Ok(());
                     }
                     logs.push(format!("自动匹配配置：{}（依据关键词计分，不代表模型置信度）",task.files[i].profile.as_ref().unwrap().name));
@@ -377,7 +384,8 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                 f.status=if f.lines.is_empty()||f.fields.values().any(|v|v.review){"review"}else{"ready"}.into();
                 logs.push(format!("拟命名：{}",f.proposed_name));
                 logs.push(format!("处理完成，状态：{}",f.status));
-                f.diagnostics=Some(OcrFileDiagnostics{ocr_lines_count:f.lines.len(),ocr_elapsed_ms:ocr_elapsed,jev:jev_log,decisions,logs});
+                let profile_match=f.diagnostics.as_ref().and_then(|d|d.profile_match.clone());
+                f.diagnostics=Some(OcrFileDiagnostics{ocr_lines_count:f.lines.len(),ocr_elapsed_ms:ocr_elapsed,jev:jev_log,decisions,logs,profile_match});
                 Ok(())
             })();
             if let Err(e)=result{if should_reset_engine(&e){engine=None;}task.files[i].error=e;task.files[i].status=if cancel.load(Ordering::Relaxed){"cancelled"}else{"failed"}.into();}

@@ -81,6 +81,44 @@ pub struct OcrFileDiagnostics {
     pub jev: OcrJevLog,
     pub decisions: Vec<OcrDecisionLog>,
     pub logs: Vec<String>,
+    #[serde(default)] pub profile_match: Option<OcrProfileMatch>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrProfileMatch {
+    pub outcome: String,
+    pub message: String,
+    pub page: u32,
+    pub dpi: u32,
+    pub lines_count: usize,
+    pub candidates: Vec<OcrProfileCandidate>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrProfileCandidate {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub threshold: f64,
+    pub score: usize,
+    pub keywords: Vec<OcrKeywordMatch>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrKeywordMatch {
+    pub keyword: String,
+    pub normalized: String,
+    pub hits: Vec<OcrKeywordHit>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrKeywordHit {
+    pub line_index: usize,
+    pub score: Option<f64>,
+    pub accepted: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

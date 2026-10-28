@@ -112,7 +112,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     const path=await save({defaultPath:`OCR-${failuresOnly?'异常-':''}${exportTaskId.slice(0,8)}.${format}`,filters:[{name:format.toUpperCase(),extensions:[format]}]});
     if(path){await api('ocr_export',{taskId:exportTaskId,format,path,failuresOnly,batchId:batchId||null});setNotice('结果已导出');}
   }
-  async function importProfiles(file:File){const list=await api<OcrProfile[]>('ocr_import_profiles',{text:await file.text()});if(!list.length)throw new Error('配置文件中没有模板');const known=[...data.profiles];for(const p of list){const existing=known.find(x=>x.id===p.id)||known.find(x=>x.name===p.name);const saved={...p,id:existing?.id||p.id};await api('ocr_save_profile',{profile:saved});const index=known.findIndex(x=>x.id===saved.id);if(index>=0)known[index]=saved;else known.push(saved);}await refresh();setNotice(`已导入 ${list.length} 个配置，请编辑核对字段类型与本地规则`);}
+  async function importProfiles(file:File){const list=await api<OcrProfile[]>('ocr_import_profiles',{text:await file.text()});if(!list.length)throw new Error('配置文件中没有模板');const known=[...data.profiles];for(const p of list){const existing=known.find(x=>x.id===p.id)||known.find(x=>x.name===p.name);const saved={...p,id:existing?.id||p.id};await api('ocr_save_profile',{profile:saved});const index=known.findIndex(x=>x.id===saved.id);if(index>=0)known[index]=saved;else known.push(saved);}await refresh();const missing=list.filter(p=>!p.keywords.some(k=>k.trim()));setNotice(`已导入 ${list.length} 个配置，请编辑核对字段类型与本地规则。${missing.length?`其中 ${missing.map(p=>p.name).join('、')} 未设置自动匹配关键词，仅支持手动选择；如需自动匹配，请补充关键词并保存。`:''}`);}
   const canRename=task&&!active(task)&&checked.length>0;
   const visibleFiles=task?.files.filter(f=>resultFilter==='all'||resultFilter==='review'&&['ready','review'].includes(f.status)&&(f.status==='review'||!!f.warning)&&!f.reviewed||resultFilter==='failed'&&f.status==='failed'||resultFilter==='interrupted'&&['cancelled','interrupted'].includes(f.status))||[];
   const eligible=visibleFiles.filter(f=>f.status==='ready'||f.status==='review'&&f.reviewed).map(f=>f.id)||[];
@@ -123,7 +123,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     <section className="ocr-setup" aria-label="OCR 任务设置">
       <div className="ocr-setup-row"><Button icon={<Files/>} disabled={busy} onClick={()=>void run(()=>pickFiles(false))}>添加文件</Button><Button icon={<FolderOpen/>} disabled={busy} onClick={()=>void run(()=>pickFiles(true))}>添加文件夹</Button><span className="muted">PDF · PNG · JPEG · BMP · TIFF，也可拖放到此页</span></div>
       <div className="ocr-setup-row"><label className="ocr-profile-select">识别配置<select aria-label="识别配置" value={profileId} onChange={e=>setProfileId(e.target.value)}><option value="auto">自动识别配置（按文件匹配）</option>{profileId!=='auto'&&!profile&&<option value={profileId} disabled>所选配置已删除，请重新选择</option>}{data.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><Button disabled={!profile} onClick={()=>setEditor(structuredClone(profile!))}>编辑配置</Button><Button icon={<Plus/>} onClick={()=>setEditor(newProfile())}>新建配置</Button><Button onClick={()=>importInput.current?.click()}>导入配置</Button><input className="sr-only" aria-label="导入 OCR 配置文件" ref={importInput} type="file" accept=".json,.yaml,.yml" onChange={e=>{const f=e.target.files?.[0];if(f)void run(()=>importProfiles(f));e.target.value='';}}/><span className="ocr-spacer"/><Checkbox label="优先使用 Jev 判断字段" checked={useJev} onChange={(_,v)=>{const c=!!v.checked;setUseJev(c);try{localStorage.setItem('ocr_use_jev',String(c));}catch{}}}/></div>
-      {profileId==='auto'&&<p className="ocr-policy">根据首页关键词逐文件匹配配置，再按匹配配置的页范围和区域提取；无唯一匹配或文字质量不足的文件集中待复核，可更换配置仅重试该文件。</p>}
+      {profileId==='auto'&&<><p className="ocr-policy">从 {data.profiles.filter(p=>p.keywords.some(k=>k.trim())).length} 个已保存且有自动匹配关键词的配置中，按首页逐文件匹配，再按选中配置提取。配置名称和附加标题不参与匹配；无唯一匹配时保留待复核，可在详情查看原因并更换配置仅重试该文件。</p>{data.profiles.some(p=>!p.keywords.some(k=>k.trim()))&&<details className="ocr-task-options"><summary>查看未设置关键词的配置</summary><p className="muted">{data.profiles.filter(p=>!p.keywords.some(k=>k.trim())).map(p=>p.name).join('、')}：可手动选择使用；如需自动匹配，请选择该配置 → 编辑配置 → 填写自动匹配关键词并保存。</p></details>}</>}
       <details className="ocr-task-options" open={optionsOpen} onToggle={e=>setOptionsOpen(e.currentTarget.open)}><summary>一键任务选项 · 识别并改名 · {workflow.exportFormat==='none'?'不导出':`导出 ${workflow.exportFormat.toUpperCase()}`}</summary>
         <div className="ocr-setup-row"><label>结果导出<select value={workflow.exportFormat} onChange={e=>setWorkflow(v=>({...v,exportFormat:e.target.value as OcrWorkflowOptions['exportFormat']}))}><option value="none">不自动导出</option>{exportOptions.map(opt=><option key={opt.format} value={opt.format}>{opt.label}</option>)}</select></label>{workflow.exportFormat!=='none'&&<><Button disabled={busy} onClick={()=>void run(async()=>{if(!desktop)throw new Error('自动导出需要桌面版选择本机文件夹。');const directory=await pick(true);if(directory)setWorkflow(v=>({...v,exportDirectory:directory}));})}>选择导出文件夹</Button><span className="ocr-output-directory" title={workflow.exportDirectory}>{workflow.exportDirectory||'尚未选择导出位置'}</span></>}</div>
         <p className="ocr-policy">点击“一键识别并改名”后，按当前配置连续完成 OCR 和重命名，无需再点击改名或确认名称；同名自动加序号，不覆盖原文件。需复核、失败和冲突项集中保留，执行记录可撤销。选项自动保存；“仅识别”保留原分步流程。</p>
@@ -247,6 +247,24 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
   </div>;
 }
 
+function ProfileMatchDetail({file}:{file:OcrFileResult}){
+  const match=file.diagnostics?.profileMatch;
+  if(!match)return null;
+  const score=(value:number|null)=>value===null?'无效分数':String(value);
+  return <details className="ocr-task-options ocr-profile-match">
+    <summary>自动匹配诊断 · {match.message}</summary>
+    <p className="muted">本次任务使用已保存配置的快照，探测第 {match.page} 页（{match.dpi} DPI，共 {match.linesCount} 行）。以下行号属于首页探测，与最终提取文本的行号可能不同。</p>
+    <p className="muted">按不同关键词命中数计分，仅唯一最高分可选中。忽略同一行内汉字间的单个空格及全半角差异，不拼接断行、多个空格、制表符或不同 OCR 块。低分文字不参与计分；当前匹配与字段复核共用阈值。</p>
+    {match.candidates.map(candidate=><details key={candidate.profileId} className="ocr-decision-card">
+      <summary>{candidate.profileName} · 命中 {candidate.score} 个关键词 · 阈值 {candidate.threshold}{!candidate.keywords.length?' · 未配置关键词，不参与匹配':''}</summary>
+      <ul>{candidate.keywords.map(keyword=><li key={keyword.normalized}>
+        <strong>{keyword.keyword}</strong>{keyword.normalized!==keyword.keyword&&<>（匹配用词：{keyword.normalized}）</>}：{keyword.hits.length?keyword.hits.map(hit=>`探测第 ${hit.lineIndex+1} 行，分数 ${score(hit.score)}${hit.accepted?'，已计分':'，已过滤'}`).join('；'):'首页未命中'}
+      </li>)}</ul>
+    </details>)}
+    <p className="muted">这里展示每个关键词分数最高的命中行；匹配记录保存在本机任务中，不附带文档正文。无唯一匹配时，可返回结果列表“更换配置”并仅重试该文件；关键词只在后续页时请手动选择配置。</p>
+  </details>;
+}
+
 function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;disabled:boolean;onSave:(values:Record<string,string>,name:string,reviewed:boolean)=>Promise<void>;onOpen:(reveal:boolean)=>void;onClose:()=>void}){
   const [tab,setTab]=useState<'fields'|'decisions'|'outbound'|'logs'|'lines'>('fields');
   const [values,setValues]=useState(Object.fromEntries(Object.entries(file.fields).map(([k,v])=>[k,v.value])));
@@ -288,6 +306,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;
 
         {file.error&&<p className="inline-error" role="alert">{file.error}</p>}
         {file.warning&&<p className="ocr-warning" role="alert">{file.warning}</p>}
+        <ProfileMatchDetail file={file}/>
 
         <div className="ocr-modal-tabs" role="tablist">
           <button
@@ -526,7 +545,13 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;
           </div>
         )}
 
-        {tab==='logs'&&(
+        {tab==='logs'&&diag?.profileMatch&&diag.profileMatch.outcome!=='matched'?(
+          <div className="ocr-steps-panel">
+            <p role="status">此文件停在首页配置匹配，尚未执行字段提取、命名或自动改名。</p>
+            <p>{diag.profileMatch.message}</p>
+            <p className="muted">首页探测耗时 {diag.ocrElapsedMs}ms；候选配置、关键词和分数见上方“自动匹配诊断”。</p>
+          </div>
+        ):tab==='logs'&&(
           <div className="ocr-steps-panel">
             {(()=>{
               const totalElapsed = file.elapsedMs || ((diag?.ocrElapsedMs || 0) + (jev?.elapsedMs || 0)) || 1;
@@ -829,7 +854,7 @@ function ProfileEditor({value:p,busy,error,onChange,onClose,onSave,onDelete,onAI
   return <Modal title="OCR 配置编辑器" wide onClose={()=>!busy&&onClose()}><div className="ocr-editor">
     <section className="ocr-ai-config"><label className="ocr-field">用一句话描述你要提取或优化的内容<textarea aria-label="AI 配置需求" value={description} onChange={e=>setDescription(e.target.value)} placeholder={p.fields.length ? "例如：优化产品名称提取规则，支持带括号的品名（系统会自动锁定并保护现有其他字段与画框）" : "例如：从设备验收单提取设备编号、验收日期和验收单位，以日期和编号命名。"} rows={2}/></label><div><span className="muted">AI 根据需求生成提取规则，未读取样本文档。微调时请写明字段名称；草稿核对并保存后生效。</span><Button icon={<Sparkle/>} disabled={busy||!description.trim()} onClick={()=>onAI(description)}>{busy?'处理中…':(p.fields.length?'AI 优化已有配置':'AI 生成配置草稿')}</Button></div></section>
     {error&&<p className="inline-error" role="alert">{error}</p>}
-    <div className="ocr-form-grid"><label className="ocr-field">配置名称<input aria-label="配置名称" value={p.name} onChange={e=>set({name:e.target.value})}/></label><label className="ocr-field">自动匹配关键词（逗号分隔）<input value={p.keywords.join(',')} onChange={e=>set({keywords:list(e.target.value)})}/></label><label className="ocr-field">页范围<input aria-label="页范围" value={p.pages} onChange={e=>set({pages:e.target.value})} placeholder="all 或 1-3,5"/></label><label className="ocr-field">渲染 DPI<input type="number" min={100} max={400} value={p.dpi} onChange={e=>set({dpi:Number(e.target.value)})}/></label></div>
+    <div className="ocr-form-grid"><label className="ocr-field">配置名称<input aria-label="配置名称" value={p.name} onChange={e=>set({name:e.target.value})}/></label><label className="ocr-field">自动匹配关键词（逗号分隔）<input aria-describedby="ocr-match-keywords-help" value={p.keywords.join(',')} onChange={e=>set({keywords:list(e.target.value)})}/><small id="ocr-match-keywords-help">{p.keywords.some(k=>k.trim())?'修改后需点击“保存配置”，下一次任务才会使用。':'尚未填写，只能手动选择此配置。'} 例如：报价单,Quotation。配置名称、字段标签和附加标题不会作为匹配关键词。</small></label><label className="ocr-field">页范围<input aria-label="页范围" value={p.pages} onChange={e=>set({pages:e.target.value})} placeholder="all 或 1-3,5"/><small>用于选中配置后的提取；自动匹配始终只探测首页。</small></label><label className="ocr-field">渲染 DPI<input type="number" min={100} max={400} value={p.dpi} onChange={e=>set({dpi:Number(e.target.value)})}/></label></div>
     <OcrRegions fieldKeys={[...new Set(p.fields.map(f=>f.key).filter(Boolean))]} regions={p.regions||[]} onChange={regions=>set({regions,...(regions.length&&regions.every(r=>r.page>0)?{pages:[...new Set(regions.map(r=>r.page))].sort((a,b)=>a-b).join(',')}: {})})}/>
     {Boolean(p.regions && p.regions.length > 0) && (
       <p className="ocr-policy" style={{color:'#15803d',background:'#dcfce7',borderColor:'#bbf7d0',marginTop:8,marginBottom:8}}>
@@ -839,7 +864,7 @@ function ProfileEditor({value:p,busy,error,onChange,onClose,onSave,onDelete,onAI
     <div className="ocr-section-heading"><h3>提取字段</h3><Button icon={<Plus/>} size="small" onClick={()=>set({fields:[...p.fields,newField()]})}>添加字段</Button></div>{!p.fields.length&&<p className="muted">没有配置字段时，仅识别和导出文字。</p>}
     {p.fields.map((f,i)=><section className="ocr-field-editor" key={i}><div className="ocr-form-grid"><label className="ocr-field">字段名称<input aria-label={`字段名称 ${i+1}`} value={f.key} onChange={e=>field(i,{key:e.target.value})}/></label><label className="ocr-field">类型<select value={f.kind} onChange={e=>field(i,{kind:e.target.value as OcrFieldDefinition['kind'],format:''})}><option value="text">文字</option><option value="date">日期</option><option value="number">数字 / 金额</option></select></label></div><label className="ocr-field">Jev 判断说明（启用 Jev 时生效）<input aria-label={`字段说明 ${i+1}`} value={f.prompt} onChange={e=>field(i,{prompt:e.target.value})}/></label><div className="ocr-buttons"><Checkbox label="必填" checked={f.required} onChange={(_,v)=>field(i,{required:!!v.checked})}/><Checkbox label="多个值" checked={f.multiple} onChange={(_,v)=>field(i,{multiple:!!v.checked})}/>{f.multiple&&<><label>最多 <input className="ocr-small-number" type="number" min={1} max={20} value={f.maxItems} onChange={e=>field(i,{maxItems:Number(e.target.value)})}/></label><label>分隔符 <input className="ocr-small-number" value={f.separator} onChange={e=>field(i,{separator:e.target.value})}/></label></>}<span className="ocr-spacer"/><Button size="small" onClick={()=>onChange(updateProfileField(p,i,null))}>移除字段</Button></div>
     <details><summary>本地提取规则（默认使用；Jev 无结果时回退）</summary><div className="ocr-form-grid"><label className="ocr-field">定位标签（逗号分隔）<input value={f.anchors.join(',')} onChange={e=>field(i,{anchors:list(e.target.value)})}/></label><label className="ocr-field">清理前缀（逗号分隔）<input value={f.stripPrefixes.join(',')} onChange={e=>field(i,{stripPrefixes:list(e.target.value)})}/></label><label className="ocr-field">正则表达式<input value={f.pattern} onChange={e=>field(i,{pattern:e.target.value})} placeholder="优先取第一个捕获组"/></label><label className="ocr-field">未识别时的显示值<input value={f.fallback} onChange={e=>field(i,{fallback:e.target.value})}/></label>{f.kind==='date'&&<label className="ocr-field">日期格式<select value={f.format} onChange={e=>field(i,{format:e.target.value})}><option value="">YYYYMMDD</option><option value="%Y%m%d">YYYYMMDD</option><option value="%Y-%m-%d">YYYY-MM-DD</option><option value="%Y/%m/%d">YYYY/MM/DD</option><option value="%Y年%m月%d日">YYYY年MM月DD日</option></select></label>}{f.kind==='number'&&<label className="ocr-field">保留小数位<select value={f.format} onChange={e=>field(i,{format:e.target.value})}><option value="">保持原值</option>{[0,1,2,3,4,5,6].map(n=><option value={String(n)} key={n}>{n} 位</option>)}</select></label>}</div></details></section>)}
-    <div className="ocr-form-grid"><label className="ocr-field">命名格式<input aria-label="命名格式" value={p.filenamePattern} onChange={e=>set({filenamePattern:e.target.value})}/><small>可用：{'{原文件名}'} {p.fields.filter(f=>f.key).map(f=>`{${f.key}}`).join(' ')}；保留原扩展名。</small></label><label className="ocr-field">低于此分数需复核<input type="number" min={0} max={1} step={.05} value={p.threshold} onChange={e=>set({threshold:Number(e.target.value)})}/></label></div>
+    <div className="ocr-form-grid"><label className="ocr-field">命名格式<input aria-label="命名格式" value={p.filenamePattern} onChange={e=>set({filenamePattern:e.target.value})}/><small>可用：{'{原文件名}'} {p.fields.filter(f=>f.key).map(f=>`{${f.key}}`).join(' ')}；保留原扩展名。</small></label><label className="ocr-field">低于此分数需复核<input type="number" min={0} max={1} step={.05} value={p.threshold} onChange={e=>set({threshold:Number(e.target.value)})}/><small>也用于自动匹配：低于此分数的首页关键词不计入命中数。请先查看匹配诊断，不建议仅为命中而降低阈值。</small></label></div>
     <details><summary>版式专有词（画像）：只影响当前配置，不写入通用规则</summary><div className="ocr-form-grid"><label className="ocr-field">附加标题（逗号分隔）<input value={(p.extraTitles||[]).join(',')} onChange={e=>set({extraTitles:list(e.target.value)})}/></label><label className="ocr-field">排除词（逗号分隔）<input value={(p.noiseMarkers||[]).join(',')} onChange={e=>set({noiseMarkers:list(e.target.value)})}/></label><label className="ocr-field">补充表头（逗号分隔）<input value={(p.extraHeaders||[]).join(',')} onChange={e=>set({extraHeaders:list(e.target.value)})}/></label></div><p className="muted">通用规则只认识报价/合同/送货等跨行业类型；某一样本的内部词必须填在这里，换版式不影响别人。</p></details>
     <p className="ocr-policy">单价、金额及其他数字强制脱敏，不能通过配置关闭。需要比较原始数值时，请配置本地规则并复核结果。</p>
     <div className="dialog-actions"><Button disabled={busy} onClick={()=>set({...structuredClone(p),id:crypto.randomUUID(),name:`${p.name} 副本`})}>复制为新配置</Button><Button disabled={busy} onClick={onExport}>导出配置</Button><Button disabled={busy} onClick={()=>setConfirmDelete(v=>!v)}>{confirmDelete?'取消删除':'删除配置'}</Button>{confirmDelete&&<Button disabled={busy} onClick={onDelete}>确认删除</Button>}<span className="ocr-spacer"/><Button disabled={busy} appearance="primary" onClick={onSave}>保存配置</Button></div>
