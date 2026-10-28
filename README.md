@@ -45,7 +45,7 @@ Screenshots and GIFs come from existing app builds; some controls have changed i
 Keep several folder levels visible while moving through project or client folders.
 
 - Search filenames across your configured working folders; narrow results by file extension, modification date, or path.
-- Find directories at any depth by name or relative path, then select one to navigate there and limit the file results. Clear the directory condition with × while keeping your browsing position.
+- Filter folder names directly in the visible directory levels, within each level’s selected parent. The selected path stays visible; use × to clear the filter and restore the lists.
 - Clear file-search keywords with × while retaining other filters.
 - Copy names or paths, open files in their default applications, or reveal them in Windows File Explorer.
 - Rename one file or folder using its context menu, the selected-item action, or `F2`. Extensions are preserved by default. Review both paths before confirming; rename history supports persistent records and guarded undo.
