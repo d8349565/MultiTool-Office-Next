@@ -1,6 +1,6 @@
 // 用量来自服务返回；未知字段不按零计算。
 export interface AssistantStats { round:number; steps:number; usage:unknown; contextLimit:number; serviceUsage?:import('./types').ServiceUsage[] }
-export interface TokenMetrics { read:number|null; cacheRate:number|null; written:number|null; speed:number|null; avgSpeed:number|null; contextTokens:number|null; rounds:number|null }
+export interface TokenMetrics { read:number|null; cacheRate:number|null; written:number|null; speed:number|null; avgSpeed:number|null; contextTokens:number|null; rounds:number|null; missingRead:number; missingWritten:number; missingCache:number }
 type RecordValue=Record<string,unknown>;
 function record(value:unknown):RecordValue{return value&&typeof value==='object'&&!Array.isArray(value)?value as RecordValue:{};}
 function count(value:unknown):number|null{return typeof value==='number'&&Number.isFinite(value)&&value>=0?value:null;}
@@ -37,30 +37,25 @@ export function usageRequests(raw:unknown):RecordValue[]{
 export function tokenMetrics(raw:unknown):TokenMetrics{
   const requests=usageRequests(raw);
   const rows=requests.map(item=>{
-    const row:RecordValue&{read:number|null;written:number|null;cached:number|null;ms:number|null;validUsage:boolean;hasCachedField:boolean}=item as never;
+    const row:RecordValue&{read:number|null;written:number|null;cached:number|null;ms:number|null}=item as never;
     if(item.usage===null||item.usage===undefined||typeof item.usage!=='object'){
-      return {...row,read:null,written:null,cached:null,ms:count(item.generationMs),validUsage:false,hasCachedField:false};
+      return {...row,read:null,written:null,cached:null,ms:count(item.generationMs)};
     }
     const usage=record(item.usage),details=record(usage.prompt_tokens_details??usage.input_tokens_details);
     const read=count(usage.prompt_tokens??usage.input_tokens),written=count(usage.completion_tokens??usage.output_tokens);
     const rawCached=usage.prompt_cache_hit_tokens??details.cached_tokens??usage.cached_tokens??usage.cache_read_input_tokens??details.cache_read_input_tokens??details.cache_read;
-    const hasCachedField=rawCached!==undefined&&rawCached!==null;
     const parsedCached=count(rawCached);
     const cached=parsedCached!==null&&read!==null&&parsedCached<=read?parsedCached:null;
-    return {...row,read,written,cached,ms:count(item.generationMs),validUsage:true,hasCachedField};
+    return {...row,read,written,cached,ms:count(item.generationMs)};
   });
   const rounds=roundGroups(rows);
-  if(!rows.length)return {read:null,written:null,cacheRate:null,speed:null,avgSpeed:null,contextTokens:null,rounds:null};
-  const anyUsageInvalid=rows.some(r=>!r.validUsage||r.read===null||r.written===null);
-  const read=anyUsageInvalid?null:rows.reduce((total,r)=>total+r.read!,0);
-  const written=anyUsageInvalid?null:rows.reduce((total,r)=>total+r.written!,0);
-  let cacheRate:number|null=null;
-  const anyCachedReported=rows.some(r=>r.hasCachedField);
-  const anyCachedCorrupted=rows.some(r=>r.hasCachedField&&r.cached===null);
-  if(anyCachedReported&&!anyCachedCorrupted&&read!==null){
-    const totalCached=rows.reduce((total,r)=>total+(r.cached??0),0);
-    cacheRate=read>0?(totalCached/read)*100:0;
-  }
+  const missingRead=rows.filter(r=>r.read===null).length,missingWritten=rows.filter(r=>r.written===null).length;
+  // 各项独立累计已知用量；单次缺失不能抹去整段会话的统计，也不能当成零。
+  const read=rows.length>missingRead?rows.reduce((total,r)=>total+(r.read??0),0):null;
+  const written=rows.length>missingWritten?rows.reduce((total,r)=>total+(r.written??0),0):null;
+  const cacheRows=rows.filter(r=>r.read!==null&&r.cached!==null),missingCache=rows.length-cacheRows.length;
+  const cacheRead=cacheRows.reduce((total,r)=>total+r.read!,0),totalCached=cacheRows.reduce((total,r)=>total+r.cached!,0);
+  const cacheRate=cacheRows.length?(cacheRead>0?totalCached/cacheRead*100:0):null;
   // 100ms 以下的“生成时长”多为非流式一次性返回的测量噪声，排除后才不会污染速度。
   const validSpeedRows=rows.filter(r=>r.ms!==null&&r.ms>=100&&r.written!==null);
   const rate=(row:{written:number|null;ms:number|null})=>row.written!==null&&row.ms!==null&&row.ms>0?(row.written*1000)/row.ms:null;
@@ -74,7 +69,7 @@ export function tokenMetrics(raw:unknown):TokenMetrics{
   // 压缩后占用可能下降；显示最近一次已返回的真实用量，而非历史峰值。
   const latestContext=[...rows].reverse().find(r=>r.read!==null&&r.written!==null);
   const contextTokens=latestContext?latestContext.read!+latestContext.written!:null;
-  return {read,written,cacheRate,speed,avgSpeed,contextTokens,rounds};
+  return {read,written,cacheRate,speed,avgSpeed,contextTokens,rounds,missingRead,missingWritten,missingCache};
 }
 export function contextCapacity(configured:number|undefined,modelId:string):number{
   if(configured&&Number.isFinite(configured)&&configured>0)return configured;

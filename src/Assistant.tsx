@@ -1,4 +1,5 @@
 import type { ServiceUsage } from './types';
+import type { OcrDiagnosticRequest } from './OcrDiagnosticShare';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Tooltip } from '@fluentui/react-components';
 import { ArrowUp, ArrowRight, X, Sparkle, Stop, Check, CaretDown, Plus, Trash, Copy, FolderOpen, MagnifyingGlass, ImageSquare, ChatsCircle, SlidersHorizontal, Coins, WarningCircle, ArrowsClockwise, Wrench, ChatCircle, ArrowLineDown, ArrowLineUp, Database, Lightning, Gauge, ListChecks } from '@phosphor-icons/react';
@@ -22,7 +23,7 @@ import { conversationHistory, evidenceSummary, finishActivities, upsertActivity,
 
 function Metric({label,children,className=''}:{label:string;children:ReactNode;className?:string}){return <Tooltip content={label} relationship="description"><span className={className} tabIndex={0} aria-label={label}>{children}</span></Tooltip>;}
 
-export default function Assistant({open,onClose,context,onProposal,onLocate,onPricingSettings,onWorkspaceSettings,settings}:{open:boolean;onClose:()=>void;context:unknown;onProposal:(p:Proposal)=>void;onLocate:(path:string)=>void;onPricingSettings:()=>void;onWorkspaceSettings:()=>void;settings:Settings}){
+export default function Assistant({open,onClose,context,onProposal,onLocate,onPricingSettings,onWorkspaceSettings,settings,diagnosticRequest,onDiagnosticConsumed}:{open:boolean;onClose:()=>void;context:unknown;onProposal:(p:Proposal)=>void;onLocate:(path:string)=>void;onPricingSettings:()=>void;onWorkspaceSettings:()=>void;settings:Settings;diagnosticRequest?:OcrDiagnosticRequest|null;onDiagnosticConsumed?:()=>void}){
   const [store,setStore]=useState(loadConversations),[storageError,setStorageError]=useState(''),[deleteIds,setDeleteIds]=useState<string[]>([]),[clock,setClock]=useState(Date.now());
   const current=store.sessions.find(s=>s.id===store.active)||store.sessions[0];
   const [managing,setManaging]=useState(false),[sessionQuery,setSessionQuery]=useState(''),[selected,setSelected]=useState<string[]>([]);
@@ -54,6 +55,15 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
   const saveTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
   const latestStore=useRef(store);
   latestStore.current=store;
+  const diagnosticSeen=useRef('');
+  useEffect(()=>{
+    if(!diagnosticRequest||diagnosticSeen.current===diagnosticRequest.id)return;
+    const request=diagnosticRequest;diagnosticSeen.current=request.id;
+    const session=newConversation();session.title='OCR 结果诊断';
+    setStore(old=>({...old,active:session.id,sessions:[session,...old.sessions]}));setManaging(false);setCostOpen(false);
+    void send(request.question+'\n\n已共享我确认过的脱敏 OCR 诊断快照。',false,undefined,[],request,session);
+    onDiagnosticConsumed?.();
+  },[diagnosticRequest?.id]);
   useEffect(()=>{
     if(running){
       if(!saveTimer.current){
@@ -116,8 +126,8 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
     try{await deleteImages([image]);update(session.id,s=>({...s,draftImages:(s.draftImages||[]).filter(v=>v.id!==image.id)}));}
     catch(e){update(session.id,s=>({...s,error:String(e)}));}
   }
-  async function send(text=current.draft,respondOnly=false,action?:TaskAction,images:AssistantImage[]=!respondOnly&&!action&&text===current.draft?(current.draftImages||[]):[]){
-    const session=current;if((!text.trim()&&!images.length)||activeTasks.current.has(session.id)||imageLoading.current===session.id)return;
+  async function send(text=current.draft,respondOnly=false,action?:TaskAction,images:AssistantImage[]=!respondOnly&&!action&&text===current.draft?(current.draftImages||[]):[],diagnostic?:OcrDiagnosticRequest,targetSession=current){
+    const session=targetSession;if((!text.trim()&&!images.length)||activeTasks.current.has(session.id)||imageLoading.current===session.id)return;
     if(!text.trim())text='请描述并分析这些图片。';
     let submitted=false;
     let timer:ReturnType<typeof setTimeout>|undefined;
@@ -144,7 +154,7 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
         while(result.status==='running'&&Date.now()<deadline+15000){await new Promise(r=>setTimeout(r,2000));result=await api<AIResult>('task_status',{id});}
         if(result.status==='running')throw new Error('前后端状态暂时失联，尚不能确认任务已停止。已保留任务编号，请重新打开助手核对状态。');
       }resolve(result);}).catch(reject);},(timeoutSecs+15)*1000);});
-      const result=await Promise.race([runAssistantTask({id,kind:'agent',text,context:{sessionId:session.id,taskContextVersion:session.taskContext?.version,action,view:context,...attachments,lastQuery:lastQuery(session.messages),previousTask:[...session.messages].reverse().find(m=>m.role==='assistant')?.activityKey,evidence:evidenceSummary(session.messages),respondOnly,localTime:new Date().toString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),timeout]);
+      const result=await Promise.race([runAssistantTask({id,kind:'agent',text,context:{sessionId:session.id,taskContextVersion:session.taskContext?.version,action,view:context,...attachments,...(diagnostic?{ocrDiagnostic:{binding:diagnostic.binding,content:diagnostic.content}}:{}),lastQuery:lastQuery(session.messages),previousTask:[...session.messages].reverse().find(m=>m.role==='assistant')?.activityKey,evidence:evidenceSummary(session.messages),respondOnly,localTime:new Date().toString(),timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}}),timeout]);
       if(!result.text?.trim())throw new Error('模型返回空回复，请检查模型是否支持工具调用。');
       const liveSession=()=>latestStore.current.sessions.find(s=>s.id===session.id);
       const finalRound=liveSession()?.stats?.round||((Array.isArray(result.usage)&&result.usage.length)?result.usage.length:1);
@@ -238,9 +248,9 @@ export default function Assistant({open,onClose,context,onProposal,onLocate,onPr
       <Tooltip content={'会话费用明细；按请求时单价和实际返回用量计算'+(costs.missing?'，有 '+costs.missing+' 次请求无法完整计费':'')} relationship="description"><button className="assistant-metrics-cost" aria-label="会话费用明细" aria-expanded={costOpen} aria-controls="assistant-cost-panel" onClick={()=>setCostOpen(v=>!v)}><Coins size={15} aria-hidden="true"/><b>{costs.totals.length?costs.totals.map(t=>money(t.total,t.currency)).join(' + '):'—'}</b>{costs.missing>0&&<WarningCircle size={14} className="assistant-cost-incomplete" aria-hidden="true"/>}<CaretDown size={12} aria-hidden="true"/></button></Tooltip>
       <Metric label={'本会话累计 '+(metrics.rounds??0)+' 轮模型尝试'}><ArrowsClockwise size={14} aria-hidden="true"/><b>{metrics.rounds??0}</b></Metric>
       <Metric label={(totals?.steps??0)>0?'本会话累计 '+totals?.steps+' 步工具操作':'直接回答，尚未执行工具操作'}>{(totals?.steps??0)>0?<><Wrench size={14} aria-hidden="true"/><b>{totals?.steps}</b></>:<ChatCircle size={14} aria-hidden="true"/>}</Metric>
-      <Metric label={metrics.read===null?'输入 token 用量尚未返回':'累计输入 '+metrics.read.toLocaleString()+' token，含历史与上下文'}><ArrowLineDown size={14} aria-hidden="true"/><b>{compactTokens(metrics.read)}</b></Metric>
-      <Metric label={metrics.cacheRate===null?'服务商未返回完整缓存数据':'会话缓存命中率 '+percent(metrics.cacheRate)}><Database size={14} aria-hidden="true"/><b>{percent(metrics.cacheRate)}</b></Metric>
-      <Metric label={metrics.written===null?'输出 token 用量尚未返回':'累计输出 '+metrics.written.toLocaleString()+' token，含思考和工具参数'}><ArrowLineUp size={14} aria-hidden="true"/><b>{compactTokens(metrics.written)}</b></Metric>
+      <Metric label={metrics.read===null?'输入 token 用量尚未返回':(metrics.missingRead?'已知输入至少 ':'累计输入 ')+metrics.read.toLocaleString()+' token，含历史与上下文'+(metrics.missingRead?'；'+metrics.missingRead+' 次请求未返回输入用量':'')}><ArrowLineDown size={14} aria-hidden="true"/><b>{metrics.read!==null&&metrics.missingRead>0?'≥':''}{compactTokens(metrics.read)}</b></Metric>
+      <Metric label={metrics.cacheRate===null?'服务商尚未返回可用的缓存数据':(metrics.missingCache?'已返回数据的缓存命中率 ':'会话缓存命中率 ')+percent(metrics.cacheRate)+(metrics.missingCache?'；'+metrics.missingCache+' 次请求缺少有效缓存数据，未计入此比例':'')}><Database size={14} aria-hidden="true"/><b>{percent(metrics.cacheRate)}{metrics.cacheRate!==null&&metrics.missingCache>0?'*':''}</b></Metric>
+      <Metric label={metrics.written===null?'输出 token 用量尚未返回':(metrics.missingWritten?'已知输出至少 ':'累计输出 ')+metrics.written.toLocaleString()+' token，含思考和工具参数'+(metrics.missingWritten?'；'+metrics.missingWritten+' 次请求未返回输出用量':'')}><ArrowLineUp size={14} aria-hidden="true"/><b>{metrics.written!==null&&metrics.missingWritten>0?'≥':''}{compactTokens(metrics.written)}</b></Metric>
       <Metric label={metrics.speed===null?'最近一次回复没有可用的生成时长':'最近一次回复的生成速率：'+metrics.speed.toFixed(1)+' token / 秒；含思考与回复，不含工具执行'}><Lightning size={14} aria-hidden="true"/><b>{metrics.speed===null?'—':metrics.speed.toFixed(1)}</b><span className="assistant-metric-unit">t/s</span></Metric>
       <Metric className="assistant-metrics-speed" label={metrics.avgSpeed===null?'没有可用的生成时长，无法计算会话平均速率':'会话平均生成速率：'+metrics.avgSpeed.toFixed(1)+' token / 秒；按全部可测请求的输出与生成时长汇总'}><Gauge size={14} aria-hidden="true"/><b>{metrics.avgSpeed===null?'—':metrics.avgSpeed.toFixed(1)}</b><span className="assistant-metric-unit">t/s</span></Metric>
       <Metric className={'assistant-metrics-context'+(contextPercent!==null&&contextPercent>=80?' near-limit':'')} label={contextLimit>0?'最近一次请求的上下文占用（输入 + 输出，压缩后更新）：'+(metrics.contextTokens?.toLocaleString()??'—')+' / '+contextLimit.toLocaleString()+' token':'请在模型参数中填写上下文容量'}><span className="context-gauge" aria-hidden="true" style={{'--context-turn':(contextPercent===null?0:Math.min(100,contextPercent))+'%'} as CSSProperties}/><b>{percent(contextPercent)}</b></Metric>

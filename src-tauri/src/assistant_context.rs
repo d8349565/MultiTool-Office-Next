@@ -33,11 +33,15 @@ impl Intent{
 pub struct TaskContext {
     pub workspace_revision:u64,
     pub has_workspace_file_data:bool,
+    pub has_ocr_diagnostic_data:bool,
+    pub ocr_diagnostic_binding:String,
+    pub ocr_diagnostic_evidence_id:String,
     pub file_workspace_binding:String,
     pub schema_version:u32, pub version:u64, pub session_id:String, pub task_id:String,
     pub intent:Intent, pub status:String, pub result_set_ids:Vec<String>,
     pub evidence_ids:Vec<String>,
 }
+impl TaskContext{pub fn has_private_data(&self)->bool{self.has_workspace_file_data||self.has_ocr_diagnostic_data}}
 pub fn init(db:&rusqlite::Connection)->Result<(),String>{
     db.execute_batch("CREATE TABLE IF NOT EXISTS assistant_contexts(session TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS assistant_evidence(id TEXT PRIMARY KEY,session TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS assistant_evidence_session ON assistant_evidence(session); UPDATE assistant_contexts SET data=json_set(data,'$.status','interrupted') WHERE json_extract(data,'$.status')='running';").map_err(|e|e.to_string())
 }
@@ -144,7 +148,7 @@ pub fn accept(state:&AppState,old:&TaskContext,context:&Value,task:&str,mut inte
     if intent.request.recursive.is_none(){intent.request.recursive=Some(true);}
     if intent.operation=="tree"{intent.request.kind="directory".into();intent.request.count_only=false;}
     if intent.operation=="clarify"&&(intent.question.trim().is_empty()||!["scope","date","goal","field"].contains(&intent.pending_field.as_str())){return Err("澄清问题或待补条件无效".into());}
-    let current=TaskContext{file_workspace_binding:old.file_workspace_binding.clone(),has_workspace_file_data:old.has_workspace_file_data,workspace_revision:context["nativeWorkspaceRevision"].as_u64().unwrap_or(0),schema_version:1,version:old.version+1,session_id:old.session_id.clone(),task_id:task.into(),status:if intent.operation=="clarify"{"waiting_input"}else{"running"}.into(),result_set_ids:ids,evidence_ids:if intent.relation!="new"{old.evidence_ids.clone()}else{vec![]},intent};
+    let current=TaskContext{ocr_diagnostic_evidence_id:old.ocr_diagnostic_evidence_id.clone(),has_ocr_diagnostic_data:old.has_ocr_diagnostic_data,ocr_diagnostic_binding:old.ocr_diagnostic_binding.clone(),file_workspace_binding:old.file_workspace_binding.clone(),has_workspace_file_data:old.has_workspace_file_data,workspace_revision:context["nativeWorkspaceRevision"].as_u64().unwrap_or(0),schema_version:1,version:old.version+1,session_id:old.session_id.clone(),task_id:task.into(),status:if intent.operation=="clarify"{"waiting_input"}else{"running"}.into(),result_set_ids:ids,evidence_ids:if intent.relation!="new"{old.evidence_ids.clone()}else if old.has_ocr_diagnostic_data{vec![old.ocr_diagnostic_evidence_id.clone()]}else{vec![]},intent};
     save(state,&current)?;Ok(current)
 }
 pub fn attach(state:&AppState,current:&mut TaskContext,result:&Value)->Result<(),String>{
@@ -229,6 +233,7 @@ pub fn delivery_text(result:&Value,current:&TaskContext)->String{
     crate::assistant_work::answer(result)
 }
 pub fn validate_delivery(state:&AppState,current:&TaskContext,trace:&[Value])->Result<(),String>{
+    crate::ocr::diagnostic_share::validate_review(state,current,trace)?;
     if current.intent.delivery=="file"&&!trace.iter().any(|r|["document_create","spreadsheet_translate","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))&&r["result"]["status"]=="created"&&r["result"]["id"].as_str().is_some_and(|id|state.reports.lock().unwrap().get(id).is_some_and(|path|path.is_file()))){
         let cause=trace.iter().rev().filter(|r|["document_create","spreadsheet_translate","html_app_create"].contains(&r["tool"].as_str().unwrap_or(""))).find_map(|r|r["result"]["error"].as_str());
         return Err(cause.map_or_else(||"尚未在用户确认后生成本轮要求的文件；不能声称已完成".into(),|error|format!("文件未能生成：{error}；不能声称已完成")));

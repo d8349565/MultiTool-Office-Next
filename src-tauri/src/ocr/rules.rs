@@ -356,45 +356,55 @@ pub fn is_rejected_candidate(profile: Option<&OcrProfile>, f: &OcrFieldDefinitio
     false
 }
 
-/// 检查单据日期候选行是否属于失效日期/截止日期（如“报价有效期至 2026/12/31”）
-pub fn is_expiry_date(lines:&[OcrLine],idx:usize)->bool{
-    if idx>=lines.len(){return false;}
-    let text=&lines[idx].text;
-    if text.contains("有效期至")||text.contains("有效至")||text.contains("截止")||text.contains("到期日"){
-        return true;
-    }
-    if ["报价日期","签约日期","签订日期","制单日期","出具日期","生效日期","起始日期"].iter().any(|v|text.contains(v)){return false;}
-    // 检查前 1~3 行是否包含“报价有效期至”、“有效期至”、“截止日期”等结束词
-    for prev in (0..idx).rev().take(3){
-        if lines[prev].page!=lines[idx].page{break;}
-        let prev_text=&lines[prev].text;
-        if prev_text.contains("有效期至")||prev_text.contains("有效期限至")||prev_text.contains("有效至")||prev_text.contains("截止日期")||prev_text.contains("截止时间")||prev_text.contains("到期日")||prev_text.contains("结束日期"){
-            if !prev_text.contains("报价日期")&&!prev_text.contains("起始")&&!prev_text.contains("生效日期")&&!prev_text.contains("出具日期"){
-                return true;
-            }
-        }
-        if prev_text.contains("报价日期")||prev_text.contains("签约日期")||prev_text.contains("制单日期")||prev_text.contains("出具日期"){
-            return false;
-        }
-    }
-    false
+#[derive(Clone,Copy,PartialEq)]
+enum DateRole{Document,Expiry,Print}
+fn date_label(text:&str)->Option<DateRole>{
+    static LABEL:OnceLock<Regex>=OnceLock::new();
+    let pattern=LABEL.get_or_init(||Regex::new("报价日期|签约日期|签订日期|制单日期|出具日期|生效日期|起始日期|有效期限至|有效期至|有效至|截止日期|截止时间|截止|到期日|结束日期|打印时间|打印日期|导出时间|导出日期|制表时间|生成时间|日期").unwrap());
+    pattern.find_iter(text).last().map(|label|match label.as_str(){
+        "有效期限至"|"有效期至"|"有效至"|"截止日期"|"截止时间"|"截止"|"到期日"|"结束日期"=>DateRole::Expiry,
+        "打印时间"|"打印日期"|"导出时间"|"导出日期"|"制表时间"|"生成时间"=>DateRole::Print,
+        _=>DateRole::Document,
+    })
 }
-
-/// 检查单据日期候选行是否属于打印时间/导出时间（如“打印时间：2026/9/27”）
-pub fn is_print_or_export_date(lines:&[OcrLine],idx:usize)->bool{
-    if idx>=lines.len(){return false;}
-    let text=&lines[idx].text;
-    if text.contains("打印时间")||text.contains("打印日期")||text.contains("导出时间")||text.contains("导出日期")||text.contains("制表时间")||text.contains("生成时间"){
-        return true;
+// 判断实际选中的日期，不让同一行后面的截止标签或 OCR 数组顺序否决前一个日期。
+fn date_role(lines:&[OcrLine],idx:usize,f:&OcrFieldDefinition)->Option<DateRole>{
+    static DATE:OnceLock<(Regex,Regex)>=OnceLock::new();
+    let (separated,dates)=DATE.get_or_init(||{
+        let pattern=r"\d{4}\s*[年./-]\s*\d{1,2}\s*[月./-]\s*\d{1,2}\s*日?";
+        (Regex::new(pattern).unwrap(),Regex::new(&format!(r"{pattern}|\d{{8}}")).unwrap())
+    });
+    let line=lines.get(idx)?;
+    let selected=rule_value(&line.text,f).or_else(||{
+        let anchor=matching_anchor(&line.text,&f.anchors)?;
+        rule_value(line.text.split_once(anchor)?.1.trim_start_matches(['：',':',' ']),f)
+    })?;
+    // 与 format_value 一致：优先匹配带分隔符日期，不能把它前面的八位编号当日期。
+    let (date_start,date_end)=separated.find(selected).map(|date|(date.start(),date.end())).or_else(||{
+        (selected.chars().all(|c|c.is_ascii_digit()||c.is_whitespace())&&selected.chars().filter(|c|!c.is_whitespace()).count()==8).then_some((0,selected.len()))
+    })?;
+    // selected 是原文的切片，保留正则捕获组选中第二个日期时的真实位置。
+    let start=selected.as_ptr() as usize-line.text.as_ptr() as usize;
+    if let Some(role)=date_label(&line.text[..start+date_start]){return Some(role);}
+    let suffix=&line.text[start+date_end..];
+    if !dates.is_match(suffix){if let Some(role)=date_label(suffix){return Some(role);}}
+    let bounds=rect(line);
+    if let Some((left,_,_,_))=bounds{
+        let nearest=lines.iter().enumerate().filter(|(i,near)|*i!=idx&&near.page==line.page&&is_same_row(line,near)&&!dates.is_match(&near.text))
+            .filter_map(|(_,near)|{let (_,_,right,_)=rect(near)?;let role=date_label(&near.text)?;(right<=left+20.0).then_some(((left-right).abs(),role))})
+            .min_by(|a,b|a.0.total_cmp(&b.0));
+        if let Some((_,role))=nearest{return Some(role);}
     }
-    for prev in (0..idx).rev().take(2){
-        if lines[prev].page!=lines[idx].page{break;}
-        let prev_text=&lines[prev].text;
-        if prev_text.contains("打印时间")||prev_text.contains("打印日期")||prev_text.contains("导出时间")||prev_text.contains("导出日期")||prev_text.contains("制表时间"){
-            return true;
+    for prev in (0..idx).rev().take(3){
+        let near=&lines[prev];if near.page!=line.page{break;}
+        if dates.is_match(&near.text){continue;}
+        if let (Some((l,t,r,b)),Some((nl,_,nr,nb)))=(bounds,rect(near)){
+            let height=(b-t).max(10.0);
+            if nb>t+height*0.25||t-nb>height*3.0||nr<l||nl>r{continue;}
         }
+        if let Some(role)=date_label(&near.text){return Some(role);}
     }
-    false
+    None
 }
 
 pub struct JevPlan {
@@ -445,7 +455,7 @@ fn local_for_profile(lines:&[OcrLine],p:&OcrProfile,f:&OcrFieldDefinition)->Vec<
     for (i, l) in scoped.iter().enumerate() {
         if l.text.trim().is_empty() { continue; }
         if is_rejected_candidate(Some(p), f, &l.text) { continue; }
-        if f.kind == "date" && is_expiry_date(lines, i) { continue; }
+        if f.kind == "date" && date_role(lines, i,f)==Some(DateRole::Expiry) { continue; }
         if is_right_column_peer(i, l) { continue; }
         if let Some(val) = format_value(&l.text, f) {
             if is_rejected_candidate(Some(p), f, &val) { continue; }
@@ -530,7 +540,7 @@ pub fn jev_body(lines:&[OcrLine],p:&OcrProfile)->Result<JevPlan,String>{
         let table_hits=table_column_candidates_for(p,lines,f);
         // 绑定了区域的字段以用户画框为准：框内行不因“像打印/导出时间戳”被否决。
         let region_bound=field_has_regions(p,f);
-        let date_reject=|i:usize,l:&OcrLine|f.kind=="date"&&(format_value(&l.text,f).is_none()||is_expiry_date(lines,i)||(!region_bound&&is_print_or_export_date(lines,i)));
+        let date_reject=|i:usize,l:&OcrLine|f.kind=="date"&&(format_value(&l.text,f).is_none()||match date_role(lines,i,f){Some(DateRole::Expiry)=>true,Some(DateRole::Print)=>!region_bound,_=>false});
         let mut candidates:Vec<_>=if table_hits.is_empty()||region_bound{
             lines.iter().enumerate().filter(|(i,l)|!is_rejected_candidate(Some(p),f,&l.text)&&!date_reject(*i,l)).collect()
         }else{
@@ -557,7 +567,7 @@ pub fn jev_body(lines:&[OcrLine],p:&OcrProfile)->Result<JevPlan,String>{
                 let group:&mut (usize,Vec<usize>)=&mut unique[position];
                 group.0=group.0.min(i);group.1.push(i);continue;
             }
-            if unique.len()>=200{break;}
+            if !f.multiple&&unique.len()>=200{break;}
             seen.insert(value,unique.len());
             unique.push((i,vec![i]));
         }
@@ -595,7 +605,8 @@ pub fn jev_body(lines:&[OcrLine],p:&OcrProfile)->Result<JevPlan,String>{
                 let occurrences=indices.iter().map(|idx|candidate_context(lines, *idx, &p.fields, has_field_box && in_field_region(&lines[*idx], p, f))).collect::<Vec<_>>();
                 value.push_str(&format!("；各次出现的上下文：{}",json!(occurrences)));
             }
-            if bytes+value.len()>20_000 {break;}
+            // 多值候选由 jev_batches 分批，不能在评分前丢掉排在杂项后面的产品。
+            if !f.multiple&&bytes+value.len()>20_000 {break;}
             bytes+=value.len();let id=opaque(i);
             groups.insert(format!("{fi}:{id}"),indices);
             criteria.insert(id,json!(value));
@@ -667,18 +678,22 @@ pub fn jev_batches(body:&Value)->Vec<Value>{
     }}
     if !questions.is_empty(){batches.push(json!({"model":body["model"],"state":state_with_lines(&base,&lines),"questions":questions}));}batches
 }
-pub fn format_value(raw:&str,f:&OcrFieldDefinition)->Option<String>{
-    let mut s=raw.trim().to_owned();
+fn rule_value<'a>(raw:&'a str,f:&OcrFieldDefinition)->Option<&'a str>{
+    let mut s=raw.trim();
     if let Some(prefix)=f.strip_prefixes.iter().filter(|prefix|!prefix.is_empty()&&s.starts_with(prefix.as_str())).max_by_key(|prefix|prefix.len()){
-        s=s[prefix.len()..].trim_start_matches(|c:char|c.is_whitespace()||"\u{ff1a}:".contains(c)).into();
+        s=s[prefix.len()..].trim_start_matches(|c:char|c.is_whitespace()||"\u{ff1a}:".contains(c));
     }
     if s.is_empty(){return None;}
     if !f.pattern.is_empty(){
         let re=Regex::new(&f.pattern).ok()?;
         let captures=re.captures(&s)?;
-        s=captures.get(1).or_else(||captures.get(0))?.as_str().trim().to_owned();
+        s=captures.get(1).or_else(||captures.get(0))?.as_str().trim();
         if s.is_empty(){return None;}
     }
+    Some(s)
+}
+pub fn format_value(raw:&str,f:&OcrFieldDefinition)->Option<String>{
+    let mut s=rule_value(raw,f)?.to_owned();
     match f.kind.as_str(){
         "date"=>{let s=s.chars().filter(|c|!c.is_whitespace()).collect::<String>();let r=Regex::new(r"(\d{4})[年./-](\d{1,2})[月./-](\d{1,2})日?").unwrap();let d=if let Some(c)=r.captures(&s){chrono::NaiveDate::from_ymd_opt(c[1].parse().ok()?,c[2].parse().ok()?,c[3].parse().ok()?)}else{chrono::NaiveDate::parse_from_str(&s,"%Y%m%d").ok()}?;Some(d.format(if f.format.is_empty(){"%Y%m%d"}else{&f.format}).to_string())},
         "number"=>{let normalized=s.replace([',','\u{ff0c}',' '],"");let r=Regex::new(r"[-+]?\d+(?:\.\d+)?").unwrap();let matches:Vec<_>=r.find_iter(&normalized).collect();if matches.len()!=1{return None;}let raw=matches[0].as_str();if f.format.is_empty(){Some(raw.into())}else{let n:f64=raw.parse().ok()?;if !n.is_finite(){return None;}Some(format!("{:.*}",f.format.parse::<usize>().ok()?,n))}},
@@ -712,7 +727,7 @@ fn local_for(profile:&OcrProfile,lines:&[OcrLine],f:&OcrFieldDefinition)->Vec<(u
 
 fn local_for_impl(profile:&OcrProfile,lines:&[OcrLine],f:&OcrFieldDefinition,skip_print_stamp:bool)->Vec<(usize,String)>{
     let noisy = |s:&str| is_rejected_candidate(Some(profile),f,s);
-    let bad_date=|i:usize|is_expiry_date(lines,i)||(skip_print_stamp&&is_print_or_export_date(lines,i));
+    let bad_date=|i:usize|match date_role(lines,i,f){Some(DateRole::Expiry)=>true,Some(DateRole::Print)=>skip_print_stamp,_=>false};
     let mut found=vec![];
     let col_cands = table_column_candidates_for(profile,lines,f);
     if !col_cands.is_empty(){
@@ -808,7 +823,7 @@ pub fn extract(lines:&[OcrLine],p:&OcrProfile,response:Option<&Value>,plan:Optio
     }
 
     for (fi,f) in p.fields.iter().enumerate(){
-        let mut local_cand=None;let mut local_matched=None;
+        let mut local_cand=None;let mut local_matched=None;let mut local_attempted=false;
         let mut result=OcrFieldResult{value:String::new(),source:"missing".into(),confidence:None,evidence:vec![],review:false};
         let mut reasons:Vec<String>=vec![];
         if f.kind!="number"{
@@ -823,6 +838,7 @@ pub fn extract(lines:&[OcrLine],p:&OcrProfile,response:Option<&Value>,plan:Optio
                     let all_selected=selected.clone();
                     let mut seen_values=HashSet::new();
                     selected.retain(|(index,_)|format_value(&lines[*index].text,f).is_some_and(|value|seen_values.insert(value)));
+                    if selected.len()>f.max_items{logs.push(format!("[决策: {}] 已识别 {} 个不同值，按配置最多保留 {} 个；如需更多请调整多值数量",f.key,selected.len(),f.max_items));}
                     selected.truncate(f.max_items);
                     selected.sort_by_key(|(index,_)|*index);
                     let mut values=vec![];
@@ -882,6 +898,7 @@ pub fn extract(lines:&[OcrLine],p:&OcrProfile,response:Option<&Value>,plan:Optio
         let jev_candidate=(result.source=="jev").then(||result.value.clone());
         let jev_conf=result.confidence;
         if result.value.is_empty(){
+            local_attempted=true;
             let candidates=local_for_profile(lines,p,f);
             if !candidates.is_empty(){
                 let value=candidates.iter().map(|(_,v)|v.clone()).collect::<Vec<_>>().join(&f.separator);
@@ -948,7 +965,7 @@ pub fn extract(lines:&[OcrLine],p:&OcrProfile,response:Option<&Value>,plan:Optio
             }
         }
         logs.push(format!("[最终: {}] value=\"{}\" source={} confidence={:?} review={}",f.key,result.value,result.source,result.confidence,result.review));
-        decisions.push(OcrDecisionLog{field_key:f.key.clone(),final_value:result.value.clone(),final_source:result.source.clone(),review_required:result.review,review_reason:if !result.review{None}else if reasons.is_empty(){None}else{Some(reasons.join("；"))},jev_candidate,jev_confidence:jev_conf,local_candidate:local_cand,local_rule_matched:local_matched});
+        decisions.push(OcrDecisionLog{field_key:f.key.clone(),final_value:result.value.clone(),final_source:result.source.clone(),review_required:result.review,review_reason:if !result.review{None}else if reasons.is_empty(){None}else{Some(reasons.join("；"))},jev_candidate,jev_confidence:jev_conf,local_attempted:Some(local_attempted),local_candidate:local_cand,local_rule_matched:local_matched});
         out.insert(f.key.clone(),result);
     }
     logs.push("===== Jev Debug End =====".into());

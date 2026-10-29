@@ -27,6 +27,11 @@ mod tests{
         assert_eq!(result["choices"][0]["message"]["content"],"中文答复");assert_eq!(result["usage"]["prompt_tokens"],10);
     }
     #[test]
+    fn usage_and_cache_survive_empty_tail_frames(){
+        let result=decode("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"答复\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"prompt_tokens_details\":{\"cached_tokens\":80}}}\n\ndata: {\"choices\":[],\"usage\":null}\n\ndata: [DONE]\n\n").unwrap();
+        assert_eq!(result["usage"],json!({"prompt_tokens":100,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":80}}));
+    }
+    #[test]
     fn multiline_sse_events_are_supported(){
         let result=decode("data: {\"model\":\"audit\",\ndata: \"choices\":[{\"index\":0,\"delta\":{\"content\":\"多行事件\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n").unwrap();
         assert_eq!(result["choices"][0]["message"]["content"],"多行事件");

@@ -1,5 +1,6 @@
 pub(crate) mod model;mod rules;mod store;pub(crate) mod worker;
 pub(crate) mod assistant;
+pub(crate) mod diagnostic_share;
 #[cfg(test)]
 #[path = "profile_tests.rs"]
 mod profile_tests;
@@ -325,27 +326,30 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                                 let response_result=tauri::async_runtime::block_on(async {
                                     let mut answers=serde_json::Map::new();
                                     let batches = rules::jev_batches(&built.body);
-                                    let mut handles = Vec::with_capacity(batches.len());
-                                    for batch in batches {
-                                        let cancel_clone = cancel.clone();
-                                        handles.push(tauri::async_runtime::spawn(async move {
-                                            crate::ai::post("https://api.typesafe.ai/v1/systemone","jev",batch.clone(),&cancel_clone,crate::network::Feature::OcrJev).await
-                                                .map(|v| (batch, v))
-                                        }));
-                                    }
-                                    for handle in handles {
-                                        let (batch, v) = handle.await.map_err(|e| format!("Jev 任务执行异常: {e}"))??;
-                                        let part=v["answers"].as_object().ok_or("Jev 返回缺少 answers")?;
-                                        for (qid,question) in batch["questions"].as_object().unwrap(){
-                                            let answer=part.get(qid).ok_or("Jev 返回缺少问题结果")?;
-                                            if question["type"]=="choice"{
-                                                let choice=answer["choice"].as_str().ok_or("Jev 返回缺少候选 ID")?;
-                                                if question["criteria"].get(choice).is_none(){return Err("Jev 返回未提交的候选 ID".into());}
-                                            }else{
-                                                let probability=answer["noul"].as_f64().ok_or("Jev 返回缺少 Noul 概率")?;
-                                                if !probability.is_finite()||!(0.0..=1.0).contains(&probability){return Err("Jev 返回无效 Noul 概率".into());}
+                                    for batch_group in batches.chunks(4){
+                                        let mut handles = Vec::with_capacity(batch_group.len());
+                                        for batch in batch_group {
+                                            let batch=batch.clone();
+                                            let cancel_clone = cancel.clone();
+                                            handles.push(tauri::async_runtime::spawn(async move {
+                                                crate::ai::post("https://api.typesafe.ai/v1/systemone","jev",batch.clone(),&cancel_clone,crate::network::Feature::OcrJev).await
+                                                    .map(|v| (batch, v))
+                                            }));
+                                        }
+                                        for handle in handles {
+                                            let (batch, v) = handle.await.map_err(|e| format!("Jev 任务执行异常: {e}"))??;
+                                            let part=v["answers"].as_object().ok_or("Jev 返回缺少 answers")?;
+                                            for (qid,question) in batch["questions"].as_object().unwrap(){
+                                                let answer=part.get(qid).ok_or("Jev 返回缺少问题结果")?;
+                                                if question["type"]=="choice"{
+                                                    let choice=answer["choice"].as_str().ok_or("Jev 返回缺少候选 ID")?;
+                                                    if question["criteria"].get(choice).is_none(){return Err("Jev 返回未提交的候选 ID".into());}
+                                                }else{
+                                                    let probability=answer["noul"].as_f64().ok_or("Jev 返回缺少 Noul 概率")?;
+                                                    if !probability.is_finite()||!(0.0..=1.0).contains(&probability){return Err("Jev 返回无效 Noul 概率".into());}
+                                                }
+                                                answers.insert(qid.clone(),answer.clone());
                                             }
-                                            answers.insert(qid.clone(),answer.clone());
                                         }
                                     }
                                     Ok::<Value,String>(json!({"answers":answers}))

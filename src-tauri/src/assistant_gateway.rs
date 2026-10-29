@@ -6,7 +6,7 @@ pub enum Capability { Metadata, AppState, PublicSearch, Artifact, WorkspaceFile,
 pub fn capability(tool:&str)->Result<Capability,String>{
     Ok(match tool{
         "files_query"|"resultset_enrich"|"directory_tree"|"files_search"|"files_analyze"|"files_list_dirs"|"files_missing_companion"=>Capability::Metadata,
-        "settings_read"|"app_get_state"|"pricing_read"|"ocr_profiles_read"=>Capability::AppState,
+        "settings_read"|"app_get_state"|"pricing_read"|"ocr_profiles_read"|"ocr_diagnostic_read"=>Capability::AppState,
         "web_search"|"web_fetch"=>Capability::PublicSearch,
         "report_create"=>Capability::Artifact,
         "workspace_list_files"|"workspace_read_file"|"document_create"|"spreadsheet_translate"|"html_app_create"=>Capability::WorkspaceFile,
@@ -21,9 +21,11 @@ pub fn check_scope(scope:&str,tool:&str)->Result<(),String>{
 }
 pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_only:bool)->Result<(),String>{
     let capability=capability(tool)?;
+    crate::ocr::diagnostic_share::authorize_session(state,current)?;
+    crate::ocr::diagnostic_share::authorize_tool(state,current,tool,args)?;
     if respond_only{return Err("本轮只整理已有资料，不允许新工具操作".into());}
     check_scope(&current.intent.scope,tool)?;
-    if ["ocr_profiles_read","ocr_profile_propose_change"].contains(&tool)&&current.intent.operation!="config"{return Err("仅在用户要求查看、创建或调整 OCR 配置时使用此工具；请按配置任务处理".into());}
+    if ["ocr_profiles_read","ocr_profile_propose_change"].contains(&tool)&&current.intent.operation!="config"&&!(tool=="ocr_profiles_read"&&current.has_ocr_diagnostic_data){return Err("仅在用户要求查看、创建或调整 OCR 配置时使用此工具；请按配置任务处理".into());}
     if capability==Capability::UserAction&&!current.intent.allowed_actions.iter().any(|t|t==tool){return Err("本轮用户没有授权该外部操作".into());}
     if capability==Capability::Artifact&&current.intent.delivery!="html"&&current.intent.operation!="report"{return Err("用户没有要求创建报告".into());}
     if matches!(capability,Capability::WorkspaceFile|Capability::Artifact){crate::assistant_workspace::authorize(state,current.workspace_revision)?;}
@@ -40,7 +42,7 @@ pub fn check(state:&AppState,current:&TaskContext,tool:&str,args:&Value,respond_
         if !s.search_enabled||s.assistant_search_limit==0{return Err("请先在设置中启用联网搜索并配置任务次数上限".into());}
         if tool=="web_fetch"&&(s.search_provider!="deepseek"||!s.deepseek_fetch_enabled){return Err("额外网页正文抓取尚未开启".into());}
     }
-    if capability==Capability::PublicSearch&&current.has_workspace_file_data{return Err("本会话已接触本地工作目录资料，禁止把它们带入公开搜索；需要搜索公开资料请新建会话".into());}
+    if capability==Capability::PublicSearch&&current.has_private_data(){return Err("本会话已接触本地文件或 OCR 诊断资料，禁止把它们带入公开搜索；需要搜索公开资料请新建会话".into());}
     if capability==Capability::SettingsProposal&&tool=="settings_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&args["changes"])?;}
     if tool=="pricing_propose_change"{crate::settings::patch(&state.settings.lock().unwrap(),&serde_json::json!({"modelPricing":args["pricing"]}))?;}
     if tool=="model_config_add"&&current.intent.operation!="config"{return Err("只有用户要求配置模型接口时才能新增模型配置".into());}

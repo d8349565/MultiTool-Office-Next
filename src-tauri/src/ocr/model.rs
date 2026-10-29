@@ -69,6 +69,7 @@ pub struct OcrDecisionLog {
     pub review_reason: Option<String>,
     pub jev_candidate: Option<String>,
     pub jev_confidence: Option<f64>,
+    #[serde(default)] pub local_attempted: Option<bool>,
     pub local_candidate: Option<String>,
     pub local_rule_matched: Option<String>,
 }

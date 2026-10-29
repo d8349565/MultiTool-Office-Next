@@ -5,10 +5,11 @@ import { listen } from '@tauri-apps/api/event';
 import { api, copy as copyText, desktop, pick } from './api';
 import { Empty, IconButton, Modal } from './components';
 import { basename, dirname, isWithin } from './domain';
-import { completedOcrFileIds, completedOcrTask, defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
+import { completedOcrFileIds, completedOcrTask, defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, localDecisionText, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
 import './ocr.css';
 import { OcrRegions } from './OcrRegions';
 import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
+import { OcrDiagnosticShare, type OcrDiagnosticRequest } from './OcrDiagnosticShare';
 
 const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',jev:'Jev',manual:'人工修正',missing:'未识别',relocated:'路径已变化，请重新导入'};
 const active=(t?:OcrTask)=>!!t&&['running','queued'].includes(t.status);
@@ -22,7 +23,7 @@ const exportOptions=[
   {format:'csv',label:'字段表格 (CSV)',title:'导出文件名及提取出的结构化字段表格，支持 Excel 打开 (.csv)'},
   {format:'json',label:'完整数据 (JSON)',title:'导出包含识别坐标、提取字段与诊断日志的完整任务数据 (.json)'},
 ] as const;
-export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onSettings:()=>void}){
+export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onDiagnose}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onSettings:()=>void;onDiagnose?:(request:OcrDiagnosticRequest)=>void}){
   const [data,setData]=useState<OcrBootstrap>({profiles:[],tasks:[],batches:[],engineReady:false,jevReady:false});
   const [resultFilter,setResultFilter]=useState('all');
   const [preferences]=useState(taskPreferences),[workflow,setWorkflow]=useState<OcrWorkflowOptions>(()=>preferences.workflow),[settingsOpen,setSettingsOpen]=useState(false),[taskHistoryOpen,setTaskHistoryOpen]=useState(false);
@@ -33,6 +34,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     try{return localStorage.getItem('ocr_uniform_rows')!=='false';}catch{return true;}
   });
   const [taskId,setTaskId]=useState(''),[fileId,setFileId]=useState(''),[checked,setChecked]=useState<string[]>([]);
+  const [diagnosticFile,setDiagnosticFile]=useState<{taskId:string;fileId:string}|null>(null);
   const [editor,setEditor]=useState<OcrProfile|null>(null),[batch,setBatch]=useState<OcrRenameBatch|null>(null),[undo,setUndo]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[history,setHistory]=useState(false);
   const [recheckPrompt,setRecheckPrompt]=useState<{paths:string[];duplicateCount:number;total:number;profileId:string}|null>(null);
@@ -254,8 +256,9 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
           </footer>
         </section>
       )}
-      {file&&task&&<ResultDetail key={`${task.id}:${file.id}:${file.status}:${detailVersion}`} file={file} disabled={busy||active(task)} onSave={(values,name,reviewed)=>run(async()=>{await api('ocr_update_result',{taskId:task.id,fileId:file.id,values,proposedName:name,reviewed});await refresh();setDetailVersion(v=>v+1);setNotice('结果已保存');})} onOpen={reveal=>void run(async()=>{await api('ocr_open_file',{taskId:task.id,fileId:file.id,reveal});})} onClose={()=>setFileId('')}/>}
+      {file&&task&&<ResultDetail key={`${task.id}:${file.id}:${file.status}:${detailVersion}`} file={file} disabled={busy||active(task)} onDiagnose={desktop&&onDiagnose?()=>setDiagnosticFile({taskId:task.id,fileId:file.id}):undefined} onSave={(values,name,reviewed)=>run(async()=>{await api('ocr_update_result',{taskId:task.id,fileId:file.id,values,proposedName:name,reviewed});await refresh();setDetailVersion(v=>v+1);setNotice('结果已保存');})} onOpen={reveal=>void run(async()=>{await api('ocr_open_file',{taskId:task.id,fileId:file.id,reveal});})} onClose={()=>setFileId('')}/>}
     </div>
+    {visible&&diagnosticFile&&<OcrDiagnosticShare {...diagnosticFile} onClose={()=>setDiagnosticFile(null)} onShare={request=>{setDiagnosticFile(null);setFileId('');onDiagnose?.(request);}}/>}
     {settingsOpen&&<Modal title="识别设置" className="ocr-settings-dialog" onClose={()=>setSettingsOpen(false)}>
       {error&&<p className="inline-error" role="alert">{error}</p>}
       {notice&&<p className="ocr-policy" role="status">{notice}</p>}
@@ -311,7 +314,7 @@ function ProfileMatchDetail({file}:{file:OcrFileResult}){
   </details>;
 }
 
-function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;disabled:boolean;onSave:(values:Record<string,string>,name:string,reviewed:boolean)=>Promise<void>;onOpen:(reveal:boolean)=>void;onClose:()=>void}){
+function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:OcrFileResult;disabled:boolean;onSave:(values:Record<string,string>,name:string,reviewed:boolean)=>Promise<void>;onOpen:(reveal:boolean)=>void;onClose:()=>void;onDiagnose?:()=>void}){
   const [tab,setTab]=useState<'fields'|'decisions'|'outbound'|'logs'|'lines'>('fields');
   const [values,setValues]=useState(Object.fromEntries(Object.entries(file.fields).map(([k,v])=>[k,v.value])));
   const [name,setName]=useState(file.proposedName);
@@ -345,6 +348,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;
             <span className="muted" style={{fontSize:11}}>{file.lines.length} 行文本 · 耗时 {(file.elapsedMs/1000).toFixed(1)}s</span>
           </div>
           <div className="ocr-buttons">
+            {onDiagnose&&<Button size="small" icon={<Sparkle aria-hidden="true"/>} onClick={onDiagnose}>让助理诊断</Button>}
             <Button size="small" onClick={()=>onOpen(false)}>打开原文件</Button>
             <Button size="small" onClick={()=>onOpen(true)}>资源管理器定位</Button>
           </div>
@@ -487,7 +491,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose}:{file:OcrFileResult;
                       </div>
                       <div className="ocr-cand-line">
                         <span className="cand-label">本地规则:</span>
-                        <span>{d.localCandidate?`${d.localCandidate} ${d.localRuleMatched?`[锚点:${d.localRuleMatched}]`:''}`:'（未匹配到规则）'}</span>
+                        <span>{localDecisionText(d)}</span>
                       </div>
                     </div>
                     {d.reviewReason&&(
@@ -908,7 +912,7 @@ function ProfileEditor({value:p,busy,error,onChange,onClose,onSave,onDelete,onAI
       </p>
     )}
     <div className="ocr-section-heading"><h3>提取字段</h3><Button icon={<Plus/>} size="small" onClick={()=>set({fields:[...p.fields,newField()]})}>添加字段</Button></div>{!p.fields.length&&<p className="muted">没有配置字段时，仅识别和导出文字。</p>}
-    {p.fields.map((f,i)=><section className="ocr-field-editor" key={i}><div className="ocr-form-grid"><label className="ocr-field">字段名称<input aria-label={`字段名称 ${i+1}`} value={f.key} onChange={e=>field(i,{key:e.target.value})}/></label><label className="ocr-field">类型<select value={f.kind} onChange={e=>field(i,{kind:e.target.value as OcrFieldDefinition['kind'],format:''})}><option value="text">文字</option><option value="date">日期</option><option value="number">数字 / 金额</option></select></label></div><label className="ocr-field">Jev 判断说明（启用 Jev 时生效）<input aria-label={`字段说明 ${i+1}`} value={f.prompt} onChange={e=>field(i,{prompt:e.target.value})}/></label><div className="ocr-buttons"><Checkbox label="必填" checked={f.required} onChange={(_,v)=>field(i,{required:!!v.checked})}/><Checkbox label="多个值" checked={f.multiple} onChange={(_,v)=>field(i,{multiple:!!v.checked})}/>{f.multiple&&<><label>最多 <input className="ocr-small-number" type="number" min={1} max={20} value={f.maxItems} onChange={e=>field(i,{maxItems:Number(e.target.value)})}/></label><label>分隔符 <input className="ocr-small-number" value={f.separator} onChange={e=>field(i,{separator:e.target.value})}/></label></>}<span className="ocr-spacer"/><Button size="small" onClick={()=>onChange(updateProfileField(p,i,null))}>移除字段</Button></div>
+    {p.fields.map((f,i)=><section className="ocr-field-editor" key={i}><div className="ocr-form-grid"><label className="ocr-field">字段名称<input aria-label={`字段名称 ${i+1}`} value={f.key} onChange={e=>field(i,{key:e.target.value})}/></label><label className="ocr-field">类型<select value={f.kind} onChange={e=>field(i,{kind:e.target.value as OcrFieldDefinition['kind'],format:''})}><option value="text">文字</option><option value="date">日期</option><option value="number">数字 / 金额</option></select></label></div><label className="ocr-field">Jev 判断说明（启用 Jev 时生效）<input aria-label={`字段说明 ${i+1}`} value={f.prompt} onChange={e=>field(i,{prompt:e.target.value})}/></label><div className="ocr-buttons"><Checkbox label="必填" checked={f.required} onChange={(_,v)=>field(i,{required:!!v.checked})}/><Checkbox label="多个值" checked={f.multiple} onChange={(_,v)=>field(i,{multiple:!!v.checked})}/>{f.multiple&&<><label>最多保留 <input className="ocr-small-number" type="number" min={1} max={20} value={f.maxItems} onChange={e=>field(i,{maxItems:Number(e.target.value)})}/></label><label>分隔符 <input className="ocr-small-number" value={f.separator} onChange={e=>field(i,{separator:e.target.value})}/></label></>}<span className="ocr-spacer"/><Button size="small" onClick={()=>onChange(updateProfileField(p,i,null))}>移除字段</Button></div>
     <details><summary>本地提取规则（默认使用；Jev 无结果时回退）</summary><div className="ocr-form-grid"><label className="ocr-field">定位标签（逗号分隔）<input value={f.anchors.join(',')} onChange={e=>field(i,{anchors:list(e.target.value)})}/></label><label className="ocr-field">清理前缀（逗号分隔）<input value={f.stripPrefixes.join(',')} onChange={e=>field(i,{stripPrefixes:list(e.target.value)})}/></label><label className="ocr-field">正则表达式<input value={f.pattern} onChange={e=>field(i,{pattern:e.target.value})} placeholder="优先取第一个捕获组"/></label><label className="ocr-field">未识别时的显示值<input value={f.fallback} onChange={e=>field(i,{fallback:e.target.value})}/></label>{f.kind==='date'&&<label className="ocr-field">日期格式<select value={f.format} onChange={e=>field(i,{format:e.target.value})}><option value="">YYYYMMDD</option><option value="%Y%m%d">YYYYMMDD</option><option value="%Y-%m-%d">YYYY-MM-DD</option><option value="%Y/%m/%d">YYYY/MM/DD</option><option value="%Y年%m月%d日">YYYY年MM月DD日</option></select></label>}{f.kind==='number'&&<label className="ocr-field">保留小数位<select value={f.format} onChange={e=>field(i,{format:e.target.value})}><option value="">保持原值</option>{[0,1,2,3,4,5,6].map(n=><option value={String(n)} key={n}>{n} 位</option>)}</select></label>}</div></details></section>)}
     <div className="ocr-form-grid"><label className="ocr-field">命名格式<input aria-label="命名格式" value={p.filenamePattern} onChange={e=>set({filenamePattern:e.target.value})}/><small>可用：{'{原文件名}'} {p.fields.filter(f=>f.key).map(f=>`{${f.key}}`).join(' ')}；保留原扩展名。</small></label><label className="ocr-field">低于此分数需复核<input type="number" min={0} max={1} step={.05} value={p.threshold} onChange={e=>set({threshold:Number(e.target.value)})}/><small>也用于自动匹配：低于此分数的首页关键词不计入命中数。请先查看匹配诊断，不建议仅为命中而降低阈值。</small></label></div>
     <details><summary>版式专有词（画像）：只影响当前配置，不写入通用规则</summary><div className="ocr-form-grid"><label className="ocr-field">附加标题（逗号分隔）<input value={(p.extraTitles||[]).join(',')} onChange={e=>set({extraTitles:list(e.target.value)})}/></label><label className="ocr-field">排除词（逗号分隔）<input value={(p.noiseMarkers||[]).join(',')} onChange={e=>set({noiseMarkers:list(e.target.value)})}/></label><label className="ocr-field">补充表头（逗号分隔）<input value={(p.extraHeaders||[]).join(',')} onChange={e=>set({extraHeaders:list(e.target.value)})}/></label></div><p className="muted">通用规则只认识报价/合同/送货等跨行业类型；某一样本的内部词必须填在这里，换版式不影响别人。</p></details>

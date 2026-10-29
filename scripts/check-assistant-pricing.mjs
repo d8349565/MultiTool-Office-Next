@@ -14,6 +14,16 @@ const raw=[{round:1,requests:[request(bill()),request(bill('CNY',2))]},{kind:'in
 const result=costMetrics(raw);
 assert.equal(result.records.length,3);assert.equal(result.missing,0);assert.equal(result.totals.find(t=>t.currency==='CNY').total,3);assert.equal(result.totals.find(t=>t.currency==='USD').total,.5);
 assert.equal(tokenMetrics(raw).read,300);assert.equal(tokenMetrics(raw).written,30);
+// 只检查统计纯函数：一次缺失回包不能抹去已返回的输入、输出和缓存数据。
+const partial=tokenMetrics([request(bill()),{usage:null},{usage:{completion_tokens:5}},{usage:{prompt_tokens:50}}]);
+assert.equal(partial.read,150);assert.equal(partial.written,15);assert.equal(partial.cacheRate,20);
+assert.equal(partial.missingRead,2);assert.equal(partial.missingWritten,2);assert.equal(partial.missingCache,3);
+const noUsage=tokenMetrics([{usage:null}]);assert.equal(noUsage.read,null);assert.equal(noUsage.written,null);assert.equal(noUsage.cacheRate,null);
+const cacheMissing=tokenMetrics([{usage:{prompt_tokens:100,completion_tokens:10,prompt_cache_hit_tokens:80}},{usage:{prompt_tokens:100,completion_tokens:10}}]);
+assert.equal(cacheMissing.cacheRate,80);assert.equal(cacheMissing.missingCache,1);
+const invalidCache=tokenMetrics([request(bill()),{usage:{prompt_tokens:100,completion_tokens:10,prompt_cache_hit_tokens:101}}]);
+assert.equal(invalidCache.read,200);assert.equal(invalidCache.written,20);assert.equal(invalidCache.cacheRate,20);assert.equal(invalidCache.missingCache,1);
+const empty=tokenMetrics([]);assert.equal(empty.read,null);assert.equal(empty.written,null);assert.equal(empty.rounds,null);
 assert.equal(costMetrics(withTaskScope(raw,'a')).totals[0].total,3);
 assert.equal(costMetrics([raw,withTaskScope(raw,'b')]).totals[0].total,6);
 const incomplete=costMetrics([request(bill()),request(undefined),request({status:'unavailable',reason:'missing_calendar'}),request(bill('CNY',NaN))]);

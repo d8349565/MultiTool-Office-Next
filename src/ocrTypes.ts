@@ -25,7 +25,13 @@ export interface OcrJevLog {
 export interface OcrDecisionLog {
   fieldKey: string; finalValue: string; finalSource: string; reviewRequired: boolean;
   reviewReason?: string | null; jevCandidate?: string | null; jevConfidence?: number | null;
-  localCandidate?: string | null; localRuleMatched?: string | null;
+  localAttempted?: boolean | null; localCandidate?: string | null; localRuleMatched?: string | null;
+}
+export function localDecisionText(d:OcrDecisionLog):string {
+  if(d.localCandidate)return d.localCandidate+(d.localRuleMatched?` [锚点:${d.localRuleMatched}]`:'');
+  if(d.localAttempted===false)return '（已有 Jev 结果，未执行本地回退）';
+  if(d.localAttempted===true)return '（已执行本地提取，未得到有效候选）';
+  return '（历史记录未提供本地候选，执行情况未知）';
 }
 export interface OcrFileDiagnostics {
   ocrLinesCount: number; ocrElapsedMs: number; jev: OcrJevLog; decisions: OcrDecisionLog[]; logs: string[];

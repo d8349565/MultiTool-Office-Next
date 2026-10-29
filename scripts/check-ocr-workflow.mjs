@@ -4,7 +4,13 @@ import ts from 'typescript';
 
 const source=readFileSync(new URL('../src/ocrTypes.ts',import.meta.url),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
-const {defaultWorkflow,oneClickWorkflow,completedOcrFileIds,completedOcrTask}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const {defaultWorkflow,oneClickWorkflow,completedOcrFileIds,completedOcrTask,localDecisionText}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const decision={fieldKey:'日期',finalValue:'',finalSource:'missing',reviewRequired:true};
+assert.equal(localDecisionText({...decision,localAttempted:true}),'（已执行本地提取，未得到有效候选）');
+assert.equal(localDecisionText({...decision,localAttempted:false}),'（已有 Jev 结果，未执行本地回退）');
+assert.equal(localDecisionText(decision),'（历史记录未提供本地候选，执行情况未知）');
+assert.equal(localDecisionText({...decision,localCandidate:'2026/10/28'}),'2026/10/28');
+console.log('OCR local diagnostics: attempted, skipped, legacy, and valid candidates passed.');
 assert.equal(defaultWorkflow.rename,'apply');
 assert.equal(defaultWorkflow.renameConfirmed,false);
 // Old saved review/preview settings must not leave a one-click task half-finished.

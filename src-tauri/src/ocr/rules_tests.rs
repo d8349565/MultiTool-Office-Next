@@ -114,6 +114,80 @@ fn region_does_not_bypass_a_configured_pattern() {
 }
 
 #[test]
+fn local_diagnostics_record_region_fallback_without_an_anchor(){
+    let profile=OcrProfile{
+        fields:vec![OcrFieldDefinition{key:"日期".into(),kind:"date".into(),anchors:vec!["报价日期".into()],pattern:r"\d{4}/\d{1,2}/\d{1,2}".into(),format:"%Y/%m/%d".into(),..Default::default()}],
+        regions:vec![OcrRegion{page:1,x:0.5,y:0.15,width:0.4,height:0.02,field_key:Some("日期".into())}],..Default::default()
+    };
+    let lines=vec![line("报价日期",100.0,360.0,180.0),line("2026/10/28",900.0,360.0,220.0),line("报价有效期至",100.0,400.0,220.0),line("2027/12/31",900.0,400.0,220.0)];
+    let (fields,decisions)=extract(&lines,&profile,None,None,&mut vec![]);
+    assert_eq!(fields["日期"].value,"2026/10/28");assert!(decisions[0].local_rule_matched.is_none());
+    assert_eq!(serde_json::to_value(&decisions[0]).unwrap()["localAttempted"],true);
+    let mut expiry_box=profile.clone();expiry_box.regions[0].y=0.17;
+    let (fields,decisions)=extract(&lines,&expiry_box,None,None,&mut vec![]);
+    assert_eq!(fields["日期"].source,"missing");assert!(fields["日期"].review);
+    assert_eq!(serde_json::to_value(&decisions[0]).unwrap()["localAttempted"],true);
+}
+
+#[test]
+fn local_diagnostics_distinguish_jev_success_from_failed_local_extraction(){
+    let profile=OcrProfile{fields:vec![OcrFieldDefinition{key:"日期".into(),kind:"date".into(),anchors:vec!["报价日期".into()],..Default::default()}],..Default::default()};
+    let lines=vec![line("报价日期：2026/10/28",100.0,360.0,400.0)];
+    let plan=jev_body(&lines,&profile).unwrap();
+    let choice=plan.groups.keys().find_map(|key|key.strip_prefix("0:")).unwrap();
+    let mut response=json!({"answers":{}});response["answers"][&plan.questions[0].0]=json!({"choice":choice,"confidence":0.99});
+    let (fields,decisions)=extract(&lines,&profile,Some(&response),Some(&plan),&mut vec![]);
+    assert_eq!(fields["日期"].source,"jev");assert!(decisions[0].local_candidate.is_none());
+    let mut saved=serde_json::to_value(&decisions[0]).unwrap();assert_eq!(saved["localAttempted"],false);
+    saved.as_object_mut().unwrap().remove("localAttempted");
+    assert!(serde_json::from_value::<OcrDecisionLog>(saved).is_ok());
+}
+
+#[test]
+fn adjacent_dates_keep_the_selected_document_date(){
+    let profile=OcrProfile{fields:vec![OcrFieldDefinition{key:"日期".into(),kind:"date".into(),anchors:vec!["报价日期".into()],pattern:r"\d{4}/\d{1,2}/\d{1,2}".into(),..Default::default()}],..Default::default()};
+    for lines in [
+        vec![line("报价日期：2026/10/28 报价有效期至：2027/12/31",100.0,360.0,800.0)],
+        vec![line("报价日期",100.0,360.0,180.0),line("报价有效期至",100.0,400.0,220.0),line("2026/10/28",900.0,360.0,220.0),line("2027/12/31",900.0,400.0,220.0)],
+        vec![line("报价日期",100.0,360.0,180.0),line("2026/10/28",350.0,360.0,200.0),line("有效期至",700.0,360.0,180.0),line("2027/12/31",950.0,360.0,200.0)],
+    ]{
+        let (fields,_)=extract(&lines,&profile,None,None,&mut vec![]);
+        assert_eq!(fields["日期"].value,"20261028");
+        let plan=jev_body(&lines,&profile).unwrap();
+        assert!(!plan.groups.is_empty(),"document date was removed before model selection");
+        assert!(plan.groups.values().flatten().all(|i|format_value(&lines[*i].text,&profile.fields[0]).as_deref()==Some("20261028")));
+    }
+    let mut expiry=profile.clone();expiry.fields[0].pattern=r"有效期至[:：]\s*(\d{4}/\d{1,2}/\d{1,2})".into();
+    let lines=vec![line("报价日期：2026/10/28 报价有效期至：2027/12/31",100.0,360.0,800.0)];
+    assert_eq!(extract(&lines,&expiry,None,None,&mut vec![]).0["日期"].source,"missing");
+    assert!(jev_body(&lines,&expiry).unwrap().groups.is_empty());
+    let mut unanchored=profile;unanchored.fields[0].anchors.clear();unanchored.fields[0].pattern.clear();
+    let lines=vec![line("订单号 12345678 有效期至：2027/12/31",100.0,360.0,800.0)];
+    assert!(jev_body(&lines,&unanchored).unwrap().groups.is_empty());
+}
+
+#[test]
+fn product_candidates_after_clutter_are_scored_before_the_result_limit(){
+    let profile=OcrProfile{fields:vec![OcrFieldDefinition{key:"产品名称".into(),anchors:vec!["产品名称".into()],multiple:true,max_items:1,..Default::default()}],..Default::default()};
+    for (count,length) in [(240,2),(60,70)]{
+        let mut lines=vec![line("产品名称",100.0,100.0,250.0)];
+        for i in 0..count{
+            let mut item=line(&format!("补充资料{}{}",i,"甲乙".repeat(length)),100.0,200.0+(i%50)as f64*35.0,450.0);item.page=1+(i/50)as u32;lines.push(item);
+        }
+        let product_index=lines.len();lines.push(line("工业控制器",100.0,2200.0,250.0));
+        let plan=jev_body(&lines,&profile).unwrap();
+        assert!(plan.questions.iter().any(|(_,_,index)|*index==Some(product_index)),"product after {count} clutter lines was silently omitted");
+        let batches=jev_batches(&plan.body);
+        assert_eq!(batches.iter().map(|batch|batch["questions"].as_object().unwrap().len()).sum::<usize>(),plan.questions.len());
+        assert!(batches.iter().all(|batch|batch["questions"].as_object().unwrap().len()<=24));
+        let mut response=json!({"answers":{}});
+        for (id,_,index) in &plan.questions{response["answers"][id]=json!({"noul":if *index==Some(product_index){0.99}else{0.01}});}
+        let (fields,_)=extract(&lines,&profile,Some(&response),Some(&plan),&mut vec![]);
+        assert_eq!(fields["产品名称"].value,"工业控制器");
+    }
+}
+
+#[test]
 fn real_product_table_keeps_multiple_values() {
     let field = OcrFieldDefinition {key:"产品名称".into(),anchors:vec!["产品名称".into()],multiple:true,..Default::default()};
     let lines = vec![
@@ -123,6 +197,12 @@ fn real_product_table_keeps_multiple_values() {
         line("合计",100.0,300.0,250.0),
     ];
     assert_eq!(local(&lines,&field),vec![(2,"工业控制器".into()),(4,"显示面板".into())]);
+    let mut profile=OcrProfile{fields:vec![field],..Default::default()};profile.fields[0].max_items=1;
+    let plan=jev_body(&lines,&profile).unwrap();let mut response=json!({"answers":{}});
+    for (id,_,_) in &plan.questions{response["answers"][id]=json!({"noul":0.99});}
+    let mut logs=vec![];let (fields,_)=extract(&lines,&profile,Some(&response),Some(&plan),&mut logs);
+    assert_eq!(fields["产品名称"].value,"工业控制器");
+    assert!(logs.iter().any(|text|text.contains("已识别 2 个不同值")&&text.contains("最多保留 1 个")));
 }
 
 #[test]

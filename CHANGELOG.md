@@ -1,5 +1,32 @@
 # 变更日志
 
+## v0.5.5 - 2026-10-29
+
+### Improvements
+
+- Edit saved model configurations, including their name, endpoint and model ID. Changes and replacement keys are saved only after a successful connection test; failed tests retain the original configuration. Changing the service origin requires a new key.
+- Share a selected OCR result with the assistant after reviewing and editing a local redacted preview. Diagnostic sessions use the confirmed snapshot and model connection, block public search and unrelated file access, and require separate confirmation before saving configuration proposals.
+- Improve document-date selection when quotation, expiry and print dates are adjacent. Score multi-value product candidates in batches before applying the configured result limit, and distinguish attempted local extraction from skipped fallback and incomplete historical records.
+- Preserve known token usage and cache data when some requests omit usage. Hide textual tool-call protocols from replies and report unexecuted requests accurately.
+
+### 修复与完善
+
+- 已保存的模型配置支持编辑名称、服务地址和模型 ID；修改及新密钥测试成功后才保存，测试失败保留原配置。更换服务来源时需填写新服务密钥。
+- OCR 单份结果支持“让助理诊断”：先在本机核对、删改脱敏预览，再确认共享。诊断会话只使用已确认快照和模型连接，禁止公开搜索及无关文件访问；配置方案仍需单独确认后保存。
+- 完善报价日期、有效期和打印日期相邻时的字段判断；多值产品候选先分批评分再按配置数量保留，明确区分本地提取已尝试、无需回退和旧记录缺失。
+- 部分请求缺少用量时保留已知 token 和缓存统计；屏蔽回复中的工具协议标签，准确提示尚未执行的请求。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models run locally; optional connected services and diagnostic sharing may incur provider fees. Automatic redaction is limited: review the preview before sharing. Existing file-state checks, non-replacing renames and undo protections remain in place.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型在本机运行，可选联网服务及诊断共享可能产生服务商费用。自动脱敏有局限，共享前请核对预览；继续保留文件状态校验、不覆盖改名与撤销保护。
+- Application build / 应用构建版本：`2026.1029.1323`（最小递增）。
+
+### Verification scope / 验证范围
+
+- Local checks cover model-configuration updates, OCR extraction and diagnostic scope, assistant reply protocols, usage statistics and installer configuration. The release installer is production-built with matching versions and SHA-256 checksums. No full desktop walkthrough, fresh-install acceptance, real OCR or paid-service validation was performed. No user business files were read. No GitHub Actions workflows are configured.
+- 本机检查覆盖模型配置修改、OCR 提取与诊断范围、助理回复协议、用量统计及安装配置；发布安装包完成生产构建、版本与 SHA-256 核验。未进行完整桌面走查、全新安装验收、真实 OCR 或付费服务验证，未读取用户业务文件；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.4 - 2026-10-29
 
 ### Improvements
