@@ -8,9 +8,9 @@ pub struct Data {pub profiles:Vec<OcrProfile>,pub tasks:BTreeMap<String,OcrTask>
 pub struct OcrStore {pub dir:PathBuf,pub exe:PathBuf,pub data:Mutex<Data>,pub cancels:Mutex<HashMap<String,Arc<AtomicBool>>>,pub proposals:super::assistant::Proposals,db:Mutex<Connection>,pub unavailable_reason:Option<String>}
 #[derive(Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
-struct StoredTask {id:String,created:u64,status:String,use_jev:bool,profiles:Vec<OcrProfile>,file_ids:Vec<String>,#[serde(default)]auto_match:bool,#[serde(default)]workflow:OcrWorkflow}
+struct StoredTask {id:String,created:u64,status:String,use_jev:bool,profiles:Vec<OcrProfile>,file_ids:Vec<String>,#[serde(default)]auto_match:bool,#[serde(default)]workflow:OcrWorkflow,#[serde(default)]cleared_file_ids:Vec<String>}
 impl StoredTask {
-    fn from_task(t:&OcrTask)->Self{Self{id:t.id.clone(),created:t.created,status:t.status.clone(),use_jev:t.use_jev,profiles:t.profiles.clone(),file_ids:t.files.iter().map(|f|f.id.clone()).collect(),auto_match:t.auto_match,workflow:t.workflow.clone()}}
+    fn from_task(t:&OcrTask)->Self{Self{id:t.id.clone(),created:t.created,status:t.status.clone(),use_jev:t.use_jev,profiles:t.profiles.clone(),file_ids:t.files.iter().map(|f|f.id.clone()).collect(),auto_match:t.auto_match,workflow:t.workflow.clone(),cleared_file_ids:t.cleared_file_ids.clone()}}
 }
 fn file_path(dir:&Path,task_id:&str,file_id:&str)->PathBuf{dir.join(format!("task-{task_id}-{file_id}.json"))}
 fn stored_file(f:&OcrFileResult)->OcrFileResult{
@@ -56,7 +56,7 @@ impl OcrStore{
                         let data=std::fs::read(file_path(&ocr,&header.id,id)).map_err(|e|serde::de::Error::custom(e.to_string()))?;
                         serde_json::from_slice::<OcrFileResult>(&data)
                     }).collect::<Result<Vec<_>,serde_json::Error>>()?;
-                    Ok(OcrTask{id:header.id,created:header.created,status:header.status,use_jev:header.use_jev,profiles:header.profiles,files,auto_match:header.auto_match,workflow:header.workflow})
+                    Ok(OcrTask{id:header.id,created:header.created,status:header.status,use_jev:header.use_jev,profiles:header.profiles,files,auto_match:header.auto_match,workflow:header.workflow,cleared_file_ids:header.cleared_file_ids})
                 });
                 if let Ok(mut t)=loaded{if ["queued","running"].contains(&t.status.as_str()){t.status="interrupted".into();if t.workflow.enabled{t.workflow.status="interrupted".into();}let mut files=vec![];for (index,f) in t.files.iter_mut().enumerate(){if ["queued","running"].contains(&f.status.as_str()){f.status="interrupted".into();f.error="应用已退出，可重试未完成项".into();files.push(index);}}recovered_tasks.push((t.id.clone(),files));}for f in &t.files{if f.status!="relocated"{grants.insert(f.path.clone());}}tasks.insert(t.id.clone(),t);}
             }

@@ -53,11 +53,47 @@ pub fn content(text:&str,images:&Value)->Value{
     for image in images.as_array().unwrap(){parts.push(json!({"type":"image_url","image_url":{"url":image["dataUrl"]}}));}
     json!(parts)
 }
-pub fn messages(prompt:&str,context:&Value)->Vec<Value>{
+// Keep reusable history ahead of changing task IDs, timestamps and permissions.
+// The current user request stays last; background data never grants authority.
+pub fn messages(prompt:&str,context:&Value,background:Vec<Value>)->Vec<Value>{
     let mut messages=vec![];
     if let Some(history)=context["history"].as_array(){for item in history{
         let text=item["content"].as_str().unwrap_or("");
         if !text.is_empty()||has_items(&item["images"]){messages.push(json!({"role":item["role"],"content":content(text,&item["images"])}));}
     }}
+    messages.extend(background);
     messages.push(json!({"role":"user","content":content(prompt,&context["images"])}));messages
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+
+    #[test]
+    fn changing_task_context_preserves_the_history_prefix_and_latest_request(){
+        let context=json!({"history":[{"role":"user","content":"仅查助理目录"},{"role":"assistant","content":"已找到资料"}]});
+        let first=messages("按创建时间排序",&context,vec![json!({"role":"user","content":"task-1; time-1; readWrite=true"}),json!({"role":"assistant","content":"source-1"})]);
+        let next=messages("改为按修改时间",&context,vec![json!({"role":"user","content":"task-2; time-2; readWrite=false"}),json!({"role":"assistant","content":"source-2"})]);
+        assert_eq!(&first[..2],&next[..2]);
+        assert_eq!(first[0],json!({"role":"user","content":"仅查助理目录"}));
+        assert_eq!(first[1],json!({"role":"assistant","content":"已找到资料"}));
+        assert_eq!(next[2]["content"],"task-2; time-2; readWrite=false");
+        assert_eq!(next[3]["content"],"source-2");
+        assert_eq!(next.last().unwrap(),&json!({"role":"user","content":"改为按修改时间"}));
+        assert_eq!(first.len(),5);assert_eq!(next.len(),5);
+    }
+
+    #[test]
+    fn image_history_stays_in_place_and_only_current_images_attach_to_the_request(){
+        let old=json!({"dataUrl":"data:image/png;base64,old-image"});
+        let current=json!({"dataUrl":"data:image/png;base64,current-image"});
+        let context=json!({"history":[{"role":"user","content":"第一张图","images":[old]},{"role":"assistant","content":"已记录"},{"role":"user","content":""}],"images":[current]});
+        let result=messages("比较两张图",&context,vec![json!({"role":"user","content":"本轮范围资料"})]);
+        assert_eq!(result.len(),4);
+        assert_eq!(result[0]["content"][1]["image_url"]["url"],old["dataUrl"]);
+        assert_eq!(result[1],json!({"role":"assistant","content":"已记录"}));
+        assert_eq!(result[2],json!({"role":"user","content":"本轮范围资料"}));
+        assert_eq!(result[3]["content"][0]["text"],"比较两张图");
+        assert_eq!(result[3]["content"][1]["image_url"]["url"],current["dataUrl"]);
+    }
 }

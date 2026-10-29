@@ -47,12 +47,20 @@ export interface OcrFileResult {
 }
 export interface OcrWorkflowOptions {exportFormat:'none'|'txt'|'csv'|'json';exportDirectory:string;rename:'review'|'preview'|'apply';renameConfirmed:boolean}
 export interface OcrWorkflow {enabled:boolean;options:OcrWorkflowOptions;status:string;exportPath:string;renameBatchId:string;error:string}
-export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow }
+export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow;clearedFileIds?:string[] }
 export const defaultWorkflow:OcrWorkflowOptions={exportFormat:'none',exportDirectory:'',rename:'apply',renameConfirmed:false};
 // Clicking the explicitly labelled action authorizes this task's rename step.
 export const oneClickWorkflow=(options:OcrWorkflowOptions):OcrWorkflowOptions=>({...options,rename:'apply',renameConfirmed:true});
 export interface OcrRenameItem { fileId: string; original: string; target: string; status: string; error: string; warning?:string }
 export interface OcrRenameBatch { id: string; taskId: string; status: string; items: OcrRenameItem[]; summary?:{success:number;failed:number;pending:number;blocked:number} }
+export function completedOcrFileIds(task:OcrTask,batches:OcrRenameBatch[]):string[] {
+  if(['queued','running'].includes(task.status))return [];
+  const workflow=task.workflow;
+  if(workflow?.enabled&&workflow.options.exportFormat!=='none'&&!workflow.exportPath)return [];
+  const renamed=new Set(batches.filter(b=>b.taskId===task.id).flatMap(b=>b.items.filter(i=>i.status==='done'&&!i.error).map(i=>`${i.fileId}\0${i.target}`)));
+  return task.files.filter(f=>['ready','review'].includes(f.status)&&!f.error&&(f.status==='ready'&&!f.warning||f.reviewed)&&(!workflow?.enabled||workflow.options.rename==='review'||renamed.has(`${f.id}\0${f.path}`))).map(f=>f.id);
+}
+export const completedOcrTask=(task:OcrTask,batches:OcrRenameBatch[]):boolean=>task.status==='completed'&&(!task.workflow?.enabled||task.workflow.status==='completed')&&task.files.length>0&&completedOcrFileIds(task,batches).length===task.files.length;
 export interface OcrBootstrap { profiles: OcrProfile[]; tasks: OcrTask[]; batches: OcrRenameBatch[]; engineReady: boolean; jevReady: boolean; unavailableReason?: string | null }
 export const newField = (): OcrFieldDefinition => ({key:'',prompt:'',kind:'text',multiple:false,maxItems:5,separator:'、',required:true,fallback:'',anchors:[],pattern:'',stripPrefixes:[],format:''});
 export const newProfile = (): OcrProfile => ({id:crypto.randomUUID(),name:'新配置',keywords:[],pages:'1',dpi:200,fields:[],filenamePattern:'{原文件名}',threshold:.75});

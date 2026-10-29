@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "office-next"
-version = "2026.1027.1553"
+version = "2026.1029.1322"
 dependencies = [
  "base64 0.22.1",
  "chrono",

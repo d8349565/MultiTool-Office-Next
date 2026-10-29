@@ -132,7 +132,7 @@ pub struct OcrFileResult {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrTask {pub id:String,pub created:u64,pub status:String,pub use_jev:bool,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>,#[serde(default)]pub auto_match:bool,#[serde(default)]pub workflow:OcrWorkflow}
+pub struct OcrTask {pub id:String,pub created:u64,pub status:String,pub use_jev:bool,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>,#[serde(default)]pub auto_match:bool,#[serde(default)]pub workflow:OcrWorkflow,#[serde(default)]pub cleared_file_ids:Vec<String>}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default)]
 pub struct OcrWorkflowOptions {pub export_format:String,pub export_directory:String,pub rename:String,pub rename_confirmed:bool}

@@ -1,5 +1,45 @@
 use super::*;
 
+#[test]
+fn naming_auto_replaces_illegal_characters_without_changing_ocr_values(){
+    let profile=OcrProfile{filename_pattern:"{产品名称}".into(),..Default::default()};
+    for (raw,expected) in [
+        ("阀门/接头","阀门_接头.pdf"),
+        (r#"A\B:C*D?E"F<G>H|I"#,"A_B_C_D_E_F_G_H_I.pdf"),
+        ("型号A\r\nB\tC\u{200b}D\u{202e}E\u{feff}F","型号A__B_C_D_E_F.pdf"),
+        (" .阀门/接头. ","阀门_接头.pdf"),
+        ("阀门/接头.pdf","阀门_接头.pdf"),
+    ]{
+        let fields=BTreeMap::from([("产品名称".into(),OcrFieldResult{value:raw.into(),source:"local".into(),confidence:Some(0.99),evidence:vec![0],review:false})]);
+        let (name,warning)=filename_with_warning(&profile,&fields,"scan.pdf");
+        assert_eq!(name,expected);
+        crate::workspace_rename::validate_name(&name).unwrap();
+        assert!(warning.is_empty(),"Safe normalization should not require review: {warning}");
+        assert_eq!(fields["产品名称"].value,raw);
+        assert!(!fields["产品名称"].review);
+    }
+}
+
+#[test]
+fn naming_protects_all_windows_reserved_device_names(){
+    for raw in ["CON","con .报价","CLOCK$","CONIN$","CONOUT$","COM¹","lpt²"]{
+        let profile=OcrProfile{filename_pattern:raw.into(),..Default::default()};
+        let (name,warning)=filename_with_warning(&profile,&BTreeMap::new(),"scan.pdf");
+        assert_eq!(name,format!("_{raw}.pdf"));
+        crate::workspace_rename::validate_name(&name).unwrap();
+        assert!(warning.is_empty());
+    }
+}
+
+#[test]
+fn naming_truncates_unicode_to_a_valid_length_and_still_requires_review(){
+    let profile=OcrProfile{filename_pattern:"😀".repeat(140),..Default::default()};
+    let (name,warning)=filename_with_warning(&profile,&BTreeMap::new(),"scan.pdf");
+    assert_eq!(name,format!("{}.pdf","😀".repeat(70)));
+    crate::workspace_rename::validate_name(&name).unwrap();
+    assert!(warning.contains("已截断"));
+}
+
 fn line(text: &str, x: f64, y: f64, width: f64) -> OcrLine {
     OcrLine {
         text: text.into(), page: 1, score: 0.99,

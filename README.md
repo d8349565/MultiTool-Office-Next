@@ -48,7 +48,7 @@ Keep several folder levels visible while moving through project or client folder
 - Filter folder names directly in the visible directory levels, within each level’s selected parent. The selected path stays visible; use × to clear the filter and restore the lists.
 - Clear file-search keywords with × while retaining other filters.
 - Copy names or paths, open files in their default applications, or reveal them in Windows File Explorer.
-- Rename one file or folder using its context menu, the selected-item action, or `F2`. Extensions are preserved by default. Review both paths before confirming; rename history supports persistent records and guarded undo.
+- Rename one file or folder using the selected-item action or `F2`. Extensions are preserved by default. Edit the name and press Enter or confirm once; rename history supports persistent records and guarded undo.
 
 Renaming is restricted to ordinary objects inside local working folders and never replaces an existing target. Identity and state checks use Windows file IDs, sizes, and timestamps, without reading document bodies. Case-only changes, links, protected objects, target paths over 240 UTF-16 units (including descendants), and folders exceeding 10,000 descendants are currently rejected. Uncertain interrupted operations require manual review. Running OCR tasks block renaming, and affected OCR results must be imported again.
 
@@ -82,6 +82,7 @@ Import scanned PDFs or images, extract fields such as company, date, and documen
 - Reuse, import, and export profiles, or ask the optional AI service to draft one for review.
 - Edit extracted values, inspect their sources, export results, and retry failed or interrupted items.
 - The one-click action runs OCR and renames eligible files using the selected profiles, without another rename button or filename confirmation. Optional TXT / CSV / JSON export settings are retained. Uncertain results and errors are held for review; use the OCR-only action for the step-by-step flow.
+- Invalid filename characters such as slashes are automatically replaced with underscores without requiring review. Extracted values and exports retain the original text; truncated names and uncertain recognition still require review.
 - Renaming checks file state and naming conflicts, reports partial failures, and supports undo. Export an exceptions CSV and retry failed undo operations after resolving file locks or conflicts.
 
 Renaming changes filenames, not document contents. Undo checks whether files have changed or their original names are already occupied. One-click tasks follow the selected profiles' naming rules; uncertain recognition results are held for review.

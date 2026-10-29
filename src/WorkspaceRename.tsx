@@ -18,42 +18,30 @@ function Paths({record,undo=false}:{record:Pick<RenameRecord,'original'|'target'
 export function WorkspaceRenameDialog({entry,onChanged,onClose}:{entry:Entry;onChanged:(record:RenameRecord)=>void;onClose:()=>void}) {
   const dot=entry.isDir?-1:entry.name.lastIndexOf('.'),suffix=dot>0?entry.name.slice(dot):'';
   const [name,setName]=useState(suffix?entry.name.slice(0,-suffix.length):entry.name),[editExtension,setEditExtension]=useState(false);
-  const [record,setRecord]=useState<RenameRecord|null>(null),[ack,setAck]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const input=useRef<HTMLInputElement>(null),operation=useRef(false);
   const finalName=name+(editExtension?'':suffix),parent=dirname(entry.path),target=`${parent}/${finalName}`;
-  const completed=record?.status==='done'||record?.status==='undone';
   useEffect(()=>{input.current?.focus();input.current?.select();},[]);
-  const change=()=>{setRecord(null);setAck(false);setError('');};
-  async function submit(action:'preview'|'apply'|'undo') {
-    if(operation.current)return;operation.current=true;setBusy(true);setError('');
+  async function submit() {
+    if(operation.current||!name||finalName===entry.name)return;operation.current=true;setBusy(true);setError('');
     try {
-      const next=await api<RenameRecord>(action==='preview'?'workspace_rename_preview':'workspace_rename_apply',action==='preview'?{path:entry.path,newName:finalName,isDir:entry.isDir,allowExtensionChange:editExtension}:{id:record!.id,action});
-      setRecord(next);
-      if(action!=='preview'){
-        if(next.status===(action==='undo'?'undone':'done'))onChanged(next);
-        else{setError(next.error||'操作未完成，请重新核对。');if(action==='apply')setRecord(null);}
-      }
-    }catch(e){setError(String(e));if(action==='apply')setRecord(null);}
+      const plan=await api<RenameRecord>('workspace_rename_preview',{path:entry.path,newName:finalName,isDir:entry.isDir,allowExtensionChange:editExtension});
+      const next=await api<RenameRecord>('workspace_rename_apply',{id:plan.id,action:'apply'});
+      if(next.status!=='done'){setError(next.error||'改名未完成，请重试。');return;}
+      onChanged(next);onClose();
+    }catch(e){setError(String(e));}
     finally{operation.current=false;setBusy(false);}
   }
   return <Modal title={`重命名${entry.isDir?'文件夹':'文件'}`} onClose={()=>{if(!operation.current)onClose();}} className="workspace-rename">
-    <form onSubmit={event=>{event.preventDefault();if(!completed&&(!record?.extensionChanged||ack))void submit(record?'apply':'preview');}} aria-busy={busy}>
-      <p className="rename-help">{completed?(record.status==='undone'?'已恢复原名称。':'已完成改名。撤销前会再次核对对象状态和原名占用。'):'只更改当前目录中的名称。先核对路径，再确认执行；取消或 Esc 不改动文件。'}</p>
-      {!completed&&<>
-        <label className="rename-input-label" htmlFor="workspace-rename-name">新名称</label>
-        <div className="rename-input"><input ref={input} id="workspace-rename-name" value={name} disabled={busy} autoComplete="off" spellCheck={false} onChange={event=>{setName(event.target.value);change();}} aria-describedby="workspace-rename-detail"/>{!editExtension&&suffix&&<span>{suffix}</span>}</div>
-        <p id="workspace-rename-detail" className="rename-help">原名称：{entry.name}<br/>所在目录：{parent}</p>
-        {!entry.isDir&&<Checkbox checked={editExtension} disabled={busy} label="同时修改扩展名（可能影响文件打开方式）" onChange={(_,data)=>{const next=!!data.checked;setName(next?finalName:suffix&&name.endsWith(suffix)?name.slice(0,-suffix.length):name);setEditExtension(next);change();}}/>}
-      </>}
-      <Paths record={record||{original:entry.path,target}}/>
-      {record?.status==='preview'&&<p className="rename-help" role="status">已完成安全预检，尚未改名。确认时仍会复核；预览 10 分钟后失效。</p>}
-      {record?.extensionChanged&&!completed&&<Checkbox checked={ack} disabled={busy} label="我已核对完整名称，并确认修改扩展名" onChange={(_,data)=>setAck(!!data.checked)}/>}
-      {record?.status==='done'&&<p className="rename-help">撤销将恢复为：{basename(record.original)}</p>}
+    <form onSubmit={event=>{event.preventDefault();void submit();}} aria-busy={busy}>
+      <label className="rename-input-label" htmlFor="workspace-rename-name">新名称</label>
+      <div className="rename-input"><input ref={input} id="workspace-rename-name" value={name} disabled={busy} autoComplete="off" spellCheck={false} onChange={event=>{setName(event.target.value);setError('');}} aria-describedby="workspace-rename-detail"/>{!editExtension&&suffix&&<span>{suffix}</span>}</div>
+      <p id="workspace-rename-detail" className="rename-help">原名称：{entry.name}。改名后可在“改名记录”中撤销。</p>
+      {!entry.isDir&&<Checkbox checked={editExtension} disabled={busy} label="同时修改扩展名（可能影响文件打开方式）" onChange={(_,data)=>{const next=!!data.checked;setName(next?finalName:suffix&&name.endsWith(suffix)?name.slice(0,-suffix.length):name);setEditExtension(next);setError('');}}/>}
+      <details className="rename-details"><summary>查看完整路径</summary><Paths record={{original:entry.path,target}}/></details>
       {error&&<p className="inline-error" role="alert">{error}</p>}
-      {record?.warning&&<p className="inline-error" role="status">{record.warning}</p>}
-      <p className="rename-help">只核对本地文件标识、大小和 Windows 变更时间，不读取文档正文。大小写单独调整、超过 240 字符的完整路径、链接和受保护对象暂不支持；目录最多核对 10,000 个子项。</p>
-      <footer className="dialog-actions"><span role="status">{busy?'正在核对并处理，请稍候…':''}</span><Button type="button" disabled={busy} onClick={onClose}>{completed?'关闭':'取消'}</Button>
-        {record?.status==='done'?<Button type="button" disabled={busy||!record.fingerprint} onClick={()=>void submit('undo')}>撤销这次改名</Button>:!completed&&<Button type="submit" appearance="primary" disabled={busy||!name||finalName===entry.name||!!record?.extensionChanged&&!ack}>{record?'确认改名':'预览变更'}</Button>}
+      <footer className="dialog-actions"><span role="status">{busy?'正在检查名称并改名…':''}</span><Button type="button" disabled={busy} onClick={onClose}>取消</Button>
+        <Button type="submit" appearance="primary" disabled={busy||!name||finalName===entry.name}>{busy?'正在改名…':'确认改名'}</Button>
       </footer>
     </form>
   </Modal>;

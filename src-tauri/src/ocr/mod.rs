@@ -34,19 +34,7 @@ use tauri::Emitter;
 }
 fn sanitize_field(f: &mut OcrFieldDefinition) {
     if f.kind == "date" {
-        let trimmed = f.format.trim();
-        let upper = trimmed.to_uppercase();
-        if upper == "YYYYMMDD" {
-            f.format = "%Y%m%d".into();
-        } else if upper == "YYYY-MM-DD" {
-            f.format = "%Y-%m-%d".into();
-        } else if upper == "YYYY/MM/DD" {
-            f.format = "%Y/%m/%d".into();
-        } else if upper == "YYYY年MM月DD日" || trimmed.contains("中文") {
-            f.format = "%Y年%m月%d日".into();
-        } else if !["%Y%m%d", "%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日", ""].contains(&f.format.as_str()) {
-            f.format = "%Y%m%d".into();
-        }
+        f.format=if f.format.trim().contains("中文"){"%Y年%m月%d日"}else{rules::canonical_date_format(&f.format).unwrap_or("%Y%m%d")}.into();
     }
 }
 
@@ -197,6 +185,7 @@ fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
         t.profiles=profiles;
         t.auto_match=auto_match;
         t.workflow=workflow;
+        t.cleared_file_ids.clear();
         t.use_jev=use_jev;
         for f in &mut t.files{
             f.status="queued".into();
@@ -237,7 +226,7 @@ fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
                 });
             }
         }
-        OcrTask{id:uuid::Uuid::new_v4().to_string(),created:now(),status:"queued".into(),use_jev,profiles,files,auto_match,workflow}
+        OcrTask{id:uuid::Uuid::new_v4().to_string(),created:now(),status:"queued".into(),use_jev,profiles,files,auto_match,workflow,cleared_file_ids:vec![]}
     };
     if task.files.is_empty()||task.files.len()>2000{return Err("请选择 1–2000 个文件，或没有失败项可重试".into());}
     if d.tasks.values().any(|t|["queued","running"].contains(&t.status.as_str())&&t.files.iter().any(|f|task.files.iter().any(|n|n.path.eq_ignore_ascii_case(&f.path)))){return Err("这些文件已有任务运行，请等待完成".into());}
@@ -254,13 +243,37 @@ fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
 }
 #[tauri::command]pub fn ocr_clear_completed_tasks(state:tauri::State<Arc<AppState>>)->Result<usize,String>{
     let mut d=state.ocr.data.lock().unwrap();
-    let to_delete:Vec<String>=d.tasks.iter().filter(|(_,t)|!["queued","running"].contains(&t.status.as_str())).map(|(id,_)|id.clone()).collect();
+    let to_delete:Vec<String>=d.tasks.iter().filter(|(_,t)|completed_task(t,&d.batches)).map(|(id,_)|id.clone()).collect();
     let count=to_delete.len();
     for id in &to_delete{
         state.ocr.delete_task_files(&d.tasks[id]);
         let _=state.ocr.delete_task_db(id);
         d.tasks.remove(id);state.ocr.cancels.lock().unwrap().remove(id);
     }
+    Ok(count)
+}
+fn completed_file_ids(task:&OcrTask,batches:&BTreeMap<String,OcrRenameBatch>)->HashSet<String>{
+    if ["queued","running"].contains(&task.status.as_str()){return HashSet::new();}
+    let workflow=&task.workflow;
+    if workflow.enabled&&workflow.options.export_format!="none"&&workflow.export_path.is_empty(){return HashSet::new();}
+    let renamed=batches.values().filter(|b|b.task_id==task.id).flat_map(|b|b.items.iter().filter(|i|i.status=="done"&&i.error.is_empty()).map(|i|(i.file_id.as_str(),i.target.as_str()))).collect::<HashSet<_>>();
+    task.files.iter().filter(|f|["ready","review"].contains(&f.status.as_str())&&f.error.is_empty()&&(f.status=="ready"&&f.warning.is_empty()||f.reviewed)&&(!workflow.enabled||workflow.options.rename=="review"||renamed.contains(&(f.id.as_str(),f.path.as_str())))).map(|f|f.id.clone()).collect()
+}
+fn completed_task(task:&OcrTask,batches:&BTreeMap<String,OcrRenameBatch>)->bool{
+    task.status=="completed"&&(!task.workflow.enabled||task.workflow.status=="completed")&&!task.files.is_empty()&&completed_file_ids(task,batches).len()==task.files.len()
+}
+#[tauri::command]pub fn ocr_clear_completed_results(state:tauri::State<Arc<AppState>>,id:String,restore:Option<bool>)->Result<usize,String>{
+    state.ocr.ensure_available()?;
+    let mut d=state.ocr.data.lock().unwrap();
+    let mut task=d.tasks.get(&id).cloned().ok_or("任务不存在")?;
+    if ["queued","running"].contains(&task.status.as_str()){return Err("请在任务结束后清理已完成项".into());}
+    let before=task.cleared_file_ids.len();
+    if restore.unwrap_or(false){task.cleared_file_ids.clear();}else{
+        let completed=completed_file_ids(&task,&d.batches);
+        for file in &task.files{if completed.contains(&file.id)&&!task.cleared_file_ids.contains(&file.id){task.cleared_file_ids.push(file.id.clone());}}
+    }
+    let count=before.abs_diff(task.cleared_file_ids.len());
+    if count>0{state.ocr.save_task_header(&task)?;d.tasks.insert(id,task);}
     Ok(count)
 }
 fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){

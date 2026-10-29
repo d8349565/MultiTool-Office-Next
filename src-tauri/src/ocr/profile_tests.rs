@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn completion_cleanup_preserves_review_failures_and_unfinished_workflows(){
+    let result=|id:&str,status:&str,reviewed:bool,warning:&str|json!({"id":id,"path":format!("D:/status-check/{id}.pdf"),"originalName":format!("{id}.pdf"),"status":status,"error":"","profile":null,"lines":[],"fields":{},"proposedName":"","reviewed":reviewed,"elapsedMs":0,"warning":warning});
+    let mut task:OcrTask=serde_json::from_value(json!({"id":"status-check","created":1,"status":"completed","useJev":false,"profiles":[],"files":[
+        result("success","ready",false,""),result("review","review",false,""),result("warning","ready",false,"needs review"),result("checked","review",true,"confirmed"),
+        result("failed","failed",true,""),result("interrupted","interrupted",true,""),result("cancelled","cancelled",true,""),result("relocated","relocated",true,"")
+    ]})).unwrap();
+    let mut batches=BTreeMap::new();
+    assert_eq!(completed_file_ids(&task,&batches),HashSet::from(["success".into(),"checked".into()]));
+    assert!(!completed_task(&task,&batches));
+    for status in ["queued","running"]{task.status=status.into();assert!(completed_file_ids(&task,&batches).is_empty());}
+    task.status="completed".into();task.files.truncate(1);
+    assert!(completed_task(&task,&batches));
+    task.files[0].error="not complete".into();assert!(completed_file_ids(&task,&batches).is_empty());task.files[0].error.clear();
+    task.workflow=OcrWorkflow{enabled:true,status:"review".into(),options:OcrWorkflowOptions{export_format:"csv".into(),rename:"apply".into(),..Default::default()},..Default::default()};
+    let batch:OcrRenameBatch=serde_json::from_value(json!({"id":"batch","taskId":task.id,"status":"executed","items":[{"fileId":"success","original":"D:/status-check/original.pdf","target":task.files[0].path,"status":"done","error":"","fingerprint":""}]})).unwrap();
+    batches.insert(batch.id.clone(),batch);
+    assert!(completed_file_ids(&task,&batches).is_empty());
+    task.workflow.export_path="D:/status-check/output.csv".into();
+    assert!(completed_file_ids(&task,&BTreeMap::new()).is_empty());
+    assert_eq!(completed_file_ids(&task,&batches).len(),1);assert!(!completed_task(&task,&batches));
+    task.workflow.status="completed".into();assert!(completed_task(&task,&batches));
+    task.status="failed".into();assert!(!completed_task(&task,&batches));task.status="completed".into();
+    batches.get_mut("batch").unwrap().items[0].status="failed".into();assert!(completed_file_ids(&task,&batches).is_empty());
+    batches.get_mut("batch").unwrap().items[0].status="done".into();batches.get_mut("batch").unwrap().items[0].target="D:/status-check/other.pdf".into();assert!(completed_file_ids(&task,&batches).is_empty());
+}
+
+#[test]
 fn workspace_rename_invalidates_durable_results_batches_and_old_write_grants(){
     let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("target/workspace-rename-checks");std::fs::create_dir_all(&base).unwrap();
     let dir=tempfile::Builder::new().prefix("ocr-check-").tempdir_in(base).unwrap();
@@ -142,8 +169,9 @@ fn naming_warnings_require_review_without_repeating_or_discarding_other_warnings
     assert!(!review_naming_warning(&mut file));
     file.profile.as_mut().unwrap().filename_pattern="合同/编号".into();
     file.proposed_name="合同_编号.pdf".into();file.status="ready".into();
-    assert!(review_naming_warning(&mut file));
-    assert!(file.warning.contains("非法文件名字符"));
+    assert!(!review_naming_warning(&mut file));
+    assert_eq!(file.status,"ready");
+    assert_eq!(file.warning,warning);
 }
 
 #[test]

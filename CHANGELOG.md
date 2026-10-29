@@ -1,5 +1,36 @@
 # 变更日志
 
+## v0.5.4 - 2026-10-29
+
+### Improvements
+
+- Restore right-click-to-open on folder rows and suppress the browser context menu in blank folder panels. Keep immediate folder filtering and one-click filter clearing.
+- Rename a file or folder by editing its name and confirming once, including Enter. Checks run automatically and the dialog closes after success; guarded undo remains available in rename history.
+- OCR filenames automatically replace slashes and other invalid characters with underscores without requiring review for that normalization. Preserve extracted values and exports, handle Windows reserved names, and retain review for uncertain recognition or truncated names.
+- Simplify the OCR toolbar, move advanced options into recognition settings, and show task history on demand. Completed list items can be hidden and restored; incomplete and uncertain results are retained.
+- Improve OCR profile matching diagnostics and assistant profile proposals. Normalize supported date-format aliases, accept omitted optional values, and preserve strict validation and explicit save confirmation.
+- Put stable conversation history before changing task metadata in assistant requests to improve cache reuse opportunities. Actual cache hits remain provider-reported.
+
+### 修复与完善
+
+- 恢复目录行右键直接打开文件夹，屏蔽目录面板空白处的浏览器菜单；保留目录即时筛选与一键清空。
+- 单个文件或文件夹改名简化为“修改名称 → 按 Enter 或确认一次”，自动预检并在成功后关闭；可在改名记录中安全撤销。
+- OCR 拟命名中的斜杠等非法字符自动替换为下划线，不再仅因此要求复核；保留识别原值和导出内容，补齐 Windows 保留名称处理，识别不确定或名称截断仍需核对。
+- 精简 OCR 工具栏，高级选项收进“识别设置”，任务记录按需查看；已完成清单项支持清除与恢复，待复核、失败、中断和未完成后续步骤的结果保留。
+- 完善 OCR 自动匹配诊断和助理配置方案，统一受支持的日期格式写法，兼容可选参数省略；继续严格校验必填项和未知字段，保存配置仍需用户确认。
+- 助理请求将稳定历史放在每轮变化的任务资料前面，增加缓存复用机会；实际命中情况以模型服务回包为准。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models are bundled and run locally; optional connected services may charge provider fees. Renames retain file-state checks, collision numbering, non-replacing writes and undo protections.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型随安装包提供并在本机处理，可选联网服务可能产生服务商费用。改名继续核对文件状态、同名自动加序号、不覆盖文件，并保留撤销保护。
+- Application build / 应用构建版本：`2026.1029.1322`。
+
+### Verification scope / 验证范围
+
+- Local targeted checks cover directory actions, OCR naming and completion rules, assistant request ordering, and OCR profile proposals. The release installer is production-built with matching versions and SHA-256 checksums. No complete desktop walkthrough, fresh-install acceptance, real OCR run or paid-service cache measurement was performed. No user business files were read. No GitHub Actions workflows are configured.
+- 本机定向检查覆盖目录操作、OCR 命名与完成条件、助理请求顺序和 OCR 配置方案；发布安装包完成生产构建、版本与 SHA-256 核验。未进行完整桌面走查、全新安装验收、真实 OCR 或付费服务缓存命中率测量，未读取用户业务文件；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.3 - 2026-10-27
 
 ### Improvements

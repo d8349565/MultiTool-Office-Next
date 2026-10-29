@@ -4,6 +4,7 @@
 .rename-input input{flex:1;min-width:0;width:100%;font-size:15px;padding:10px}
 .rename-input input:focus-visible{outline:2px solid var(--text);outline-offset:2px}
 .rename-input>span{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.rename-details{margin:12px 0;font-size:12px;color:var(--muted)}.rename-details>summary{cursor:pointer}
 .rename-paths{display:grid;grid-template-columns:82px minmax(0,1fr);gap:8px 12px;padding:14px;background:var(--surface-alt);border:1px solid var(--line);border-radius:8px;margin:12px 0;font-size:12px;line-height:1.7;user-select:text}
 .rename-paths dt{color:var(--muted)}.rename-paths dd{margin:0;overflow-wrap:anywhere}
 .rename-history{display:flex;flex-direction:column;gap:14px}.rename-history article{padding:14px;border:1px solid var(--line);border-radius:8px}

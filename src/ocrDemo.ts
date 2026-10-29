@@ -1,5 +1,5 @@
 // 仅供浏览器合成演示，名称和金额均为示例数据，桌面识别不使用这些内容。
-import { newField, newProfile, type OcrBootstrap, type OcrProfile, type OcrTask, type OcrRenameBatch, type OcrFieldDefinition, type OcrLine, type OcrFileResult } from './ocrTypes';
+import { completedOcrFileIds, completedOcrTask, newField, newProfile, type OcrBootstrap, type OcrProfile, type OcrTask, type OcrRenameBatch, type OcrFieldDefinition, type OcrLine, type OcrFileResult } from './ocrTypes';
 const state:OcrBootstrap={profiles:[{...newProfile(),id:'text',name:'仅识别文字',pages:'all'},{...newProfile(),id:'quote',name:'报价单',fields:[{...newField(),key:'客户名称',prompt:'找采购方',anchors:['客户']}],filenamePattern:'{客户名称}',keywords:['报价']}],tasks:[],batches:[],engineReady:true,jevReady:false};
 
 /**
@@ -72,7 +72,14 @@ export async function ocrDemo(command:string,args:Record<string,unknown>):Promis
     }
     case 'ocr_get_task':return state.tasks.find(t=>t.id===args.id);
     case 'ocr_delete_task':state.tasks=state.tasks.filter(t=>t.id!==args.id);return;
-    case 'ocr_clear_completed_tasks':{const count=state.tasks.filter(t=>!['queued','running'].includes(t.status)).length;state.tasks=state.tasks.filter(t=>['queued','running'].includes(t.status));return count;}
+    case 'ocr_clear_completed_tasks':{const remaining=state.tasks.filter(t=>!completedOcrTask(t,state.batches)),count=state.tasks.length-remaining.length;state.tasks=remaining;return count;}
+    case 'ocr_clear_completed_results':{
+      const task=state.tasks.find(t=>t.id===args.id);if(!task)throw new Error('任务不存在');
+      if(['queued','running'].includes(task.status))throw new Error('请在任务结束后清理已完成项');
+      const before=task.clearedFileIds?.length||0;
+      task.clearedFileIds=args.restore?[]:[...new Set([...(task.clearedFileIds||[]),...completedOcrFileIds(task,state.batches)])];
+      return Math.abs(before-task.clearedFileIds.length);
+    }
     case 'ocr_update_result':{const t=state.tasks.find(t=>t.id===args.taskId)!;const f=t.files.find(f=>f.id===args.fileId)!;Object.entries(args.values as Record<string,string>).forEach(([k,v])=>{f.fields[k]={...f.fields[k],value:v,source:'manual'};});f.proposedName=String(args.proposedName)||(f.profile?f.profile.filenamePattern.replace(/\{([^{}]+)\}/g,(_,key)=>key==='原文件名'?f.originalName.replace(/\.[^.]+$/,''):f.fields[key]?.value||'未识别')+'.'+f.originalName.split('.').at(-1):f.originalName);f.reviewed=!!args.reviewed;return t;}
     case 'ocr_preview_rename':{const t=state.tasks.find(t=>t.id===args.taskId)!;const b:OcrRenameBatch={id:crypto.randomUUID(),taskId:t.id,status:'preview',items:t.files.filter(f=>(args.fileIds as string[]).includes(f.id)).map(f=>({fileId:f.id,original:f.path,target:f.path.substring(0,f.path.lastIndexOf('/')+1)+f.proposedName,status:'pending',error:''}))};state.batches.push(b);return b;}
     case 'ocr_apply_rename':{const b=state.batches.find(b=>b.id===args.batchId)!;b.status=args.undo?'rollback':'executed';for(const i of b.items){i.status=args.undo?'undone':'done';const f=state.tasks.find(t=>t.id===b.taskId)!.files.find(f=>f.id===i.fileId)!;f.path=args.undo?i.original:i.target;}return b;}

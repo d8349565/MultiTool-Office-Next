@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Checkbox } from '@fluentui/react-components';
-import { Plus, Files, FolderOpen, Scan, Sparkle, ArrowCounterClockwise, DownloadSimple, Stop, X, Trash, Copy, Check } from '@phosphor-icons/react';
+import { Plus, Files, FolderOpen, Scan, Sparkle, ArrowCounterClockwise, ClockCounterClockwise, SlidersHorizontal, DownloadSimple, Stop, X, Trash, Copy, Check } from '@phosphor-icons/react';
 import { listen } from '@tauri-apps/api/event';
 import { api, copy as copyText, desktop, pick } from './api';
 import { Empty, IconButton, Modal } from './components';
 import { basename, dirname, isWithin } from './domain';
-import { defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
+import { completedOcrFileIds, completedOcrTask, defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
 import './ocr.css';
 import { OcrRegions } from './OcrRegions';
 import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
@@ -25,7 +25,7 @@ const exportOptions=[
 export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onSettings:()=>void}){
   const [data,setData]=useState<OcrBootstrap>({profiles:[],tasks:[],batches:[],engineReady:false,jevReady:false});
   const [resultFilter,setResultFilter]=useState('all');
-  const [preferences]=useState(taskPreferences),[workflow,setWorkflow]=useState<OcrWorkflowOptions>(()=>preferences.workflow),[optionsOpen,setOptionsOpen]=useState(false);
+  const [preferences]=useState(taskPreferences),[workflow,setWorkflow]=useState<OcrWorkflowOptions>(()=>preferences.workflow),[settingsOpen,setSettingsOpen]=useState(false),[taskHistoryOpen,setTaskHistoryOpen]=useState(false);
   const [paths,setPaths]=useState<string[]>([]),[profileId,setProfileId]=useState(()=>preferences.profileId),[useJev,setUseJev]=useState<boolean>(()=>{
     try{return localStorage.getItem('ocr_use_jev')==='true';}catch{return false;}
   });
@@ -86,7 +86,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
   function triggerStart(targetPaths?:string[],oneClick=false){
     const toRun=targetPaths||paths;
     if(!toRun.length)return;
-    if(oneClick&&workflow.exportFormat!=='none'&&!workflow.exportDirectory){setOptionsOpen(true);setError('请先在一键任务选项中选择导出文件夹。');return;}
+    if(oneClick&&workflow.exportFormat!=='none'&&!workflow.exportDirectory){setSettingsOpen(true);setError('请先在识别设置中选择导出文件夹。');return;}
     const options=oneClick?oneClickWorkflow(workflow):undefined;
     const duplicateCount=toRun.filter(p=>allIdentifiedPaths.has(p.toLowerCase())).length;
     if(!oneClick&&duplicateCount>0){
@@ -119,38 +119,47 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
     if(path){await api('ocr_export',{taskId:exportTaskId,format,path,failuresOnly,batchId:batchId||null});setNotice('结果已导出');}
   }
   async function importProfiles(file:File){const list=await api<OcrProfile[]>('ocr_import_profiles',{text:await file.text()});if(!list.length)throw new Error('配置文件中没有模板');const known=[...data.profiles];for(const p of list){const existing=known.find(x=>x.id===p.id)||known.find(x=>x.name===p.name);const saved={...p,id:existing?.id||p.id};await api('ocr_save_profile',{profile:saved});const index=known.findIndex(x=>x.id===saved.id);if(index>=0)known[index]=saved;else known.push(saved);}await refresh();const missing=list.filter(p=>!p.keywords.some(k=>k.trim()));setNotice(`已导入 ${list.length} 个配置，请编辑核对字段类型与本地规则。${missing.length?`其中 ${missing.map(p=>p.name).join('、')} 未设置自动匹配关键词，仅支持手动选择；如需自动匹配，请补充关键词并保存。`:''}`);}
+  async function clearCompleted(restore=false){
+    if(!task)return;
+    const count=await api<number>('ocr_clear_completed_results',{id:task.id,restore});
+    await refresh();setChecked([]);setFileId('');if(restore)setResultFilter('all');
+    setNotice(restore?`已恢复 ${count} 个已完成项`:`已从清单清除 ${count} 个已完成项，保留待复核、失败和中断项，可恢复显示。`);
+  }
   const canRename=task&&!active(task)&&checked.length>0;
-  const visibleFiles=task?.files.filter(f=>resultFilter==='all'||resultFilter==='review'&&['ready','review'].includes(f.status)&&(f.status==='review'||!!f.warning)&&!f.reviewed||resultFilter==='failed'&&f.status==='failed'||resultFilter==='interrupted'&&['cancelled','interrupted'].includes(f.status))||[];
+  const completedIds=new Set(task?completedOcrFileIds(task,data.batches):[]),clearedIds=new Set(task?.clearedFileIds?.filter(id=>completedIds.has(id))||[]);
+  const listedFiles=task?.files.filter(f=>!clearedIds.has(f.id))||[],clearableCount=completedIds.size-clearedIds.size;
+  const visibleFiles=listedFiles.filter(f=>resultFilter==='all'||resultFilter==='review'&&['ready','review'].includes(f.status)&&(f.status==='review'||!!f.warning)&&!f.reviewed||resultFilter==='failed'&&f.status==='failed'||resultFilter==='interrupted'&&['cancelled','interrupted'].includes(f.status));
   const eligible=visibleFiles.filter(f=>f.status==='ready'||f.status==='review'&&f.reviewed).map(f=>f.id)||[];
+  const profileOptions=<><option value="auto">自动匹配配置</option>{profileId!=='auto'&&!profile&&<option value={profileId} disabled>所选配置已删除，请重新选择</option>}{data.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</>;
   return <div className="ocr-page" hidden={!visible}>
-    <div className="page-heading"><div><h1>文档 OCR<span className="heading-dot">/</span><span className="heading-sub">从文字，到有序的资料。</span></h1></div><Button icon={<ArrowCounterClockwise/>} onClick={()=>setHistory(true)}>改名记录</Button></div>
+    <div className="page-heading"><h1>文档 OCR</h1><div className="ocr-heading-actions"><Button size="small" appearance="subtle" icon={<ClockCounterClockwise aria-hidden="true"/>} aria-haspopup="dialog" onClick={()=>setTaskHistoryOpen(true)}>任务记录 <span className="ocr-record-count">{data.tasks.length}</span></Button><Button size="small" appearance="subtle" icon={<ArrowCounterClockwise aria-hidden="true"/>} aria-haspopup="dialog" onClick={()=>setHistory(true)}>改名记录</Button></div></div>
     {error&&<div className="ocr-message error" role="alert"><span>{error}</span><IconButton label="关闭错误" onClick={()=>setError('')}><X/></IconButton></div>}
     {notice&&<div className="ocr-message" role="status"><span>{notice}</span><IconButton label="关闭消息" onClick={()=>setNotice('')}><X/></IconButton></div>}
-    <section className="ocr-setup" aria-label="OCR 任务设置">
-      <div className="ocr-setup-row"><Button icon={<Files/>} disabled={busy} onClick={()=>void run(()=>pickFiles(false))}>添加文件</Button><Button icon={<FolderOpen/>} disabled={busy} onClick={()=>void run(()=>pickFiles(true))}>添加文件夹</Button><span className="muted">PDF · PNG · JPEG · BMP · TIFF，也可拖放到此页</span></div>
-      <div className="ocr-setup-row"><label className="ocr-profile-select">识别配置<select aria-label="识别配置" value={profileId} onChange={e=>setProfileId(e.target.value)}><option value="auto">自动识别配置（按文件匹配）</option>{profileId!=='auto'&&!profile&&<option value={profileId} disabled>所选配置已删除，请重新选择</option>}{data.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><Button disabled={!profile} onClick={()=>setEditor(structuredClone(profile!))}>编辑配置</Button><Button icon={<Plus/>} onClick={()=>setEditor(newProfile())}>新建配置</Button><Button onClick={()=>importInput.current?.click()}>导入配置</Button><input className="sr-only" aria-label="导入 OCR 配置文件" ref={importInput} type="file" accept=".json,.yaml,.yml" onChange={e=>{const f=e.target.files?.[0];if(f)void run(()=>importProfiles(f));e.target.value='';}}/><span className="ocr-spacer"/><Checkbox label="优先使用 Jev 判断字段" checked={useJev} onChange={(_,v)=>{const c=!!v.checked;setUseJev(c);try{localStorage.setItem('ocr_use_jev',String(c));}catch{}}}/></div>
-      {profileId==='auto'&&<><p className="ocr-policy">从 {data.profiles.filter(p=>p.keywords.some(k=>k.trim())).length} 个已保存且有自动匹配关键词的配置中，按首页逐文件匹配，再按选中配置提取。配置名称和附加标题不参与匹配；无唯一匹配时保留待复核，可在详情查看原因并更换配置仅重试该文件。</p>{data.profiles.some(p=>!p.keywords.some(k=>k.trim()))&&<details className="ocr-task-options"><summary>查看未设置关键词的配置</summary><p className="muted">{data.profiles.filter(p=>!p.keywords.some(k=>k.trim())).map(p=>p.name).join('、')}：可手动选择使用；如需自动匹配，请选择该配置 → 编辑配置 → 填写自动匹配关键词并保存。</p></details>}</>}
-      <details className="ocr-task-options" open={optionsOpen} onToggle={e=>setOptionsOpen(e.currentTarget.open)}><summary>一键任务选项 · 识别并改名 · {workflow.exportFormat==='none'?'不导出':`导出 ${workflow.exportFormat.toUpperCase()}`}</summary>
-        <div className="ocr-setup-row"><label>结果导出<select value={workflow.exportFormat} onChange={e=>setWorkflow(v=>({...v,exportFormat:e.target.value as OcrWorkflowOptions['exportFormat']}))}><option value="none">不自动导出</option>{exportOptions.map(opt=><option key={opt.format} value={opt.format}>{opt.label}</option>)}</select></label>{workflow.exportFormat!=='none'&&<><Button disabled={busy} onClick={()=>void run(async()=>{if(!desktop)throw new Error('自动导出需要桌面版选择本机文件夹。');const directory=await pick(true);if(directory)setWorkflow(v=>({...v,exportDirectory:directory}));})}>选择导出文件夹</Button><span className="ocr-output-directory" title={workflow.exportDirectory}>{workflow.exportDirectory||'尚未选择导出位置'}</span></>}</div>
-        <p className="ocr-policy">点击“一键识别并改名”后，按当前配置连续完成 OCR 和重命名，无需再点击改名或确认名称；同名自动加序号，不覆盖原文件。需复核、失败和冲突项集中保留，执行记录可撤销。选项自动保存；“仅识别”保留原分步流程。</p>
-      </details>
-      <div className="ocr-policy">{useJev?'已启用 Jev：仅向模型发送数字脱敏后的候选文字；页面图片、数值原文留在本机。':'默认模式：本地 OCR 后执行定位标签、正则与格式规则；Jev 判断说明仅在启用 Jev 时参与语义判断。'}{useJev&&!data.jevReady&&<> 尚未配置 Jev 密钥，字段将使用本地规则。<button className="text-button" onClick={onSettings}>前往设置</button></>}{data.unavailableReason?<strong role="alert"> OCR 暂不可用：{data.unavailableReason}</strong>:!data.engineReady&&<strong> 本地 OCR 引擎未安装。</strong>}</div>
+    <section className="ocr-toolbar" aria-label="OCR 文件与配置">
+      <div className="ocr-toolbar-import"><Button icon={<Files/>} disabled={busy} onClick={()=>void run(()=>pickFiles(false))}>添加文件</Button><Button icon={<FolderOpen/>} disabled={busy} onClick={()=>void run(()=>pickFiles(true))}>添加文件夹</Button></div>
+      <label className="ocr-profile-select">识别配置<select aria-label="识别配置" value={profileId} onChange={e=>setProfileId(e.target.value)}>{profileOptions}</select></label>
+      <div className="ocr-toolbar-settings">{(useJev||workflow.exportFormat!=='none')&&<span className="ocr-settings-summary">{[useJev?'Jev 已启用':'',workflow.exportFormat!=='none'?`自动导出 ${workflow.exportFormat.toUpperCase()}`:''].filter(Boolean).join(' · ')}</span>}<Button appearance="subtle" icon={<SlidersHorizontal aria-hidden="true"/>} aria-haspopup="dialog" onClick={()=>setSettingsOpen(true)}>识别设置</Button></div>
     </section>
-    <div className="ocr-layout">
+    <input className="sr-only" aria-label="导入 OCR 配置文件" ref={importInput} type="file" accept=".json,.yaml,.yml" onChange={e=>{const f=e.target.files?.[0];if(f)void run(()=>importProfiles(f));e.target.value='';}}/>
+    {(data.unavailableReason||!data.engineReady)&&<div className="ocr-setup-alert" role="alert">{data.unavailableReason?`OCR 暂不可用：${data.unavailableReason}`:'本地 OCR 引擎未安装。'}</div>}
+    {!data.profiles.length&&<div className="ocr-setup-alert"><span>还没有识别配置，新建或导入后即可开始。</span><Button size="small" icon={<Plus/>} onClick={()=>setEditor(newProfile())}>新建配置</Button><Button size="small" onClick={()=>importInput.current?.click()}>导入配置</Button></div>}
+    {taskHistoryOpen&&<Modal title={`任务记录 · ${data.tasks.length}`} className="ocr-task-history-dialog" onClose={()=>setTaskHistoryOpen(false)}>
+      {error&&<p className="inline-error" role="alert">{error}</p>}
+      {notice&&<p className="ocr-policy" role="status">{notice}</p>}
       <aside className="ocr-task-list" aria-label="OCR 任务列表">
         <div className="ocr-task-list-header">
-          <h2>任务记录 <span>{data.tasks.length}</span></h2>
-          {data.tasks.some(t=>!active(t))&&<Button size="small" appearance="subtle" title="清空所有已结束的任务" onClick={()=>void run(async()=>{const count=await api<number>('ocr_clear_completed_tasks');if(task&&!active(task)){setTaskId('');setFileId('');}await refresh();setNotice(`已清理 ${count} 个已结束任务`);})}>清空已结束</Button>}
+          <span className="muted">识别任务保存在本机</span>
+          {data.tasks.some(t=>completedOcrTask(t,data.batches))&&<Button size="small" appearance="subtle" disabled={busy} title="只清理全部成功的任务，保留待复核、失败、中断和仍有后续步骤的任务" onClick={()=>void run(async()=>{const count=await api<number>('ocr_clear_completed_tasks');const next=await refresh();if(task&&!next.tasks.some(t=>t.id===task.id)){setTaskId('');setFileId('');setChecked([]);}setNotice(`已清理 ${count} 个全部完成的任务，待复核、失败和中断任务保留。`);})}>清理已完成任务</Button>}
         </div>
         {paths.length>0&&<div className={`ocr-task-item ${taskId===''?'selected':''} ocr-pending-task`}>
-          <button className="ocr-task-button" onClick={()=>{setTaskId('');setFileId('');}}>
-            <strong>待处理文件</strong>
+          <button className="ocr-task-button" onClick={()=>{setTaskId('');setFileId('');setTaskHistoryOpen(false);}}>
+            <strong>待处理文件 · {paths.length} 个文件</strong>
           </button>
-          <button type="button" className="ocr-task-delete" title="清空清单" onClick={e=>{e.stopPropagation();setPaths([]);}}><Trash/></button>
+          <button type="button" className="ocr-task-delete" title="清空清单" aria-label="清空待处理文件清单" onClick={e=>{e.stopPropagation();setPaths([]);}}><Trash aria-hidden="true"/></button>
         </div>}
         {!data.tasks.length&&paths.length===0&&<p className="muted">识别任务会保存在本机。</p>}
         {data.tasks.map(t=><div key={t.id} className={`ocr-task-item ${t.id===taskId?'selected':''}`}>
-          <button className="ocr-task-button" onClick={()=>selectTask(t)}>
+          <button className="ocr-task-button" onClick={()=>{selectTask(t);setTaskHistoryOpen(false);}}>
             <strong>{t.autoMatch?'自动匹配':t.profiles[0]?.name||'通用配置'} · {t.files.length} 个文件{t.workflow?.enabled?' · 一键任务':''}</strong>
             <span>{new Date(t.created*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
             <small>{labels[t.status]||t.status} · {t.files.filter(f=>!['queued','running'].includes(f.status)).length}/{t.files.length}</small>
@@ -158,11 +167,13 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
           {!active(t)&&<button type="button" className="ocr-task-delete" title="删除此任务记录" aria-label={`删除任务 ${t.profiles[0]?.name||''}`} onClick={e=>{e.stopPropagation();void run(async()=>{await api('ocr_delete_task',{id:t.id});if(taskId===t.id){const rem=data.tasks.filter(x=>x.id!==t.id);if(rem.length){selectTask(rem[0]);}else{setTaskId('');setFileId('');}}await refresh();setNotice('任务记录已删除');});}}><Trash/></button>}
         </div>)}
       </aside>
+    </Modal>}
+    <div className="ocr-layout">
       {taskId===''&&paths.length>0?(
         <section className="ocr-results ocr-pending-results" aria-label="待识别文件清单">
           <header>
             <div>
-              <h2>文件清单</h2>
+              <h2>文件清单 <span className="muted">{paths.length} 个文件</span></h2>
               {paths.some(p=>allIdentifiedPaths.has(p.toLowerCase()))&&<span className="ocr-badge warning" style={{marginLeft:8}}>其中 {paths.filter(p=>allIdentifiedPaths.has(p.toLowerCase())).length} 项曾识别过</span>}
             </div>
             <div className="ocr-buttons">
@@ -173,19 +184,23 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
           <div className="ocr-table-scroll"><table><thead><tr><th style={{width:44,textAlign:'center'}}>#</th><th style={{width:'38%'}}>文件名称</th><th style={{width:'auto'}}>所在文件夹</th><th style={{width:90}}>历史记录</th><th style={{width:60,textAlign:'center'}}>操作</th></tr></thead><tbody>{paths.map((p,idx)=>{const isRecheck=allIdentifiedPaths.has(p.toLowerCase());return <tr key={p}><td className="muted" style={{textAlign:'center'}}>{idx+1}</td><td><strong>{basename(p)}</strong></td><td className="muted" title={p} style={{fontSize:11}}>{dirname(p)}</td><td>{isRecheck?<span className="ocr-tag warning">曾识别过</span>:null}</td><td style={{textAlign:'center'}}><IconButton label={`移除 ${basename(p)}`} onClick={()=>setPaths(v=>v.filter(x=>x!==p))}><X/></IconButton></td></tr>;})}</tbody></table></div>
         </section>
       ):!task?(
-        <section className="ocr-results" aria-label="OCR 结果">
-          <Empty title="让文档变成可用的信息" detail="添加文件或选择文件夹，选择已有配置或让 AI 帮你创建配置。识别后可校正字段、导出和批量改名。"/>
+        <section className="ocr-results" aria-label="文件清单">
+          <header><h2>文件清单 <span className="muted">0 个文件</span></h2><span className="ocr-list-hint">支持 PDF 与图片，也可直接拖入</span></header>
+          <Empty title="添加需要识别的文件" detail="支持 PDF、PNG、JPEG、BMP、TIFF。识别后可核对字段、导出结果和批量改名。" action={<Button appearance="primary" icon={<Files/>} disabled={busy} onClick={()=>void run(()=>pickFiles(false))}>添加文件</Button>}/>
         </section>
       ):(
         <section className="ocr-results" aria-label="OCR 结果">
-          <header><div><h2>{labels[task.status]} <span className="muted">{task.files.length} 个文件</span></h2>{active(task)&&<progress aria-label="OCR 进度" max={task.files.length} value={task.files.filter(f=>!['queued','running'].includes(f.status)).length}/>}</div><div className="ocr-buttons">{active(task)?<Button icon={<Stop/>} onClick={()=>void run(async()=>{await api('ocr_cancel_task',{id:task.id});await refresh();})}>取消任务</Button>:<><Button icon={<ArrowCounterClockwise/>} disabled={busy} onClick={()=>triggerStart(task.files.map(f=>f.path))}>再次识别全部</Button><Button disabled={busy||!task.files.some(f=>['failed','cancelled','interrupted'].includes(f.status))} onClick={()=>void run(()=>start(undefined,task.id))}>重试未完成项</Button></>}</div></header>
+          <header>
+            <div><h2>文件清单 <span className="muted">{listedFiles.length} 个文件 · {labels[task.status]}{clearedIds.size>0?` · 已清除 ${clearedIds.size} 项`:''}</span></h2>{active(task)&&<progress aria-label="OCR 进度" max={task.files.length} value={task.files.filter(f=>!['queued','running'].includes(f.status)).length}/>}</div>
+            <div className="ocr-buttons">
+              <label className="ocr-result-filter"><span className="sr-only">结果范围</span><select aria-label="结果范围" value={resultFilter} onChange={e=>{setResultFilter(e.target.value);setChecked([]);setFileId('');}}><option value="all">全部结果</option><option value="review">待复核</option><option value="failed">识别失败</option><option value="interrupted">中断或取消</option></select></label>
+              <Button icon={<Trash aria-hidden="true"/>} disabled={busy||active(task)||!clearableCount} title={active(task)?'任务结束后可清除已完成项':'从清单移除已完成项，保留待复核、失败、中断及未完成后续步骤的项目；原始结果与改名记录保留，可恢复显示'} onClick={()=>void run(()=>clearCompleted())}>清除已完成{clearableCount?` · ${clearableCount}`:''}</Button>
+              {!!task.clearedFileIds?.length&&<Button appearance="subtle" disabled={busy||active(task)} onClick={()=>void run(()=>clearCompleted(true))}>恢复已清除项</Button>}
+              {active(task)?<Button icon={<Stop/>} onClick={()=>void run(async()=>{await api('ocr_cancel_task',{id:task.id});await refresh();})}>取消任务</Button>:<><Button icon={<ArrowCounterClockwise/>} disabled={busy||!listedFiles.length} onClick={()=>triggerStart(listedFiles.map(f=>f.path))}>再次识别清单</Button><Button disabled={busy||!task.files.some(f=>['failed','cancelled','interrupted'].includes(f.status))} onClick={()=>void run(()=>start(undefined,task.id))}>重试未完成项</Button></>}
+            </div>
+          </header>
         {task.workflow?.enabled&&<div className="ocr-workflow-status" role="status"><strong>{active(task)?task.workflow.status==='running'?'正在完成导出 / 改名步骤…':'一键任务进行中':task.workflow.status==='completed'?(task.workflow.options.rename==='apply'?'识别与重命名已完成':'一键任务已完成'):task.workflow.status==='review'?'正常项已处理，剩余项待核对':task.workflow.status==='interrupted'?'上次任务已中断，可继续未完成步骤':task.workflow.status==='cancelled'?'任务已取消，已完成步骤保留':'后续步骤未完成'}</strong><span>就绪 {task.files.filter(f=>f.status==='ready').length} · 待复核 {task.files.filter(f=>['ready','review'].includes(f.status)&&(f.status==='review'||!!f.warning)&&!f.reviewed).length} · 失败 / 中断 {task.files.filter(f=>['failed','cancelled','interrupted'].includes(f.status)).length}</span>{task.workflow.exportPath&&<span className="ocr-output-directory" title={task.workflow.exportPath}>已导出：{task.workflow.exportPath}<Button size="small" onClick={()=>void run(async()=>{await copyText(task.workflow!.exportPath);setNotice('导出路径已复制');})}>复制路径</Button></span>}{task.workflow.error&&<span className="inline-error">{task.workflow.error}</span>}<div className="ocr-buttons">{task.workflow.renameBatchId&&<Button size="small" disabled={busy||active(task)} onClick={()=>void run(async()=>{const next=await refresh();const found=next.batches.find(b=>b.id===task.workflow!.renameBatchId);if(!found)throw new Error('改名记录已不存在。');setUndo(found.status!=='preview');setBatch(found);})}>查看改名{task.workflow.options.rename==='preview'?'预览':'结果'}</Button>}{!active(task)&&task.workflow.status!=='completed'&&<Button size="small" disabled={busy} onClick={()=>void run(async()=>{await api('ocr_resume_workflow',{id:task.id});await refresh();})}>仅继续后续步骤</Button>}</div></div>}
-        <div className="ocr-table-filter-bar">
-          <label className="ocr-result-filter">结果范围 <select value={resultFilter} onChange={e=>{setResultFilter(e.target.value);setChecked([]);setFileId('');}}><option value="all">全部结果</option><option value="review">待复核</option><option value="failed">识别失败</option><option value="interrupted">中断或取消</option></select></label>
-          <span className="ocr-spacer"/>
-          <Checkbox label="规整等高视图" title="锁定每行绝对等高，治愈强迫症" checked={uniformRows} onChange={(_,v)=>{const c=!!v.checked;setUniformRows(c);try{localStorage.setItem('ocr_uniform_rows',String(c));}catch{}}}/>
-        </div>
-        <div className={`ocr-table-scroll ${uniformRows?'uniform-rows':''}`}>
+        {!listedFiles.length?<Empty title="清单中的项目已全部完成" detail="已完成项已从清单清除，识别结果和改名记录仍然保留。" action={<Button disabled={busy} onClick={()=>void run(()=>clearCompleted(true))}>恢复显示</Button>}/>:!visibleFiles.length?<Empty title="当前范围没有文件" detail="待处理文件仍保留在清单中，可切换范围查看。" action={<Button onClick={()=>setResultFilter('all')}>查看全部结果</Button>}/>:<div className={`ocr-table-scroll ${uniformRows?'uniform-rows':''}`}>
           <table>
             <thead>
               <tr>
@@ -217,7 +232,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
               </tr>;})}
             </tbody>
           </table>
-        </div>
+        </div>}
           <footer>
             <div className="ocr-buttons ocr-export-group">
               <span className="ocr-export-label">导出结果：</span><Button size="small" disabled={busy||active(task)||!task.files.some(f=>['failed','cancelled','interrupted'].includes(f.status))} onClick={()=>void run(()=>exportTask('csv',true))}>异常项 CSV</Button>
@@ -241,6 +256,31 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings}:{v
       )}
       {file&&task&&<ResultDetail key={`${task.id}:${file.id}:${file.status}:${detailVersion}`} file={file} disabled={busy||active(task)} onSave={(values,name,reviewed)=>run(async()=>{await api('ocr_update_result',{taskId:task.id,fileId:file.id,values,proposedName:name,reviewed});await refresh();setDetailVersion(v=>v+1);setNotice('结果已保存');})} onOpen={reveal=>void run(async()=>{await api('ocr_open_file',{taskId:task.id,fileId:file.id,reveal});})} onClose={()=>setFileId('')}/>}
     </div>
+    {settingsOpen&&<Modal title="识别设置" className="ocr-settings-dialog" onClose={()=>setSettingsOpen(false)}>
+      {error&&<p className="inline-error" role="alert">{error}</p>}
+      {notice&&<p className="ocr-policy" role="status">{notice}</p>}
+      <section className="ocr-setting-section">
+        <h3>配置管理</h3>
+        <div className="ocr-setup-row"><label className="ocr-profile-select">识别配置<select aria-label="识别配置" value={profileId} onChange={e=>setProfileId(e.target.value)}>{profileOptions}</select></label><Button disabled={!profile||busy} onClick={()=>{setSettingsOpen(false);setEditor(structuredClone(profile!));}}>编辑配置</Button></div>
+        <div className="ocr-setup-row"><Button icon={<Plus/>} disabled={busy} onClick={()=>{setSettingsOpen(false);setEditor(newProfile());}}>新建配置</Button><Button disabled={busy} onClick={()=>importInput.current?.click()}>导入配置</Button></div>
+        {profileId==='auto'&&<><p className="ocr-policy">从 {data.profiles.filter(p=>p.keywords.some(k=>k.trim())).length} 个已保存且有自动匹配关键词的配置中，按首页逐文件匹配，再按选中配置提取。配置名称和附加标题不参与匹配；无唯一匹配时保留待复核，可在详情查看原因并更换配置仅重试该文件。</p>{data.profiles.some(p=>!p.keywords.some(k=>k.trim()))&&<details className="ocr-task-options"><summary>查看未设置关键词的配置</summary><p className="muted">{data.profiles.filter(p=>!p.keywords.some(k=>k.trim())).map(p=>p.name).join('、')}：可手动选择使用；如需自动匹配，请选择该配置 → 编辑配置 → 填写自动匹配关键词并保存。</p></details>}</>}
+      </section>
+      <section className="ocr-setting-section">
+        <h3>字段判断</h3>
+        <Checkbox label="优先使用 Jev 判断字段" checked={useJev} onChange={(_,v)=>{const c=!!v.checked;setUseJev(c);try{localStorage.setItem('ocr_use_jev',String(c));}catch{}}}/>
+        <p className="ocr-policy">{useJev?'已启用 Jev：仅向模型发送数字脱敏后的候选文字；页面图片、数值原文留在本机。':'默认使用本地 OCR、定位标签、正则与格式规则；启用 Jev 后，Jev 判断说明才参与语义判断。'}{useJev&&!data.jevReady&&<> 尚未配置 Jev 密钥，字段将使用本地规则。<button className="text-button" onClick={()=>{setSettingsOpen(false);onSettings();}}>前往设置</button></>}</p>
+      </section>
+      <section className="ocr-setting-section">
+        <h3>一键任务</h3>
+        <div className="ocr-setup-row"><label>结果导出<select value={workflow.exportFormat} onChange={e=>setWorkflow(v=>({...v,exportFormat:e.target.value as OcrWorkflowOptions['exportFormat']}))}><option value="none">不自动导出</option>{exportOptions.map(opt=><option key={opt.format} value={opt.format}>{opt.label}</option>)}</select></label>{workflow.exportFormat!=='none'&&<><Button disabled={busy} onClick={()=>void run(async()=>{if(!desktop)throw new Error('自动导出需要桌面版选择本机文件夹。');const directory=await pick(true);if(directory)setWorkflow(v=>({...v,exportDirectory:directory}));})}>选择导出文件夹</Button><span className="ocr-output-directory" title={workflow.exportDirectory}>{workflow.exportDirectory||'尚未选择导出位置'}</span></>}</div>
+        <p className="ocr-policy">点击“一键识别并改名”后，按当前配置连续完成 OCR 和重命名，无需再点击改名或确认名称；同名自动加序号，不覆盖原文件。需复核、失败和冲突项集中保留，执行记录可撤销。“仅识别”保留原分步流程。</p>
+      </section>
+      <section className="ocr-setting-section">
+        <h3>列表显示</h3>
+        <Checkbox label="规整等高视图" title="文件行保持相同高度，长文件名可在单元格中滚动查看" checked={uniformRows} onChange={(_,v)=>{const c=!!v.checked;setUniformRows(c);try{localStorage.setItem('ocr_uniform_rows',String(c));}catch{}}}/>
+      </section>
+      <div className="ocr-settings-footer"><span className="muted">选项自动保存</span><Button onClick={()=>setSettingsOpen(false)}>完成</Button></div>
+    </Modal>}
     {editor&&<ProfileEditor value={editor} busy={busy} error={error} onChange={setEditor} onClose={()=>{setEditor(null);setError('');}} onSave={()=>void run(async()=>{await api('ocr_save_profile',{profile:editor});await refresh();setProfileId(editor.id);setEditor(null);setNotice('配置已保存');})} onDelete={()=>void run(async()=>{await api('ocr_delete_profile',{id:editor.id});setProfileId('auto');setEditor(null);await refresh();})} onAI={description=>void run(async()=>{const next=await api<OcrProfile>('ocr_generate_profile',{description,profile:editor});setEditor(next);setNotice(editor.fields.length?'AI 针对性微调完成，已锁定保护其余已有字段与画框':'AI 草稿已生成，请核对并保存');})} onExport={()=>void run(async()=>{if(!desktop){download(`${editor.name}.json`,JSON.stringify(editor,null,2));return;}const {save}=await import('@tauri-apps/plugin-dialog');const path=await save({defaultPath:'OCR配置.json',filters:[{name:'JSON',extensions:['json']}]});if(path)await api('ocr_export_profile',{profile:editor,path});})}/ >}
     {recheckPrompt&&<Modal title="再次识别提醒" onClose={()=>setRecheckPrompt(null)}>
       <p>共 {recheckPrompt.total} 个文件，使用【{recheckPrompt.profileId==='auto'?'自动识别配置':data.profiles.find(p=>p.id===recheckPrompt.profileId)?.name||'已失效配置'}】。</p>

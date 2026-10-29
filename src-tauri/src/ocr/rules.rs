@@ -7,6 +7,23 @@ use std::{collections::{BTreeMap,HashMap,HashSet},path::Path,sync::OnceLock};
 #[path = "rules_tests.rs"]
 mod tests;
 
+pub fn canonical_date_format(format:&str)->Option<&'static str>{
+    match format.trim(){
+        ""=>Some(""),
+        "%Y%m%d"=>Some("%Y%m%d"),
+        "%Y-%m-%d"=>Some("%Y-%m-%d"),
+        "%Y/%m/%d"=>Some("%Y/%m/%d"),
+        "%Y年%m月%d日"=>Some("%Y年%m月%d日"),
+        display=>match display.to_ascii_uppercase().as_str(){
+            "YYYYMMDD"=>Some("%Y%m%d"),
+            "YYYY-MM-DD"=>Some("%Y-%m-%d"),
+            "YYYY/MM/DD"=>Some("%Y/%m/%d"),
+            "YYYY年MM月DD日"=>Some("%Y年%m月%d日"),
+            _=>None,
+        }
+    }
+}
+
 pub fn validate(p:&OcrProfile)->Result<(),String>{
     if p.id.is_empty()||p.id.len()>80||!p.id.chars().all(|c|c.is_ascii_alphanumeric()||c=='-'){return Err("配置 ID 无效".into());}
     if p.name.trim().is_empty()||p.name.len()>300||p.fields.len()>40||!(100..=400).contains(&p.dpi)||!p.threshold.is_finite()||!(0.0..=1.0).contains(&p.threshold){return Err("配置名称、字段数量、DPI 或复核阈值无效".into());}
@@ -942,9 +959,16 @@ pub fn filename_with_warning(p:&OcrProfile,fields:&BTreeMap<String,OcrFieldResul
     let path=Path::new(path);let stem=path.file_stem().unwrap_or_default().to_string_lossy();let mut name=p.filename_pattern.replace("{原文件名}",&stem);
     for(k,v)in fields{name=name.replace(&format!("{{{k}}}"),&v.value);}
     let ext=path.extension().unwrap_or_default().to_string_lossy();if name.to_lowercase().ends_with(&format!(".{}",ext.to_lowercase())){name.truncate(name.len()-ext.len()-1);}
-    let mut warnings=vec![];if name.chars().any(|c|c.is_control()||"\\/:*?\"<>|".contains(c)){warnings.push("非法文件名字符已替换为下划线");}if name.chars().count()>140{warnings.push("生成名称超过 140 字符，已截断；请核对关键信息");}
-    name=name.chars().map(|c|if c.is_control()||"\\/:*?\"<>|".contains(c){'_'}else{c}).collect::<String>();name=name.trim_matches([' ','.']).chars().take(140).collect();
-    let base=name.split('.').next().unwrap_or("").to_uppercase();if name.is_empty(){name="未命名".into();}if ["CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"].contains(&base.as_str()){name.insert(0,'_');}(format!("{}.{}",name.trim_end_matches([' ','.']),ext),warnings.join("；"))
+    // Normalize only the generated filename. OCR values and exports keep their
+    // original text; deterministic character replacement does not require review.
+    let invalid=|c:char|c.is_control()||"\\/:*?\"<>|".contains(c)||matches!(c,'\u{200b}'..='\u{200f}'|'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}'|'\u{feff}');
+    name=name.chars().map(|c|if invalid(c){'_'}else{c}).collect::<String>().trim_matches([' ','.']).to_owned();
+    let mut warnings=vec![];if name.encode_utf16().count()>140{warnings.push("生成名称过长，已截断；请核对关键信息");}
+    let mut length=0;name=name.chars().take_while(|c|{length+=c.len_utf16();length<=140}).collect();
+    let base=name.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    if name.is_empty(){name="未命名".into();}
+    if ["CON","PRN","AUX","NUL","CLOCK$","CONIN$","CONOUT$"].contains(&base.as_str())||["COM","LPT"].iter().any(|prefix|base.strip_prefix(prefix).is_some_and(|n|["1","2","3","4","5","6","7","8","9","¹","²","³"].contains(&n))){name.insert(0,'_');}
+    (format!("{}.{}",name.trim_end_matches([' ','.']),ext),warnings.join("；"))
 }
 
 fn normalize_match_text(text:&str)->String{
