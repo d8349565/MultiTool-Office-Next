@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Switch, Tab, TabList } from '@fluentui/react-components';
-import { Plus, Trash, FolderOpen, ArrowUp, ArrowDown, Key, UploadSimple, DownloadSimple } from '@phosphor-icons/react';
+import { Plus, Trash, FolderOpen, ArrowUp, ArrowDown, Key, UploadSimple, DownloadSimple, PlugsConnected, ChatText, SlidersHorizontal } from '@phosphor-icons/react';
 import type { Settings, Launcher } from './types';
 import { api, desktop, pick } from './api';
 import { IconButton, Modal } from './components';
@@ -28,9 +28,12 @@ const modules = [
 ] as const;
 export type ModuleId=typeof modules[number]['id'];
 type NumberKey='modelContextTokens'|'assistantOutputTokens'|'translationOutputTokens'|'modelFirstResponseTimeoutSecs'|'modelIdleTimeoutSecs'|'modelRequestTimeoutSecs'|'modelRetryCount'|'assistantTaskTimeoutSecs'|'assistantHistoryMessages'|'assistantHistoryChars'|'assistantToolRounds'|'assistantSearchLimit'|'assistantContinueTokens';
+type ModelPage='connections'|'reply'|'advanced';
 
 export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{settings:Settings;onSaved:(s:Settings)=>void;onClose:()=>void;initialTab?:ModuleId}) {
   const [draft,setDraft]=useState(()=>structuredClone(settings)),[tab,setTab]=useState<ModuleId>(initialTab);
+  const [modelPage,setModelPage]=useState<ModelPage>('connections'),modelScroller=useRef<HTMLDivElement>(null);
+  useEffect(()=>{modelScroller.current?.scrollTo({top:0});},[modelPage]);
   const [savedSettings,setSavedSettings]=useState(settings),baseline=useRef(settings);
   function acceptSaved(saved:Settings,keys:readonly string[]=[]){const before=baseline.current;baseline.current=saved;setSavedSettings(saved);setDraft(previous=>rebaseSettings(previous,before,saved,keys));setClosing(false);onSaved(saved);}
   useEffect(()=>{const before=baseline.current;if(settingsEqual(before,settings))return;baseline.current=settings;setSavedSettings(settings);setDraft(previous=>rebaseSettings(previous,before,settings));},[settings]);
@@ -67,11 +70,11 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
   function addWebLauncher(){const id=crypto.randomUUID();addedLauncher.current=id;change('launchers',[...draft.launchers,{id,name:'',path:'https://',group:'网页入口'}]);}
   function editLauncher(index:number,field:keyof Launcher,value:string){change('launchers',draft.launchers.map((l,i)=>i===index?{...l,[field]:value}:l));}
   function move(index:number,delta:number){const next=[...draft.launchers];[next[index],next[index+delta]]=[next[index+delta],next[index]];change('launchers',next);}
-  function numberField(key:NumberKey,label:string,fallback:number,min:number,max:number,hint:string){return <label>{label}<input aria-label={label} aria-describedby={'settings-hint-'+key} type="number" min={min} max={max} step={1} required value={draft[key]??fallback} onChange={e=>change(key,e.target.value===''?NaN:Number(e.target.value))}/><small id={'settings-hint-'+key}>{hint}</small></label>;}
+  function numberField(key:NumberKey,label:string,fallback:number,min:number,max:number,hint:string){return <label>{label}<input aria-label={label} aria-describedby={'settings-hint-'+key} type="number" min={min} max={max} step={1} required value={Number.isNaN(draft[key])?'':draft[key]??fallback} onChange={e=>change(key,e.target.value===''?NaN:Number(e.target.value))}/><small id={'settings-hint-'+key}>{hint}</small></label>;}
   async function saveModule(event:FormEvent<HTMLFormElement>){event.preventDefault();
     if(busy||!canSave)return;
     const panel=event.currentTarget.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])');
-    for(const field of panel?.querySelectorAll<HTMLInputElement>('input,select')||[]){if(field.closest('.model-connections'))continue;if(!field.checkValidity()){const details=field.closest('details');if(details)details.open=true;field.reportValidity();return;}}
+    for(const field of panel?.querySelectorAll<HTMLInputElement>('input,select')||[]){if(field.closest('.model-connections'))continue;if(!field.checkValidity()){const page=field.closest<HTMLElement>('[data-model-page]')?.dataset.modelPage;if(page)setModelPage(page as ModelPage);const details=field.closest('details');if(details)details.open=true;requestAnimationFrame(()=>{field.focus();field.reportValidity();});return;}}
     await run(async()=>{
       if(tab==='transfer'){
         if(!imported)return;
@@ -82,22 +85,24 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       const next={...savedSettings};for(const key of keys)Object.assign(next,{[key]:draft[key as keyof Settings]});
       if(tab==='pricing'&&next.modelPricing){next.modelPricing={...next.modelPricing,rules:next.modelPricing.rules.map(r=>({...r,modelIds:r.modelIds.filter(Boolean)})),holidays:Object.fromEntries(Object.entries(next.modelPricing.holidays).map(([year,dates])=>[year,dates.filter(Boolean)]))};}
       const saved=await api<Settings>('save_settings',{next});acceptSaved(saved,keys);
-      setMessage(module.label+'已保存。'+(connectionDirty?'连接草稿请在上方测试并保存。':dirtyModules.some(m=>m.id!==tab)?'其他模块的草稿继续保留。':''));
+      setMessage(module.label+'已保存。'+(connectionDirty?'连接草稿请在“模型连接”页测试并保存。':dirtyModules.some(m=>m.id!==tab)?'其他模块的草稿继续保留。':''));
     });
   }
   function resetModule(){if(tab==='transfer'){setImported(null);setError('');setMessage('已取消本次导入。');return;}if(tab==='assistant')return;setDraft(old=>{const next={...old};for(const key of module.keys)Object.assign(next,{[key]:savedSettings[key as keyof Settings]});return next;});if(tab==='integrations'){setSearchResetVersion(v=>v+1);setSearchDirty(false);setSearchSaveBlocked('');}setError('');setMessage('本模块参数已恢复为已保存的配置。');}
   async function exportSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {save}=await import('@tauri-apps/plugin-dialog');const path=await save({defaultPath:'office-next-settings.json',filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;await api('export_settings',{path});setMessage('已导出配置：'+path);}
   async function importSettings(){if(!desktop)throw new Error('配置导入导出需要运行桌面版');const {open}=await import('@tauri-apps/plugin-dialog');const path=await open({multiple:false,filters:[{name:'JSON 配置',extensions:['json']}]});if(!path)return;setImported(null);const next=await api<Settings>('import_settings',{path});setImported(next);setMessage('配置已校验，请检查后点击“确认导入配置”。');}
   const deepseek=(()=>{try{return new URL(draft.modelUrl).hostname==='api.deepseek.com';}catch{return false;}})();
+  const modelConfigured=!!(savedSettings.modelUrl&&savedSettings.modelId);
+  const currentModel=savedSettings.modelProfiles?.find(p=>p.id===savedSettings.activeModelProfileId);
   function preset(deep:boolean){setDraft(d=>({...d,assistantReasoning:deep?'high':'default',assistantOutputTokens:deep?0:8192,assistantToolRounds:deep?18:10,assistantSearchLimit:deep?8:4,assistantHistoryMessages:12,assistantHistoryChars:deep?6000:4000,assistantAutoContinue:true,assistantContinueTokens:deep?16384:8192}));setMessage((deep?'复杂任务':'日常办公')+'配置已填入草稿，保存此模块后生效。');}
-  return <Modal title="工作台设置" onClose={requestClose} wide>
+  return <Modal title="工作台设置" onClose={requestClose} wide className={tab==='model'?'model-settings-dialog':''}>
     <form className="settings-form" noValidate onSubmit={e=>void saveModule(e)}>
       <TabList className="settings-tabs" selectedValue={tab} onTabSelect={(_,data)=>switchTab(data.value as ModuleId)} aria-label="设置模块" disabled={busy}>
         {modules.map(m=>{const unsaved=dirtyModules.some(d=>d.id===m.id);return <Tab id={'settings-tab-'+m.id} key={m.id} value={m.id} aria-label={m.label} aria-controls={'settings-panel-'+m.id} aria-describedby={unsaved?'settings-unsaved-'+m.id:undefined}>{m.label}{unsaved&&<><span className="settings-dirty-dot" aria-hidden="true"/><span id={'settings-unsaved-'+m.id} className="sr-only">有未保存修改</span></>}</Tab>;})}
       </TabList>
       {closing&&<div ref={closeWarning} className="settings-close-warning" role="alert"><p>未保存：{[...dirtyModules.map(m=>m.label),...(secret.trim()?['服务密钥']:[])].join('、')}。{connectionDirty&&'模型连接草稿或密钥需要在连接区域测试并保存。'}已保存的设置会保留。</p><div className="button-row"><Button type="button" onClick={()=>setClosing(false)}>继续配置</Button><Button type="button" onClick={onClose}>放弃未保存修改并关闭</Button></div></div>}
       {pendingSecretAction&&<div ref={closeWarning} className="settings-close-warning" role="alert"><p>切换设置页或密钥服务会清空未保存的密钥输入。</p><div className="button-row"><Button type="button" onClick={()=>setPendingSecretAction(null)}>保留密钥输入</Button><Button type="button" onClick={()=>{const action=pendingSecretAction;setPendingSecretAction(null);action();}}>放弃密钥输入并继续</Button></div></div>}
-      <div className="settings-module-heading"><div><h3>{module.label}</h3><p>{module.description}</p></div><div className="settings-heading-actions"><span>{dirty?'未保存修改':'已保存配置'}</span><Button type="button" size="small" appearance="subtle" disabled={busy} onClick={()=>openSetup()}>配置引导</Button></div></div>
+      <div className="settings-module-heading"><div><h3>{module.label}</h3><p>{tab==='model'?'管理模型连接与回复偏好，低频选项在“高级参数”中调整。':module.description}</p></div><div className="settings-heading-actions"><span>{dirty?'未保存修改':tab==='model'&&!modelConfigured?'尚未配置模型':'已保存配置'}</span><Button type="button" size="small" appearance="subtle" disabled={busy} onClick={()=>openSetup()}>配置引导</Button></div></div>
       <fieldset className="settings-content" disabled={busy}><div className="settings-panels">
         <div id="settings-panel-workspace" role="tabpanel" aria-labelledby="settings-tab-workspace" hidden={tab!=='workspace'}>
           <section className="settings-section"><h3>文件搜索范围</h3><p>只索引目录下的文件信息，不读取文档正文。</p>
@@ -137,32 +142,49 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
             {!draft.launchers.length&&<p className="launcher-empty">还没有快捷入口，添加常用程序、文件或网页即可开始。</p>}
           </section>
         </div>
-        <div id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model" hidden={tab!=='model'}>
+        <div id="settings-panel-model" role="tabpanel" aria-labelledby="settings-tab-model" hidden={tab!=='model'} className="model-settings">
+          <div className="model-current-summary"><PlugsConnected aria-hidden="true"/><span>{modelConfigured?'当前使用':'尚未连接'}</span><strong>{modelConfigured?currentModel?.name||'原有模型配置':'添加一个模型连接即可开始'}</strong>{modelConfigured&&<span className="model-current-id" title={savedSettings.modelId}>{savedSettings.modelId}</span>}</div>
+          <TabList className="model-settings-tabs" aria-label="模型设置分区" selectedValue={modelPage} onTabSelect={(_,data)=>setModelPage(data.value as ModelPage)} disabled={busy}>
+            <Tab id="model-tab-connections" value="connections" aria-controls="model-page-connections" icon={<PlugsConnected aria-hidden="true"/>}>模型连接</Tab>
+            <Tab id="model-tab-reply" value="reply" aria-controls="model-page-reply" icon={<ChatText aria-hidden="true"/>}>回复偏好</Tab>
+            <Tab id="model-tab-advanced" value="advanced" aria-controls="model-page-advanced" icon={<SlidersHorizontal aria-hidden="true"/>}>高级参数</Tab>
+          </TabList>
+          <div ref={modelScroller} className="model-settings-pages">
+          <div id="model-page-connections" role="tabpanel" aria-labelledby="model-tab-connections" data-model-page="connections" hidden={modelPage!=='connections'}>
           <ModelConnections settings={savedSettings} onSaved={acceptSaved} onDirtyChange={setConnectionDirty} onBusyChange={setBusy} disabled={busy}/>
-          <section className="settings-section"><h3>按任务选择配置</h3><p>选择后先填入草稿，检查并保存。连接地址、密钥和等待时间保持当前设置。</p><div className="button-row"><Button type="button" onClick={()=>preset(false)}>日常办公</Button><Button type="button" onClick={()=>preset(true)}>复杂任务</Button></div><p>日常办公适合问答和文件整理；复杂任务增加思考、历史和操作预算。</p></section>
-          <section className="settings-section"><h3>回复与思考</h3><div className="form-grid"><ReasoningSelect label="助手思考程度" value={draft.assistantReasoning||'default'} onChange={v=>change('assistantReasoning',v)}/><ReasoningSelect label="翻译思考程度" value={draft.translationReasoning||'default'} onChange={v=>change('translationReasoning',v)}/>
+          </div>
+          <div id="model-page-reply" role="tabpanel" aria-labelledby="model-tab-reply" data-model-page="reply" hidden={modelPage!=='reply'}>
+          <section className="settings-section model-task-presets"><div><h3>按任务快速设置</h3><p>预设先填入草稿，保存后生效；连接与等待时间保持当前设置。</p></div><div className="button-row"><Button type="button" title="适合问答和文件整理，使用模型默认思考" onClick={()=>preset(false)}>日常办公</Button><Button type="button" title="增加思考强度、历史长度及工具与搜索预算" onClick={()=>preset(true)}>复杂任务</Button><Button type="button" title="关闭长思考，缩减历史、工具轮数与搜索次数" onClick={()=>{setDraft(d=>({...d,assistantReasoning:'none',assistantOutputTokens:8192,assistantToolRounds:6,assistantSearchLimit:3,assistantHistoryMessages:6,assistantHistoryChars:2000,assistantAutoContinue:true,assistantContinueTokens:4096}));setMessage('高效配置已填入草稿，点击“保存模型参数”后生效。');}}>高效配置</Button></div></section>
+          <section className="settings-section"><div className="model-reply-groups"><div><h3>助手回复</h3><div className="form-grid"><ReasoningSelect label="助手思考程度" value={draft.assistantReasoning||'default'} onChange={v=>change('assistantReasoning',v)}/>
             {numberField('assistantOutputTokens','助手输出上限',0,0,384000,'0 自动选择；DeepSeek 官方服务 / MiniMax 模型 65536，其他服务 8192。')}
+          </div></div><div><h3>翻译回复</h3><div className="form-grid"><ReasoningSelect label="翻译思考程度" value={draft.translationReasoning||'default'} onChange={v=>change('translationReasoning',v)}/>
             {numberField('translationOutputTokens','翻译输出上限',0,0,384000,'0 使用服务默认。此上限用于每个翻译分段。')}
-          </div><p>输出上限以标记数计，思考和正文可能共用额度。填写的值还需符合所选模型的限制。</p></section>
-          <section className="settings-section"><h3>等待与恢复</h3><div className="form-grid">
+          </div></div></div><p>输出上限以标记数计，思考和正文可能共用额度。填写的值还需符合所选模型的限制。</p></section>
+          <section className="settings-section"><h3>截断后恢复</h3><Switch checked={draft.assistantAutoContinue??true} onChange={(_,d)=>change('assistantAutoContinue',d.checked)} label="回复截断后自动补写一次"/><div className="form-grid">
+            {numberField('assistantContinueTokens','截断后补写上限',16384,256,384000,'自动补写仅收尾，不再执行工具；关闭自动补写时不使用此上限。')}
+          </div></section>
+          </div>
+          <div id="model-page-advanced" role="tabpanel" aria-labelledby="model-tab-advanced" data-model-page="advanced" hidden={modelPage!=='advanced'}>
+          <p className="model-advanced-intro">通常保留默认即可。遇到等待过久、回复中断或上下文不足时，再展开对应设置。</p>
+          <details className="settings-advanced model-advanced-section"><summary><span>等待与重试</span><small>请求超时、首响应、输出停滞与重试次数</small></summary><div className="form-grid">
             {numberField('modelRequestTimeoutSecs','单次请求等待（秒）',600,10,1800,'推荐 600 秒；单次模型请求的总预算，持续输出也受此限制。')}
             {numberField('modelFirstResponseTimeoutSecs','首响应等待（秒）',120,10,1800,'推荐 120 秒；等待首段思考、正文或工具参数，连接等待另限10秒。')}
             {numberField('modelIdleTimeoutSecs','输出停滞等待（秒）',120,10,1800,'推荐 120 秒；持续有效输出会重新计时，心跳不会延长等待。')}
             {numberField('assistantTaskTimeoutSecs','助手任务等待（秒）',1800,30,7200,'推荐 1800 秒（30 分钟），可设至 2 小时；包含模型、工具及等待文件确认的时间。')}
             {numberField('modelRetryCount','服务繁忙重试次数',2,0,2,'仅对短暂连接失败、限流或繁忙重试；0 不重试。')}
-            {numberField('assistantContinueTokens','截断后补写上限',16384,256,384000,'自动补写仅收尾，不再执行工具。')}
-          </div><Switch checked={draft.assistantAutoContinue??true} onChange={(_,d)=>change('assistantAutoContinue',d.checked)} label="回复截断后自动补写一次"/></section>
-          <section className="settings-section"><div className="settings-budget-heading"><h3>上下文与工具预算</h3><Button type="button" size="small" onClick={()=>{setDraft(d=>({...d,assistantReasoning:'none',assistantOutputTokens:8192,assistantToolRounds:6,assistantSearchLimit:3,assistantHistoryMessages:6,assistantHistoryChars:2000,assistantAutoContinue:true,assistantContinueTokens:4096}));setMessage('高效配置已填入草稿，点击“保存此模块”后生效。');}}>使用高效配置</Button></div><p>适合检索、计数和日常问答：关闭长思考，最多六轮、三次联网检索；复杂任务仍可手动调整。</p><div className="form-grid">
+          </div></details>
+          <details className="settings-advanced model-advanced-section"><summary><span>上下文与工具预算</span><small>历史长度、上下文容量、模型轮数与联网次数</small></summary><div className="form-grid">
             {numberField('modelContextTokens','模型上下文容量',0,0,10000000,'用于占用率与自动压缩；0 自动识别 DeepSeek Flash / V4，未识别模型采用保守发送预算。建议按服务实际容量填写。')}
             {numberField('assistantHistoryMessages','发送历史消息条数',12,0,12,'0 不发送聊天历史，最多最近 12 条。')}
             {numberField('assistantHistoryChars','每条历史文字上限',4000,500,12000,'只影响发送给模型的历史，保留本机完整记录。')}
             {numberField('assistantToolRounds','任务模型轮数上限',25,1,25,'包含最后汇报的一轮；1 只回复，不调用工具。')}
             {numberField('assistantSearchLimit','任务搜索与抓取次数上限',8,0,20,'0 禁用联网工具；已有资料仍可用于汇报。')}
-          </div><p>历史思考内容留在本机；已收集的工具资料摘要单独传递。调整这些参数不会扩大文件访问权限。</p></section>
-          <details className="settings-advanced"><summary>高级采样参数</summary><p>留空使用模型默认；不同服务对这些参数的支持不同。</p><div className="form-grid">
+          </div><p>历史思考内容留在本机；已收集的工具资料摘要单独传递。调整这些参数不会扩大文件访问权限。</p></details>
+          <details className="settings-advanced model-advanced-section"><summary><span>采样参数</span><small>随机程度与采样范围，留空使用模型默认</small></summary><p>不同服务对这些参数的支持不同。</p><div className="form-grid">
             <label>随机程度<input type="number" min={0} max={2} step={0.1} value={draft.modelTemperature??''} onChange={e=>change('modelTemperature',e.target.value===''?null:Number(e.target.value))} placeholder="模型默认"/><small>较低时表达更稳定，较高时措辞更多样。</small></label>
             <label>采样范围<input type="number" min={0.01} max={1} step={0.01} value={draft.modelTopP??''} onChange={e=>change('modelTopP',e.target.value===''?null:Number(e.target.value))} placeholder="模型默认"/><small>通常保留默认，只调整一个采样参数。</small></label>
           </div>{deepseek&&<p>深度求索开启思考时不发送随机程度；关闭思考后生效。采样范围按模型自身规则处理。</p>}</details>
+          </div></div>
         </div>
         <div id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant" hidden={tab!=='assistant'}>
           <AssistantWorkspaceSettings modelUrl={savedSettings.modelUrl} onDirtyChange={setWorkspaceGrantDirty} onBusyChange={setBusy} disabled={busy}/>
@@ -184,7 +206,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
       {tab==='integrations'&&<section className="settings-section settings-credentials"><h3>服务密钥</h3><p>密钥单独保存到系统凭据管理器，保存模块时不会提交密钥。</p><div className="credential-form"><label>密钥服务<select value={provider} disabled={busy} onChange={e=>{const next=e.target.value;guardSecret(()=>{setProvider(next);setSecret('');});}}><option value="jev">TypeSafe / Jev</option></select></label><label>API 密钥<input type="password" autoComplete="off" disabled={busy} value={secret} onChange={e=>setSecret(e.target.value)} placeholder="保存在系统凭据管理器"/></label><Button type="button" icon={<Key/>} disabled={!secret||busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret});setSecret('');setMessage('密钥已保存到系统凭据管理器');})}>保存密钥</Button><Button type="button" disabled={busy} onClick={()=>void run(async()=>{await api('set_key',{provider,secret:''});setMessage('密钥已删除');})}>清除密钥</Button></div></section>}
       </fieldset>{message&&<p className="notice" role="status">{message}</p>}{error&&<p className="inline-error" role="alert">{error}</p>}
       {tab==='integrations'&&(moduleFieldsDirty||searchDirty)&&searchSaveBlocked&&<p className="settings-save-hint" role="status">{searchSaveBlocked}</p>}
-      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':'配置已保存'}<small>配置版本 {savedSettings.revision}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&tab!=='privacy'&&<><Button type="button" disabled={busy||!canReset} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
+      <footer className="dialog-actions settings-actions"><span>{dirtyModules.length?'未保存：'+dirtyModules.map(m=>m.label).join('、'):secret.trim()?'服务密钥未保存':tab==='model'&&!modelConfigured?'请先完成模型连接':'配置已保存'}<small>{tab==='model'?(modelPage==='connections'?'模型连接在当前页测试并保存。':'参数保存后用于下一次任务；连接单独保存。'):`配置版本 ${savedSettings.revision}`}</small></span><Button type="button" onClick={requestClose} disabled={busy}>关闭</Button>{tab!=='assistant'&&tab!=='privacy'&&(tab!=='model'||modelPage!=='connections'||moduleFieldsDirty)&&<><Button type="button" disabled={busy||!canReset} onClick={resetModule}>{tab==='transfer'?'取消本次导入':tab==='model'?'撤销参数修改':'撤销本模块修改'}</Button><Button appearance="primary" type="submit" disabled={busy||!canSave}>{busy?'正在处理…':tab==='transfer'?'确认导入配置':tab==='model'?'保存模型参数':'保存此模块'}</Button></>}</footer>
     </form>
   </Modal>;
 }

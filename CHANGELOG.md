@@ -1,5 +1,30 @@
 # 变更日志
 
+## v0.5.6 - 2026-10-30
+
+### Improvements
+
+- Export one or all OCR profiles, including field rules and selected regions, as JSON for later import. Existing files are not overwritten; oversized collections must be exported separately.
+- Organize the OCR profile editor into fields, regions and general settings, with a clearer sample preview and region list.
+- Group model connections, reply preferences and advanced settings, and clarify assistant workspace permissions and individual file approvals.
+
+### 修复与完善
+
+- 支持将单个或全部 OCR 配置导出为 JSON，保留字段规则与框选区域，便于再次导入；不会覆盖已有文件，合辑过大时需分别导出。
+- OCR 配置编辑器按字段、框选区域和通用设置分区，调整样本预览及区域列表，方便查看和修改。
+- 模型设置按连接、回复偏好和高级参数分组，优化助理工作目录授权与逐文件确认界面。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR models run locally; optional connected services and diagnostic sharing may incur provider fees. Review redacted previews before sharing. File-state checks, non-replacing renames and undo protections remain in place.
+- 需要 Windows x64 和 Microsoft Edge WebView2；OCR 模型在本机运行，可选联网服务及诊断共享可能产生服务商费用。共享前请核对脱敏预览；继续保留文件状态校验、不覆盖改名与撤销保护。
+- Application build / 应用构建版本：`2026.1030.2107`。
+
+### Verification scope / 验证范围
+
+- Frontend production build, Rust static checks and installer configuration checks passed. No simulated tests, complete desktop walkthrough, fresh-install acceptance, real OCR or paid-service validation was performed; no user business files were read. No GitHub Actions workflows are configured.
+- 前端生产构建、Rust 静态检查和安装配置检查通过。未进行模拟测试、完整桌面走查、全新安装验收、真实 OCR 或付费服务验证，未读取用户业务文件；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.5 - 2026-10-29
 
 ### Improvements

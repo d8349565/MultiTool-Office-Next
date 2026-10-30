@@ -766,17 +766,284 @@
   margin: 2px 0;
 }
 
-/* 编辑器与模态框 */
+/* Fluent 配置表单：DESIGN_VARIANCE 3 / MOTION_INTENSITY 2 / VISUAL_DENSITY 6。 */
+.modal.ocr-profile-dialog {
+  width: min(1120px, calc(100vw - 32px));
+  height: min(800px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+}
+.ocr-profile-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.ocr-profile-dialog > header {
+  flex-shrink: 0;
+  padding: 16px 24px;
+  background: var(--surface-alt);
+}
+.ocr-profile-dialog > header h2 {
+  font-size: 16px;
+}
+.ocr-profile-dialog .modal-body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  overflow: hidden;
+}
 .ocr-editor {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  caret-color: var(--focus);
+  scrollbar-color: var(--line) var(--surface);
+}
+.ocr-editor ::selection {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.ocr-editor .muted {
+  padding: 0;
+}
+.ocr-profile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 16px;
+  padding: 16px 24px 12px;
+  background: var(--surface-alt);
+}
+.ocr-profile-bar > label {
+  width: min(360px, 100%);
+}
+.ocr-profile-tabs {
+  --colorBrandStroke1: var(--focus);
+  --colorCompoundBrandForeground1: var(--focus);
+  --colorCompoundBrandForeground1Hover: var(--focus);
+  --colorCompoundBrandForeground1Pressed: var(--focus);
+  --colorCompoundBrandStroke: var(--focus);
+  --colorCompoundBrandStrokeHover: var(--focus);
+  --colorCompoundBrandStrokePressed: var(--focus);
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  background: var(--surface-alt);
+}
+.ocr-profile-tabs .fui-Tab {
+  padding-block: 14px;
+}
+.ocr-tab-count {
+  color: var(--muted);
+  margin-left: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ocr-editor .ocr-editor-feedback {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+  max-height: 96px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  flex-shrink: 0;
+}
+.ocr-profile-content {
+  flex: 1;
+  min-height: 0;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.ocr-editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+}
+.ocr-editor-panel .muted {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ocr-editor-panel > .ocr-section-heading {
+  gap: 16px;
+  align-items: flex-start;
+}
+.ocr-editor-panel h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ocr-editor-panel > .ocr-section-heading h3 {
+  font-size: 16px;
+}
+.ocr-editor-panel .ocr-section-heading p {
+  margin-top: 4px;
+}
+.ocr-editor .ocr-section-heading {
+  gap: 12px;
+  min-width: 0;
+}
+.ocr-editor .ocr-section-heading h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ocr-editor .ocr-field small {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ocr-editor :is(input, select, textarea):not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--text) 30%, var(--line));
+}
+.ocr-field-workspace {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.ocr-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 400px;
+  overflow: auto;
+  position: sticky;
+  top: 0;
+}
+.ocr-field-list button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.ocr-field-list button:hover {
+  background: var(--surface-alt);
+}
+.ocr-field-list button[aria-pressed="true"] {
+  background: var(--selection);
+  border-color: color-mix(in srgb, var(--focus) 30%, var(--line));
+}
+.ocr-field-list strong {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+}
+.ocr-field-kind {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.ocr-field-list-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ocr-field-list-copy small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ocr-field-current {
+  visibility: hidden;
+}
+.ocr-field-list button[aria-pressed="true"] :is(.ocr-field-kind, .ocr-field-current) {
+  color: var(--focus);
+  visibility: visible;
+}
+.ocr-field-rules,
+.ocr-profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.ocr-profile-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.ocr-field-rules h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ocr-field-rules > p {
+  margin-top: -8px;
+}
+.ocr-editor-details {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.ocr-editor-details summary {
+  padding-block: 4px;
+}
+.ocr-editor-details > div,
+.ocr-editor-details > p {
+  margin-top: 12px;
+}
+.ocr-editor-empty {
+  padding: 32px 0;
+  max-width: 65ch;
+}
+.ocr-editor-empty p {
+  margin-top: 8px;
+}
+.ocr-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+  background: var(--surface-alt);
+}
+.ocr-editor-footer .ocr-delete-toggle:hover:not(:disabled) {
+  color: var(--danger);
+}
+.ocr-editor-footer > span {
+  font-size: 12px;
+  margin-left: auto;
+}
+.ocr-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--line);
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .ocr-ai-config {
-  padding: 12px;
+  padding: 16px;
   border: 1px solid var(--line);
-  background: var(--selection);
+  background: var(--surface-alt);
   border-radius: 8px;
+}
+.ocr-ai-config > summary {
+  color: var(--text);
+  padding-block: 4px;
+}
+.ocr-ai-config > summary svg {
+  vertical-align: middle;
+  margin-inline: 4px;
+}
+.ocr-ai-config > label {
+  margin-top: 12px;
 }
 .ocr-ai-config > div {
   display: flex;
@@ -786,12 +1053,15 @@
   margin-top: 8px;
 }
 .ocr-ai-config .muted {
-  font-size: 11px;
+  font-size: 12px;
 }
 .ocr-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 16px;
+}
+.ocr-recognition-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .ocr-section-heading {
   display: flex;
@@ -802,12 +1072,12 @@
   font-size: 14px;
 }
 .ocr-field-editor {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 .ocr-field-editor details > div {
   margin-top: 10px;
@@ -843,9 +1113,6 @@
   cursor: pointer;
   color: var(--muted);
   font-size: 12px;
-}
-.ocr-editor .dialog-actions {
-  flex-wrap: wrap;
 }
 .ocr-results > .empty {
   flex: 1;
@@ -924,12 +1191,45 @@
     min-height: 520px;
   }
 }
-.ocr-region-editor { border-block: 1px solid var(--line); padding-block: 16px; margin-block: 12px; }
+.ocr-region-editor { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ocr-region-editor > .ocr-section-heading { align-items: flex-start; gap: 16px; }
 .ocr-region-editor p { line-height: 1.6; }
-.ocr-region-count { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
-.ocr-region-canvas { position: relative; width: fit-content; max-width: 100%; margin: 12px auto; cursor: crosshair; touch-action: none; user-select: none; }
-.ocr-region-canvas img { display: block; max-width: 100%; max-height: 600px; pointer-events: none; }
-.ocr-region-box { position: absolute; pointer-events: none; border: 2px solid #296fd1; background: #296fd126; color: #174581; font-weight: 700; box-sizing: border-box; }
+.ocr-region-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ocr-region-toolbar > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 120px; font-size: 12px; }
+.ocr-region-toolbar label { font-size: 12px; }
+.ocr-region-layout { display: grid; grid-template-columns: minmax(0, 1fr) 272px; align-items: start; gap: 24px; }
+.ocr-region-preview { display: flex; align-items: center; justify-content: center; min-height: 360px; padding: 16px; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 8px; }
+.ocr-region-placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; max-width: 34ch; color: var(--muted); padding: 24px; }
+.ocr-region-placeholder h3 { color: var(--text); }
+.ocr-region-canvas { position: relative; width: fit-content; max-width: 100%; margin: 0 auto; cursor: crosshair; touch-action: none; user-select: none; }
+.ocr-region-canvas img { display: block; max-width: 100%; max-height: 640px; pointer-events: none; }
+.ocr-region-box { position: absolute; pointer-events: none; border: 2px solid var(--focus); background: color-mix(in srgb, var(--focus) 15%, transparent); color: var(--text); font-weight: 700; font-size: 12px; box-sizing: border-box; overflow: hidden; }
+.ocr-region-sidebar { display: flex; flex-direction: column; gap: 12px; font-size: 12px; min-width: 0; }
+.ocr-region-item { display: flex; flex-direction: column; align-items: stretch; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.ocr-region-item > .fui-Button { align-self: flex-start; }
+.ocr-region-item .ocr-section-heading strong { font-weight: 600; }
+.ocr-region-item select { width: 100%; }
+.ocr-region-clear { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+@media (max-width: 767px) {
+  .modal.ocr-profile-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+  .ocr-profile-dialog > header { padding: 12px 16px; }
+  .ocr-profile-bar, .ocr-editor-panel, .ocr-editor-footer { padding: 16px; }
+  .ocr-profile-tabs { padding-inline: 4px; }
+  .ocr-profile-tabs .fui-Tab { padding-inline: 8px; font-size: 12px; }
+  .ocr-profile-bar > label { flex: 1; width: auto; }
+  .ocr-editor-panel > .ocr-section-heading, .ocr-region-editor > .ocr-section-heading { flex-wrap: wrap; }
+  .ocr-field-workspace, .ocr-region-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .ocr-field-list { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 200px; }
+  .ocr-field-editor { border-left: 0; border-top: 1px solid var(--line); padding: 16px 0 0; }
+  .ocr-editor-footer > span { display: none; }
+  .ocr-editor-footer > .ocr-buttons:last-child { margin-left: auto; }
+  .ocr-region-preview { min-height: 280px; padding: 12px; }
+  .ocr-delete-confirm { flex-wrap: wrap; padding: 12px 16px; }
+}
+@media (max-width: 480px) {
+  .ocr-field-list { grid-template-columns: minmax(0, 1fr); }
+  .ocr-field-list button { padding: 8px 10px; }
+}
 
 /* OCR 详情大弹窗 (Modal) 与五大标签页体系 */
 .modal:has(.ocr-modal-layout) {

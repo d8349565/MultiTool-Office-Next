@@ -1,0 +1,119 @@
+/* 任务型设置：连接、日常偏好与高级预算分开，沿用 Fluent 与工作台主题。 */
+.modal.wide.model-settings-dialog {
+  width: min(1080px, calc(100vw - 32px));
+  height: min(900px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px);
+}
+.model-settings-dialog[open] { display: flex; flex-direction: column; }
+.modal.model-settings-dialog > header { padding: 16px 24px; flex-shrink: 0; background: var(--surface-alt); }
+.model-settings-dialog > header h2 { font-size: 16px; }
+.model-settings-dialog > .modal-body { padding: 0; max-height: none; min-height: 0; flex: 1; display: flex; overflow: hidden; }
+.model-settings-dialog .settings-form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.model-settings-dialog .settings-form > .settings-tabs { position: static; margin: 0; padding: 8px 12px; flex-shrink: 0; background: var(--surface-alt); }
+.model-settings-dialog .settings-module-heading { padding: 20px 24px; flex-shrink: 0; }
+.model-settings-dialog .settings-module-heading h3 { font-size: 18px; }
+.model-settings-dialog .settings-content { flex: 1; min-height: 0; overflow: hidden; }
+.model-settings-dialog .settings-panels { height: 100%; }
+.model-settings { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.model-current-summary { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-block: 1px solid var(--line); background: var(--surface-alt); font-size: 12px; }
+.model-current-summary > svg { color: var(--focus); }
+.model-current-summary > span { color: var(--muted); }
+.model-current-summary > strong { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.model-current-id { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-settings-tabs, .model-settings-dialog .settings-tabs {
+  --colorCompoundBrandStroke: var(--focus);
+  --colorCompoundBrandStrokeHover: var(--focus);
+  --colorCompoundBrandStrokePressed: var(--focus);
+  --colorCompoundBrandForeground1: var(--focus);
+  --colorCompoundBrandForeground1Hover: var(--focus);
+  --colorCompoundBrandForeground1Pressed: var(--focus);
+}
+.model-settings-tabs { padding-inline: 12px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.model-settings-tabs .fui-Tab { padding-block: 14px; }
+.model-settings-pages { min-height: 0; flex: 1; overflow: auto; padding: 24px; scrollbar-gutter: stable; scrollbar-color: var(--line) var(--surface); }
+.model-settings-pages [role="tabpanel"] { min-width: 0; }
+.model-settings input, .model-settings textarea { caret-color: var(--focus); }
+.model-settings ::selection { background: var(--accent); color: var(--accent-text); }
+.settings-form .model-settings .settings-section { padding: 20px 0; }
+.settings-form .model-settings .settings-section:first-child { padding-top: 0; }
+.settings-form .model-settings .model-connections { padding: 0; border: 0; }
+.model-connections .model-connection-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.model-connection-heading > div { flex: 1; min-width: 0; }
+.model-connections .model-connection-heading h3 { margin: 0 0 6px; }
+.model-connections .model-connection-heading p { margin: 0; line-height: 1.7; }
+.model-connections .model-profile-picker { margin: 0 0 24px; align-items: flex-end; }
+.model-connections .model-profile-picker > label { flex: 1; }
+.model-connections { --colorNeutralForeground2BrandHover: var(--focus); --colorNeutralForeground2BrandPressed: var(--focus); }
+.model-selected-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.model-selected-heading > strong { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.model-connection-state { font-size: 12px; color: var(--muted); }
+.model-connection-state.active { display: inline-flex; align-items: center; padding: 2px 8px; background: var(--selection); color: var(--text); border-radius: 4px; }
+.model-connections .model-profile-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 20px; padding: 16px 0; margin: 0; background: transparent; border-block: 1px solid var(--line); border-radius: 0; font-size: 12px; }
+.model-profile-details > div { min-width: 0; }
+.model-profile-details dt { color: var(--muted); margin-bottom: 6px; }
+.model-profile-details dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.model-connection-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-block: 16px; }
+.model-connections .model-connection-note { margin: 12px 0 0; }
+.model-credential-editor { padding: 16px; margin-top: 16px; background: var(--surface-alt); border: 1px solid var(--line); border-radius: 8px; }
+.model-connections .model-secret { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.model-connections .model-secret input { width: 100%; }
+.model-connections .model-credential-editor p { margin: 12px 0 0; }
+.model-connections .model-profile-editor { padding: 0; margin: 0; border: 0; border-radius: 0; }
+.model-service-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 20px; background: var(--surface-alt); border-radius: 8px; }
+.model-service-presets > span { color: var(--muted); font-size: 12px; margin-right: 4px; }
+.model-connections .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 0 0 20px; }
+.model-connections .form-grid label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.model-connections .form-grid input { width: 100%; }
+.model-connections label > small { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.model-full-width { grid-column: 1 / -1; }
+.model-connection-help { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; font-size: 12px; color: var(--muted); }
+.model-connection-help summary, .model-test-result summary { cursor: pointer; padding-block: 4px; line-height: 1.6; }
+.model-connection-help .service-guide { margin: 0; padding: 0; border: 0; background: transparent; border-radius: 0; }
+.model-connections .model-connection-help p { margin: 8px 0 0; }
+.model-connection-help .muted { padding: 0; }
+.model-test-feedback .model-test-success { display: flex; align-items: flex-start; gap: 8px; color: var(--text); margin: 0; }
+.model-test-success > svg { color: var(--focus); flex-shrink: 0; }
+.model-test-result { margin-top: 12px; color: var(--muted); }
+.model-connections .model-test-result p { margin-top: 8px; }
+.settings-form .model-settings .model-task-presets { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.model-task-presets > div:first-child { flex: 1; min-width: 0; }
+.settings-form .model-task-presets p { margin-bottom: 0; }
+.model-reply-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.model-reply-groups > div + div { border-left: 1px solid var(--line); padding-left: 24px; }
+.settings-form .model-reply-groups .form-grid { grid-template-columns: minmax(0, 1fr); }
+.model-settings .model-advanced-intro { margin: 0 0 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+.model-settings .model-advanced-section { padding: 16px 0; }
+.model-advanced-section > summary { padding-block: 4px; }
+.model-advanced-section > summary > span { font-size: 14px; }
+.model-advanced-section > summary > small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin: 4px 0 0 16px; line-height: 1.6; }
+.model-settings-dialog .settings-form > .settings-actions { position: static; flex-shrink: 0; margin: 0; padding: 16px 24px; background: var(--surface-alt); min-height: 66px; }
+.model-settings-dialog .settings-actions > span { min-width: 0; font-size: 12px; }
+.model-settings-dialog .settings-actions small { font-size: 11px; }
+.model-settings-dialog .settings-form > .notice, .model-settings-dialog .settings-form > .inline-error { padding: 12px 24px; margin: 0; max-height: 100px; overflow: auto; flex-shrink: 0; }
+.model-settings-dialog .settings-close-warning { margin: 12px 24px 0; max-height: 160px; overflow: auto; flex-shrink: 0; }
+@media (max-width: 767px) {
+  .modal.wide.model-settings-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+  .modal.model-settings-dialog > header { padding: 12px 16px; }
+  .model-settings-dialog .settings-form > .settings-tabs { padding: 4px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .model-settings-dialog .settings-tabs .fui-Tab { flex-shrink: 0; }
+  .model-settings-dialog .settings-module-heading { padding: 12px 16px; flex-direction: row; align-items: center; }
+  .model-settings-dialog .settings-module-heading > div:first-child { flex-basis: auto; }
+  .model-settings-dialog .settings-module-heading h3 { margin: 0; font-size: 16px; }
+  .model-settings-dialog .settings-module-heading p { display: none; }
+  .model-settings-dialog .settings-heading-actions { justify-content: flex-end; }
+  .model-current-summary { padding: 10px 16px; flex-wrap: wrap; gap: 6px; }
+  .model-current-id { flex-basis: 100%; padding-left: 24px; }
+  .model-settings-tabs { padding-inline: 4px; }
+  .model-settings-tabs .fui-Tab { padding: 12px 8px; font-size: 12px; }
+  .model-settings-pages { padding: 16px; }
+  .model-connection-heading { flex-wrap: wrap; }
+  .model-connections .model-profile-picker { flex-wrap: wrap; gap: 8px; }
+  .model-connections .model-profile-picker > label { flex-basis: 100%; }
+  .model-connections .model-profile-details { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .model-connections .form-grid, .model-reply-groups { grid-template-columns: minmax(0, 1fr); }
+  .model-reply-groups > div + div { border-left: 0; border-top: 1px solid var(--line); padding: 20px 0 0; }
+  .settings-form .model-settings .model-task-presets { flex-direction: column; gap: 12px; }
+  .model-settings-dialog .settings-form > .settings-actions { padding: 12px 16px; gap: 8px; }
+  .model-settings-dialog .settings-actions > span { flex-basis: 100%; }
+  .model-settings-dialog .settings-actions > .fui-Button { min-width: 0; padding-inline: 10px; font-size: 12px; }
+}

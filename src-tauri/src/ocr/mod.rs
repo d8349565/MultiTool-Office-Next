@@ -23,7 +23,18 @@ use tauri::Emitter;
 #[tauri::command]pub fn ocr_bootstrap(state:tauri::State<Arc<AppState>>)->OcrBootstrap{let d=state.ocr.data.lock().unwrap();let mut tasks:Vec<_>=d.tasks.values().cloned().collect();tasks.sort_by_key(|t|std::cmp::Reverse(t.created));OcrBootstrap{profiles:d.profiles.clone(),tasks,batches:d.batches.values().cloned().collect(),engine_ready:state.ocr.unavailable_reason.is_none()&&state.ocr.exe.exists(),jev_ready:crate::ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),unavailable_reason:state.ocr.unavailable_reason.clone()}}
 #[tauri::command]pub fn ocr_save_profile(state:tauri::State<Arc<AppState>>,profile:OcrProfile)->Result<OcrProfile,String>{rules::validate(&profile)?;let mut d=state.ocr.data.lock().unwrap();let mut profiles=d.profiles.clone();if let Some(i)=profiles.iter().position(|p|p.id==profile.id){profiles[i]=profile.clone();}else{if profiles.len()>=100{return Err("最多保存 100 个配置".into());}profiles.push(profile.clone());}state.ocr.save_profiles(&profiles)?;d.profiles=profiles;Ok(profile)}
 #[tauri::command]pub fn ocr_delete_profile(state:tauri::State<Arc<AppState>>,id:String)->Result<(),String>{let mut d=state.ocr.data.lock().unwrap();let profiles=d.profiles.iter().filter(|p|p.id!=id).cloned().collect::<Vec<_>>();state.ocr.save_profiles(&profiles)?;d.profiles=profiles;Ok(())}
-#[tauri::command]pub fn ocr_export_profile(profile:OcrProfile,path:String)->Result<(),String>{rules::validate(&profile)?;if Path::new(&path).extension().and_then(|v|v.to_str())!=Some("json"){return Err("配置必须导出为 JSON".into());}use std::io::Write;let mut f=std::fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e|e.to_string())?;f.write_all(&serde_json::to_vec_pretty(&profile).map_err(|e|e.to_string())?).and_then(|_|f.sync_all()).map_err(|e|e.to_string())}
+#[tauri::command]pub fn ocr_export_profile(profile:OcrProfile,path:String)->Result<(),String>{write_profile_export(&[profile],&path)}
+#[tauri::command]pub fn ocr_export_profiles(profiles:Vec<OcrProfile>,path:String)->Result<(),String>{write_profile_export(&profiles,&path)}
+fn write_profile_export(profiles:&[OcrProfile],path:&str)->Result<(),String>{
+    if profiles.is_empty()||profiles.len()>100{return Err("请选择 1–100 个配置导出".into());}
+    for profile in profiles{rules::validate(profile)?;}
+    if !Path::new(path).extension().and_then(|v|v.to_str()).is_some_and(|v|v.eq_ignore_ascii_case("json")){return Err("配置必须导出为 JSON".into());}
+    let text=if profiles.len()==1{serde_json::to_vec_pretty(&profiles[0])}else{serde_json::to_vec_pretty(profiles)}.map_err(|e|e.to_string())?;
+    if text.len()>500_000{return Err("配置合辑超过导入大小限制，请分别导出单个配置".into());}
+    use std::io::Write;
+    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e|if e.kind()==std::io::ErrorKind::AlreadyExists{"文件已存在，请选择其他名称或导出位置".into()}else{e.to_string()})?;
+    file.write_all(&text).and_then(|_|file.sync_all()).map_err(|e|e.to_string())
+}
 #[tauri::command]pub fn ocr_import_profiles(text:String)->Result<Vec<OcrProfile>,String>{
     if text.len()>500_000{return Err("配置文件过大".into());}
     if let Ok(p)=serde_json::from_str::<OcrProfile>(&text){rules::validate(&p)?;return Ok(vec![p]);}

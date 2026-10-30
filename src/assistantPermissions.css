@@ -1,0 +1,94 @@
+/* 授权与文件审批沿用配置页的细边框、灰绿主题和操作层级。 */
+.assistant-workspace-settings .workspace-directory-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.workspace-directory-summary > svg { color: var(--muted); margin-top: 2px; }
+.workspace-directory-summary > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.workspace-directory-summary span { color: var(--muted); font-size: 12px; }
+.workspace-directory-summary strong { font-size: 13px; font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.workspace-directory-actions { align-items: center; }
+.workspace-directory-actions .workspace-revoke-action { margin-left: auto; }
+.workspace-revoke-action:hover:not(:disabled) { color: var(--danger); }
+.workspace-permission-option { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.assistant-workspace-settings .workspace-permission-option > .fui-Checkbox { margin: 0; }
+.settings-form .assistant-workspace-settings .workspace-permission-option > p { margin: 4px 0 0 36px; font-size: 12px; line-height: 1.7; }
+.assistant-workspace-settings .workspace-risk-confirmation,
+.workspace-risk-confirmation {
+  padding: 0;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.workspace-confirmation-heading { display: flex; align-items: flex-start; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--surface-alt); border-radius: 7px 7px 0 0; }
+.workspace-confirmation-heading > svg { color: var(--danger); margin-top: 2px; }
+.workspace-risk-confirmation .workspace-confirmation-heading h4 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
+.workspace-confirmation-heading > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.workspace-confirmation-details { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; padding: 16px 20px; margin: 0; border-bottom: 1px solid var(--line); }
+.workspace-confirmation-details > div { min-width: 0; }
+.workspace-confirmation-details dt { color: var(--muted); margin-bottom: 4px; }
+.workspace-confirmation-details dd { margin: 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.workspace-confirmation-risks { padding: 16px 20px; }
+.workspace-risk-confirmation .workspace-confirmation-risks ul { margin: 0; padding-left: 18px; }
+.workspace-risk-confirmation .workspace-confirmation-risks li { margin: 0 0 12px; padding-left: 4px; color: var(--text); }
+.workspace-risk-confirmation .workspace-confirmation-risks li:last-child { margin-bottom: 0; }
+.workspace-confirmation-risks li::marker { color: var(--muted); }
+.workspace-confirmation-risks strong { font-weight: 600; }
+.workspace-confirmation-consent { padding: 16px 20px; border-top: 1px solid var(--line); background: var(--surface-alt); border-radius: 0 0 7px 7px; }
+.assistant-workspace-settings .workspace-confirmation-consent > .fui-Checkbox,
+.workspace-confirmation-consent > .fui-Checkbox { margin: 0; }
+.workspace-confirmation-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.workspace-risk-confirmation :is(button, input),
+.file-approval-dialog :is(button, input) { caret-color: var(--focus); }
+.workspace-risk-confirmation ::selection,
+.file-approval-dialog ::selection { background: var(--accent); color: var(--accent-text); }
+.assistant-file-waiting > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.assistant-file-waiting > span > svg { color: var(--focus); }
+.modal[open].file-approval-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); }
+.modal.file-approval-dialog > header { background: var(--surface-alt); padding: 16px 24px; }
+.file-approval-dialog > header h2 { font-size: 16px; }
+.modal.file-approval-dialog .modal-body { padding: 0; gap: 0; max-height: calc(100dvh - 112px); }
+.file-approval-dialog .file-approval-summary { padding: 20px 24px 16px; max-height: 28dvh; border-bottom: 1px solid var(--line); }
+.file-approval-file { display: flex; align-items: flex-start; gap: 12px; }
+.file-approval-file > svg { color: var(--muted); margin-top: 2px; }
+.file-approval-file > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.file-approval-file strong { font-size: 15px; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.file-approval-file span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.file-approval-location { margin: 16px 0 12px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; font-size: 12px; }
+.file-approval-location dt { color: var(--muted); }
+.file-approval-location dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.file-approval-summary .file-approval-expiry { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.file-approval-expiry > svg { margin-top: 2px; }
+.file-approval-dialog .file-approval-content { padding: 20px 24px; scrollbar-color: var(--line) var(--surface); scrollbar-gutter: stable; }
+.file-approval-dialog .file-approval-content .assistant-file-risk { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-alt); color: var(--text); margin-bottom: 16px; }
+.assistant-file-risk > svg { color: var(--danger); margin-top: 2px; }
+.file-approval-content .assistant-file-risk p { margin: 0; min-width: 0; }
+.file-approval-content .assistant-file-risk strong { font-weight: 600; }
+.file-approval-content details > summary { font-size: 13px; }
+.file-approval-content .file-approval-policy { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 16px 0 0; }
+.file-approval-consent { padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
+.file-approval-dialog .file-approval-actions { justify-content: space-between; gap: 12px; padding: 16px 24px; background: var(--surface-alt); }
+@media (max-width: 767px) {
+  .workspace-directory-actions .workspace-revoke-action { margin-left: 0; }
+  .workspace-confirmation-heading, .workspace-confirmation-details, .workspace-confirmation-risks, .workspace-confirmation-consent { padding: 16px; }
+  .workspace-confirmation-details { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .modal[open].file-approval-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .modal.file-approval-dialog > header { padding: 12px 16px; }
+  .modal.file-approval-dialog .modal-body { max-height: calc(100dvh - 72px); }
+  .file-approval-dialog .file-approval-summary { padding: 16px; max-height: 30dvh; }
+  .file-approval-dialog .file-approval-content, .file-approval-dialog .file-approval-actions { padding: 16px; }
+  .file-approval-dialog .file-approval-actions > .fui-Button { min-width: 0; min-height: 40px; padding-inline: 10px; font-size: 12px; }
+}
+@media (max-width: 480px) {
+  .workspace-confirmation-actions { flex-direction: column; }
+  .workspace-confirmation-actions > .fui-Button { width: 100%; min-height: 40px; }
+  .file-approval-location { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}

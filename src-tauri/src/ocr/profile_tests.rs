@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn profile_export_roundtrip_preserves_rules_regions_and_existing_files(){
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("target/profile-export-checks");
+    std::fs::create_dir_all(&base).unwrap();
+    let dir=tempfile::tempdir_in(base).unwrap();
+    let profile=OcrProfile{
+        fields:vec![OcrFieldDefinition{key:"日期".into(),kind:"date".into(),anchors:vec!["签署日期".into()],format:"%Y-%m-%d".into(),..Default::default()}],
+        regions:vec![OcrRegion{page:1,x:0.1,y:0.2,width:0.3,height:0.4,field_key:Some("日期".into())}],
+        filename_pattern:"{日期}".into(),keywords:vec!["签署".into()],extra_headers:vec!["签署日期".into()],..Default::default()
+    };
+    let other=OcrProfile{name:"另一配置".into(),..Default::default()};
+    for profiles in [vec![profile.clone()],vec![profile.clone(),other]]{
+        let path=dir.path().join(format!("{}.json",profiles.len()));
+        ocr_export_profiles(profiles.clone(),path.to_string_lossy().into_owned()).unwrap();
+        let original=std::fs::read_to_string(&path).unwrap();
+        let imported=ocr_import_profiles(original.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&profiles).unwrap(),serde_json::to_value(&imported).unwrap());
+        assert!(ocr_export_profiles(profiles,path.to_string_lossy().into_owned()).unwrap_err().contains("文件已存在"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(),original);
+    }
+    let invalid=dir.path().join("invalid.json").to_string_lossy().into_owned();
+    assert!(ocr_export_profiles(vec![],invalid.clone()).is_err());
+    assert!(!Path::new(&invalid).exists());
+}
+
+#[test]
 fn completion_cleanup_preserves_review_failures_and_unfinished_workflows(){
     let result=|id:&str,status:&str,reviewed:bool,warning:&str|json!({"id":id,"path":format!("D:/status-check/{id}.pdf"),"originalName":format!("{id}.pdf"),"status":status,"error":"","profile":null,"lines":[],"fields":{},"proposedName":"","reviewed":reviewed,"elapsedMs":0,"warning":warning});
     let mut task:OcrTask=serde_json::from_value(json!({"id":"status-check","created":1,"status":"completed","useJev":false,"profiles":[],"files":[
