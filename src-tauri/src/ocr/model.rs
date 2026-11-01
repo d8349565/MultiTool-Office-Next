@@ -83,6 +83,41 @@ pub struct OcrFileDiagnostics {
     pub decisions: Vec<OcrDecisionLog>,
     pub logs: Vec<String>,
     #[serde(default)] pub profile_match: Option<OcrProfileMatch>,
+    #[serde(default)] pub timings: Option<OcrTimings>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all="camelCase", default)]
+pub struct OcrEngineTimings {
+    pub model_load_ms:u64, pub render_ms:u64, pub inference_ms:u64,
+    pub detect_ms:u64, pub classify_ms:u64, pub recognize_ms:u64,
+    pub worker_cpu_ms:u64, pub pages_processed:u64, pub requests:u64,
+}
+impl OcrEngineTimings {
+    pub fn add(&mut self, other:Self){
+        self.model_load_ms+=other.model_load_ms;self.render_ms+=other.render_ms;
+        self.inference_ms+=other.inference_ms;self.detect_ms+=other.detect_ms;
+        self.classify_ms+=other.classify_ms;self.recognize_ms+=other.recognize_ms;
+        self.worker_cpu_ms+=other.worker_cpu_ms;self.pages_processed+=other.pages_processed;
+        self.requests+=other.requests;
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all="camelCase", default)]
+pub struct OcrTimings {
+    pub engine:Option<OcrEngineTimings>, pub worker_start_ms:u64, pub fingerprint_ms:u64,
+    pub profile_match_ms:u64, pub extract_ms:u64, pub reused_pages:u32,
+    pub region_fast_path:bool, pub region_fallback:bool,
+    pub classification_fast_path:bool, pub classification_fallback:bool,
+    // The result cannot contain the duration of its own durable write. Live only.
+    pub save_ms:Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct OcrTaskProgress {
+    pub id:String, pub status:String, pub workflow:OcrWorkflow,
+    pub files:Vec<OcrFileResult>, pub complete_snapshot:bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,6 +129,7 @@ pub struct OcrProfileMatch {
     pub dpi: u32,
     pub lines_count: usize,
     pub candidates: Vec<OcrProfileCandidate>,
+    #[serde(default)] pub probe_region:Option<OcrRegion>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

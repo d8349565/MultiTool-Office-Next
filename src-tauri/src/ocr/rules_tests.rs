@@ -309,7 +309,7 @@ fn checked_in_demo_files_match_expected_results() {
             diagnostics: None,
         };
         let mut lines = vec![];
-        worker.recognize(&file, profile, &[], &cancel, |page| { lines.extend(page); Ok(()) }).unwrap();
+        worker.recognize(&file.path, profile, &[], &cancel, &mut OcrTimings::default(), false, |page| { lines.extend(page); Ok(()) }).unwrap();
         assert!(!lines.is_empty(), "{relative}: empty OCR result");
         assert_eq!(match_profile(&profiles, &lines).unwrap().id, profile.id, "{relative}: auto profile");
         let (fields, _) = extract(&lines, profile, None, None, &mut vec![]);

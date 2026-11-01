@@ -4,6 +4,8 @@ pub(crate) mod diagnostic_share;
 #[cfg(test)]
 #[path = "profile_tests.rs"]
 mod profile_tests;
+#[cfg(test)]
+mod performance_tests;
 use crate::AppState;
 use model::*;
 pub use store::OcrStore;
@@ -158,8 +160,33 @@ fn merge_profile(orig: OcrProfile, desc: &str, mut generated: OcrProfile) -> Ocr
     for path in paths{let p=Path::new(&path);let candidates:Vec<_>=if p.is_dir(){walkdir::WalkDir::new(p).follow_links(false).into_iter().filter_map(|e|match e{Ok(e)if e.file_type().is_file()&&store::supported(e.path())=>Some(e.path().to_path_buf()),Err(e)=>{errors.push(e.to_string());None},_=>None}).take(2001).collect()}else{vec![p.to_path_buf()]};
         for candidate in candidates{if files.len()>=2000{errors.push("每次最多导入 2000 个文件".into());break;}match store::safe_file(&candidate){Ok(p)=>{let s=p.to_string_lossy().into_owned();if seen.insert(s.to_lowercase()){files.push(s);}},Err(e)=>errors.push(format!("{}：{e}",candidate.display()))}}
     }let mut d=state.ocr.data.lock().unwrap();d.grants.extend(files.iter().cloned());Ok(OcrImportResult{files,errors})}).await.map_err(|e|e.to_string())?}
-fn persist(state:&AppState,task:&OcrTask,app:&tauri::AppHandle,file_index:Option<usize>)->Result<(),String>{if let Some(i)=file_index{state.ocr.save_task_file(task,i)?;}else{state.ocr.save_task_header(task)?;}state.ocr.data.lock().unwrap().tasks.insert(task.id.clone(),task.clone());let _=app.emit("ocr-progress",json!({"id":task.id,"status":task.status}));Ok(())}
+fn cache_progress(tasks:&mut BTreeMap<String,OcrTask>,task:&OcrTask,file_index:Option<usize>){
+    if let Some((cached,i))=file_index.and_then(|i|tasks.get_mut(&task.id).map(|cached|(cached,i))){
+        // Only the current file changes during recognition. Keep previous text buffers.
+        if cached.files.get(i).zip(task.files.get(i)).is_some_and(|(old,new)|old.id==new.id){
+            cached.files[i]=task.files[i].clone();cached.status=task.status.clone();cached.workflow=task.workflow.clone();return;
+        }
+    }
+    tasks.insert(task.id.clone(),task.clone());
+}
+fn publish_progress(state:&AppState,task:&OcrTask,app:&tauri::AppHandle,file_index:Option<usize>){
+    cache_progress(&mut state.ocr.data.lock().unwrap().tasks,task,file_index);
+    let _=app.emit("ocr-progress",json!({"id":task.id,"status":task.status}));
+}
+fn persist(state:&AppState,task:&OcrTask,app:&tauri::AppHandle,file_index:Option<usize>)->Result<(),String>{
+    if let Some(i)=file_index{state.ocr.save_task_file(task,i)?;}else{state.ocr.save_task_header(task)?;}
+    publish_progress(state,task,app,file_index);Ok(())
+}
 #[tauri::command]pub fn ocr_get_task(state:tauri::State<Arc<AppState>>,id:String)->Result<OcrTask,String>{state.ocr.data.lock().unwrap().tasks.get(&id).cloned().ok_or("任务不存在".into())}
+fn task_progress(task:&OcrTask,known:&BTreeMap<String,String>)->OcrTaskProgress{
+    // Terminal snapshots include all files: workflow renames may keep file status unchanged.
+    let complete_snapshot=!["queued","running"].contains(&task.status.as_str());
+    OcrTaskProgress{id:task.id.clone(),status:task.status.clone(),workflow:task.workflow.clone(),
+        files:task.files.iter().filter(|file|complete_snapshot||known.get(&file.id)!=Some(&file.status)).cloned().collect(),complete_snapshot}
+}
+#[tauri::command]pub fn ocr_get_task_progress(state:tauri::State<Arc<AppState>>,id:String,known:BTreeMap<String,String>)->Result<OcrTaskProgress,String>{
+    let data=state.ocr.data.lock().unwrap();let task=data.tasks.get(&id).ok_or("任务不存在")?;Ok(task_progress(task,&known))
+}
 fn validate_workflow(options:&mut OcrWorkflowOptions)->Result<(),String>{
     if !["none","txt","csv","json"].contains(&options.export_format.as_str())||!["review","preview","apply"].contains(&options.rename.as_str()){return Err("一键任务选项无效，请重新设置".into());}
     if options.rename=="apply"&&!options.rename_confirmed{return Err("自动改名前请先确认命名规则及冲突处理".into());}
@@ -288,6 +315,32 @@ fn completed_task(task:&OcrTask,batches:&BTreeMap<String,OcrRenameBatch>)->bool{
     if count>0{state.ocr.save_task_header(&task)?;d.tasks.insert(id,task);}
     Ok(count)
 }
+fn can_reuse_first_page(probe:&OcrProfile,profile:&OcrProfile)->bool{
+    probe.pages=="1"&&probe.regions.is_empty()&&profile.regions.is_empty()&&probe.dpi==profile.dpi
+        &&(profile.pages=="all"||profile.pages.split(',').any(|part|part.trim().split('-').next().and_then(|n|n.parse::<u32>().ok())==Some(1)))
+}
+fn timed_fingerprint(path:&str,timings:&mut OcrTimings)->Result<String,String>{
+    let started=Instant::now();let result=store::fingerprint(Path::new(path));
+    timings.fingerprint_ms+=started.elapsed().as_millis() as u64;result
+}
+fn can_use_fast_regions(profile:&OcrProfile,use_jev:bool)->bool{
+    !use_jev&&!profile.regions.is_empty()&&!profile.fields.is_empty()
+        &&profile.regions.iter().all(|r|r.field_key.is_some())
+        &&profile.fields.iter().all(|field|!field.anchors.is_empty()&&profile.regions.iter().any(|r|r.field_key.as_deref()==Some(field.key.as_str())))
+}
+fn first_page_probe(profiles:&[OcrProfile])->OcrProfile{
+    let mut probe=OcrProfile::default();
+    // Only a sole eligible candidate can be decided without checking competing
+    // keywords elsewhere on the page. A miss always falls back to the full page.
+    let mut candidates=profiles.iter().filter(|p|p.keywords.iter().any(|k|!k.trim().is_empty()));
+    if let Some(candidate)=candidates.next(){
+        // A full-page result that can be reused is already cheaper than two passes.
+        if candidates.next().is_none()&&!can_reuse_first_page(&probe,candidate){
+            probe.regions.push(OcrRegion{page:1,x:0.0,y:0.0,width:1.0,height:0.25,field_key:None});
+        }
+    }
+    probe
+}
 fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
     let mut engine=None;
     loop{let (mut task,cancel)={let mut d=state.ocr.data.lock().unwrap();let Some(id)=d.queue.pop_front()else{d.running=false;return;};(d.tasks[&id].clone(),state.ocr.cancels.lock().unwrap()[&id].clone())};task.status="running".into();let mut storage_error=persist(&state,&task,&app,None).err();
@@ -296,17 +349,30 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
             let mut logs=vec![format!("开始处理文件：{}",task.files[i].original_name)];
             let mut jev_log=OcrJevLog{enabled:task.use_jev,..Default::default()};
             let mut ocr_elapsed=0;
+            let mut timings=OcrTimings::default();
             let result=(||->Result<(),String>{
-                task.files[i].fingerprint=store::fingerprint(Path::new(&task.files[i].path))?;
-                if engine.is_none(){engine=Some(worker::Worker::spawn(&state.ocr.exe)?);}
+                let path=task.files[i].path.clone();
+                task.files[i].fingerprint=timed_fingerprint(&path,&mut timings)?;
+                if engine.is_none(){let start=Instant::now();engine=Some(worker::Worker::spawn(&state.ocr.exe)?);timings.worker_start_ms=start.elapsed().as_millis() as u64;}
                 let ocr_start=Instant::now();
+                let mut reused_first_page=false;
                 if task.files[i].profile.is_none(){
-                    let first=OcrProfile::default();let file=task.files[i].clone();
-                    engine.as_mut().unwrap().recognize(&file,&first,&[],&cancel,|lines|{task.files[i].lines.extend(lines);Ok(())})?;
+                    let mut first=first_page_probe(&task.profiles);
+                    timings.classification_fast_path=!first.regions.is_empty();
+                    engine.as_mut().unwrap().recognize(&path,&first,&[],&cancel,&mut timings,false,|lines|{task.files[i].lines.extend(lines);if task.files[i].lines.len()>50000{return Err("单文件超过 50000 行，请缩小页范围".into());}Ok(())})?;
+                    if timings.classification_fast_path&&rules::diagnose_profile_match(&task.profiles,&task.files[i].lines).0.is_none(){
+                        timings.classification_fallback=true;first.regions.clear();task.files[i].lines.clear();
+                        logs.push("首页上部未匹配，已回退完整首页探测".into());
+                        engine.as_mut().unwrap().recognize(&path,&first,&[],&cancel,&mut timings,false,|lines|{task.files[i].lines.extend(lines);if task.files[i].lines.len()>50000{return Err("单文件超过 50000 行，请缩小页范围".into());}Ok(())})?;
+                    }
                     if cancel.load(Ordering::Relaxed){return Err("任务已取消".into());}
-                    if store::fingerprint(Path::new(&task.files[i].path))?!=task.files[i].fingerprint{return Err("文件在识别期间被修改，请重新识别".into());}
-                    let (matched,profile_match)=rules::diagnose_profile_match(&task.profiles,&task.files[i].lines);
+                    if timed_fingerprint(&path,&mut timings)?!=task.files[i].fingerprint{return Err("文件在识别期间被修改，请重新识别".into());}
+                    let match_start=Instant::now();
+                    let (matched,mut profile_match)=rules::diagnose_profile_match(&task.profiles,&task.files[i].lines);
+                    profile_match.probe_region=first.regions.first().cloned();
+                    if profile_match.probe_region.is_some(){logs.push("唯一候选配置已在首页上部命中；正式提取继续使用该配置指定的页范围和画框".into());}
                     task.files[i].profile=matched.cloned();
+                    timings.profile_match_ms=match_start.elapsed().as_millis() as u64;
                     logs.push(profile_match.message.clone());
                     let match_message=profile_match.message.clone();
                     task.files[i].diagnostics=Some(OcrFileDiagnostics{
@@ -318,13 +384,33 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                         task.files[i].status="review".into();return Ok(());
                     }
                     logs.push(format!("自动匹配配置：{}（依据关键词计分，不代表模型置信度）",task.files[i].profile.as_ref().unwrap().name));
-                    // 按实际配置重新识别，避免首页探测的 DPI、页范围或区域污染提取结果。
-                    task.files[i].lines.clear();
+                    reused_first_page=can_reuse_first_page(&first,task.files[i].profile.as_ref().unwrap());
+                    if reused_first_page{
+                        timings.reused_pages=1;
+                        logs.push("OCR 复用本次首页探测结果：文件校验通过，DPI 与整页范围一致，省去一次首页识别".into());
+                    }else{
+                        // Different DPI, regions or pages must use the original recognition path.
+                        task.files[i].lines.clear();
+                    }
                 }
-                let p=task.files[i].profile.clone().unwrap();if !p.regions.is_empty(){task.files[i].lines.clear();}let skip=task.files[i].lines.iter().map(|l|l.page).collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();let file=task.files[i].clone();engine.as_mut().unwrap().recognize(&file,&p,&skip,&cancel,|lines|{task.files[i].lines.extend(lines);if task.files[i].lines.len()>50000{return Err("单文件超过 50000 行，请缩小页范围".into());}Ok(())})?;
+                let p=task.files[i].profile.clone().unwrap();
+                timings.region_fast_path=can_use_fast_regions(&p,task.use_jev);
+                if !reused_first_page||p.pages.trim()!="1"{
+                    let skip=if reused_first_page{vec![1]}else{vec![]};
+                    let fast_regions=timings.region_fast_path;
+                    engine.as_mut().unwrap().recognize(&path,&p,&skip,&cancel,&mut timings,fast_regions,|lines|{task.files[i].lines.extend(lines);if task.files[i].lines.len()>50000{return Err("单文件超过 50000 行，请缩小页范围".into());}Ok(())})?;
+                    if fast_regions{
+                        let (draft,_)=rules::extract(&task.files[i].lines,&p,None,None,&mut vec![]);
+                        if task.files[i].lines.is_empty()||draft.values().any(|v|v.review||v.source=="missing"||v.value.trim().is_empty()){
+                            timings.region_fallback=true;task.files[i].lines.clear();
+                            logs.push("OCR 快速区域结果未通过字段检查，已回退原检测精度重新识别".into());
+                            engine.as_mut().unwrap().recognize(&path,&p,&[],&cancel,&mut timings,false,|lines|{task.files[i].lines.extend(lines);if task.files[i].lines.len()>50000{return Err("单文件超过 50000 行，请缩小页范围".into());}Ok(())})?;
+                        }else{logs.push("OCR 区域快速检测通过字段检查，方向判断与文字识别使用原清晰度裁片".into());}
+                    }
+                }
                 ocr_elapsed=ocr_start.elapsed().as_millis() as u64;
                 logs.push(format!("OCR 文本识别完成，耗时 {}ms，提取到 {} 行文字",ocr_elapsed,task.files[i].lines.len()));
-                if store::fingerprint(Path::new(&task.files[i].path))?!=task.files[i].fingerprint{return Err("文件在识别期间被修改，请重新识别".into());}
+                if timed_fingerprint(&path,&mut timings)?!=task.files[i].fingerprint{return Err("文件在识别期间被修改，请重新识别".into());}
                 let mut response=None;let mut plan=None;
                 if task.use_jev&&!p.fields.is_empty(){
                     let jev_start=Instant::now();
@@ -406,6 +492,7 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                     logs.push("未启用 Jev，直接使用本地规则提取".into());
                 }
                 if cancel.load(Ordering::Relaxed){return Err("任务已取消".into());}
+                let extract_start=Instant::now();
                 let (fields,decisions)=rules::extract(&task.files[i].lines,&p,response.as_ref(),plan.as_ref(),&mut logs);
                 let f=&mut task.files[i];
                 f.fields=fields;
@@ -414,11 +501,17 @@ fn run_queue(state:Arc<AppState>,app:tauri::AppHandle){
                 logs.push(format!("拟命名：{}",f.proposed_name));
                 logs.push(format!("处理完成，状态：{}",f.status));
                 let profile_match=f.diagnostics.as_ref().and_then(|d|d.profile_match.clone());
-                f.diagnostics=Some(OcrFileDiagnostics{ocr_lines_count:f.lines.len(),ocr_elapsed_ms:ocr_elapsed,jev:jev_log,decisions,logs,profile_match});
+                f.diagnostics=Some(OcrFileDiagnostics{ocr_lines_count:f.lines.len(),ocr_elapsed_ms:ocr_elapsed,jev:jev_log,decisions,logs,profile_match,timings:None});
+                timings.extract_ms=extract_start.elapsed().as_millis() as u64;
                 Ok(())
             })();
             if let Err(e)=result{if should_reset_engine(&e){engine=None;}task.files[i].error=e;task.files[i].status=if cancel.load(Ordering::Relaxed){"cancelled"}else{"failed"}.into();}
-            task.files[i].elapsed_ms=started.elapsed().as_millis()as u64;if let Err(e)=persist(&state,&task,&app,Some(i)){storage_error=Some(e);break;}
+            let diag=task.files[i].diagnostics.get_or_insert_with(Default::default);diag.timings=Some(timings);
+            task.files[i].elapsed_ms=started.elapsed().as_millis()as u64;
+            let save_start=Instant::now();
+            if let Err(e)=state.ocr.save_task_file(&task,i){storage_error=Some(e);break;}
+            task.files[i].diagnostics.as_mut().unwrap().timings.as_mut().unwrap().save_ms=Some(save_start.elapsed().as_millis() as u64);
+            publish_progress(&state,&task,&app,Some(i));
         }
         if storage_error.is_none()&&!cancel.load(Ordering::Relaxed)&&task.workflow.enabled{
             task.workflow.status="running".into();

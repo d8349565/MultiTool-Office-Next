@@ -1,5 +1,32 @@
 # 变更日志
 
+## v0.5.7 - 2026-11-02
+
+### Improvements
+
+- Speed up configured OCR regions while keeping the original image resolution for text recognition. Missing or uncertain fields fall back to the original detection path; the model and inference thread count are unchanged.
+- Reuse compatible first-page results. When only one eligible profile exists and a separate classification pass is needed, try the upper part of the first page first, then fall back to the full page on a miss. Multiple profiles retain full-page conflict checks.
+- Update changed OCR results incrementally and show measured rendering, detection, direction, recognition, extraction and saving times, together with OCR process CPU time.
+
+### 修复与完善
+
+- 加速已绑定字段的画框识别，文字识别仍使用原清晰度裁片；字段缺失或需要复核时自动回退原检测流程，保持原模型和推理线程数。
+- 复用条件一致的首页识别结果。只有一个候选配置且需要额外分类时，先探测首页上部，未命中再识别完整首页；多个配置仍保留全页冲突判断。
+- 识别进度改为增量更新，减少整批结果的复制与传输；结果详情增加页面处理、文字检测、方向判断、文字识别、字段提取、保存及 OCR 进程 CPU 的实测耗时。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. OCR remains local. Existing profiles, page/region boundaries, file-state checks, non-replacing renames and undo remain supported. Performance depends on document quality and configuration; fallback cases may take longer.
+- 需要 Windows x64 和 Microsoft Edge WebView2。OCR 仍在本机处理，继续兼容已有配置，保留页范围、画框、文件状态校验、不覆盖改名和撤销保护。速度取决于文档质量及配置，触发回退时可能耗时更长。
+- Application build / 应用构建版本：`2026.1102.37`。
+
+### Verification scope / 验证范围
+
+- Using an unchanged saved quotation profile and 10 independently authored fictional scans, three native desktop rounds achieved median times of 11.02 → 5.30 seconds for direct recognition (2.08×), and 27.03 → 12.24 seconds for automatic matching, export and rename (2.21×). All 30 fields and 10 filenames matched the ground truth in every round. These measurements apply to this local fixture set, not every document.
+- 使用未修改的已有报价单配置及独立生成的 10 份虚构扫描文件，三轮原生桌面测试中，直接识别的中位耗时由 11.02 秒降至 5.30 秒（2.08 倍速度）；自动匹配、导出并改名由 27.03 秒降至 12.24 秒（2.21 倍速度）。每轮 30 个字段及 10 个文件名均符合独立真值；结果仅代表本机这组样本，不保证所有文档均可翻倍。
+- Local regression checks cover precise fallback, missing header keywords, profile conflicts, cancellation/retry, export, rename/undo and original-file hashes. Worker measurements showed lower cumulative CPU time and peak memory. No original business documents or paid services were used. Fresh-install acceptance and cloud CI were not run; the repository has no configured GitHub Actions workflows.
+- 本机回归覆盖精确检测回退、标题区未命中、多配置冲突、取消重试、导出、改名撤销及原文件哈希；OCR 子进程的累计 CPU 时间与峰值内存均下降。未使用真实业务文档或付费服务，未进行全新安装验收或云端 CI；仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.6 - 2026-10-30
 
 ### Improvements

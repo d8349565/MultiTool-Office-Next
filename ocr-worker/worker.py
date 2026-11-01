@@ -77,6 +77,15 @@ def region_boxes(regions, page, width, height):
     return boxes if regions else [(0, 0, width, height)]
 
 
+def rgb_image(image):
+    if image.mode == "RGB":
+        return image
+    try:
+        return image.convert("RGB")
+    finally:
+        image.close()
+
+
 def images(path, spec, dpi, skip, regions=None, metadata=None):
     from PIL import Image, ImageOps
     if path.suffix.lower() == ".pdf":
@@ -95,7 +104,7 @@ def images(path, spec, dpi, skip, regions=None, metadata=None):
                         raise ValueError("页面过大，请降低渲染 DPI")
                     bitmap = page.render(scale=scale)
                     try:
-                        yield index + 1, bitmap.to_pil().convert("RGB")
+                        yield index + 1, rgb_image(bitmap.to_pil())
                     finally:
                         bitmap.close()
                 finally:
@@ -112,7 +121,53 @@ def images(path, spec, dpi, skip, regions=None, metadata=None):
                 source.seek(index)
                 if source.width * source.height > MAX_PIXELS:
                     raise ValueError("图片超过 2400 万像素，请先缩小图片")
-                yield index + 1, ImageOps.exif_transpose(source).convert("RGB")
+                yield index + 1, rgb_image(ImageOps.exif_transpose(source))
+
+
+def timed_images(iterator, timings):
+    # PDF rendering happens in next(), before the image is yielded to OCR.
+    with contextlib.closing(iterator):
+        while True:
+            started = time.monotonic()
+            try:
+                item = next(iterator)
+            except StopIteration:
+                return
+            finally:
+                timings["renderMs"] += (time.monotonic() - started) * 1000
+            yield item
+
+
+def recognize_images(engine, iterator, regions, request_id, timings, np):
+    for number, image in iterator:
+        started = time.monotonic()
+        try:
+            lines = []
+            seen = set()
+            for left, top, right, bottom in region_boxes(regions, number, image.width, image.height):
+                crop = image if (left, top, right, bottom) == (0, 0, image.width, image.height) else image.crop((left, top, right, bottom))
+                try:
+                    with contextlib.redirect_stdout(sys.stderr):
+                        infer_started = time.monotonic()
+                        result, stages = engine(np.asarray(crop))
+                        timings["inferenceMs"] += (time.monotonic() - infer_started) * 1000
+                    if stages is not None:
+                        for key, seconds in zip(("detectMs", "classifyMs", "recognizeMs"), stages):
+                            timings[key] += seconds * 1000
+                    for box, text, score in result or []:
+                        points = [[float(x)+left, float(y)+top] for x, y in box]
+                        key = (str(text).strip(), tuple(round(v/5) for p in points for v in p))
+                        if key[0] and key not in seen:
+                            seen.add(key)
+                            lines.append(dict(text=key[0], page=number, score=float(score), box=points, page_size=[image.width, image.height]))
+                finally:
+                    if crop is not image:
+                        crop.close()
+            lines.sort(key=lambda line: (sum(p[1] for p in line["box"]) // 60, sum(p[0] for p in line["box"])))
+            emit(request_id, "page", lines=lines, page=number, elapsedMs=round((time.monotonic() - started) * 1000))
+            timings["pagesProcessed"] += 1
+        finally:
+            image.close()
 
 
 def main():
@@ -120,6 +175,7 @@ def main():
     engine = None
     for raw in sys.stdin:
         request_id = ""
+        timings = None
         try:
             request = json.loads(raw)
             request_id = request["id"]
@@ -159,40 +215,38 @@ def main():
                     preview_pages.close()
                 continue
             started = time.monotonic()
+            cpu_started = time.process_time()
+            timings = dict(modelLoadMs=0, renderMs=0, inferenceMs=0, detectMs=0,
+                           classifyMs=0, recognizeMs=0, workerCpuMs=0, pagesProcessed=0, requests=1)
             with contextlib.redirect_stdout(sys.stderr):
                 import numpy as np
                 if engine is None:
                     from rapidocr_onnxruntime import RapidOCR
                     # The pinned wheel includes all ONNX model files; no downloads.
                     engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
-            emit(request_id, "ready", loadMs=round((time.monotonic() - started) * 1000))
+            timings["modelLoadMs"] = (time.monotonic() - started) * 1000
+            emit(request_id, "ready", loadMs=round(timings["modelLoadMs"]))
             regions = request.get("regions", [])
-            for number, image in images(path, request["pages"], dpi, set(request.get("skip", [])), regions):
-                started = time.monotonic()
-                try:
-                    lines = []
-                    seen = set()
-                    for left, top, right, bottom in region_boxes(regions, number, image.width, image.height):
-                        crop = image if (left, top, right, bottom) == (0, 0, image.width, image.height) else image.crop((left, top, right, bottom))
-                        try:
-                            with contextlib.redirect_stdout(sys.stderr):
-                                result, _ = engine(np.asarray(crop))
-                            for box, text, score in result or []:
-                                points = [[float(x)+left, float(y)+top] for x, y in box]
-                                key = (str(text).strip(), tuple(round(v/5) for p in points for v in p))
-                                if key[0] and key not in seen:
-                                    seen.add(key)
-                                    lines.append(dict(text=key[0], page=number, score=float(score), box=points, page_size=[image.width, image.height]))
-                        finally:
-                            if crop is not image:
-                                crop.close()
-                    lines.sort(key=lambda line: (sum(p[1] for p in line["box"]) // 60, sum(p[0] for p in line["box"])))
-                    emit(request_id, "page", lines=lines, page=number, elapsedMs=round((time.monotonic() - started) * 1000))
-                finally:
-                    image.close()
-            emit(request_id, "done")
+            iterator = timed_images(images(path, request["pages"], dpi, set(request.get("skip", [])), regions), timings)
+            normal_preprocess = engine.text_det.get_preprocess
+            try:
+                if regions and request.get("fastRegions", False):
+                    # Only locate text on a smaller image. RapidOCR maps boxes back
+                    # before cropping the unchanged image for direction/recognition.
+                    from rapidocr_onnxruntime.ch_ppocr_det.utils import DetPreProcess
+                    engine.text_det.get_preprocess = lambda _: DetPreProcess(576, "max", engine.text_det.mean, engine.text_det.std)
+                with contextlib.closing(iterator):
+                    recognize_images(engine, iterator, regions, request_id, timings, np)
+            finally:
+                engine.text_det.get_preprocess = normal_preprocess
+            timings["workerCpuMs"] = (time.process_time() - cpu_started) * 1000
+            emit(request_id, "done", timings={key: round(value) for key, value in timings.items()})
         except Exception as error:
-            emit(request_id, "error", error=f"{type(error).__name__}: {error}")
+            extra = {}
+            if timings is not None:
+                timings["workerCpuMs"] = (time.process_time() - cpu_started) * 1000
+                extra["timings"] = {key: round(value) for key, value in timings.items()}
+            emit(request_id, "error", error=f"{type(error).__name__}: {error}", **extra)
 
 
 if __name__ == "__main__":

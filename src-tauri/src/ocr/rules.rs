@@ -1048,7 +1048,7 @@ pub fn diagnose_profile_match<'a>(profiles:&'a[OcrProfile],lines:&[OcrLine])->(O
     }else{
         ("no_match","首页未命中已保存的自动匹配关键词；请核对关键词并保存。关键词仅在后续页或被拆成多行/多块时，请手动选择配置。".into())
     };
-    (selected,OcrProfileMatch{outcome:outcome.into(),message,page:1,dpi:200,lines_count:probe.len(),candidates})
+    (selected,OcrProfileMatch{outcome:outcome.into(),message,page:1,dpi:200,lines_count:probe.len(),candidates,probe_region:None})
 }
 
 #[cfg(test)]

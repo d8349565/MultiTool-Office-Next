@@ -16,6 +16,7 @@ fn file_path(dir:&Path,task_id:&str,file_id:&str)->PathBuf{dir.join(format!("tas
 fn stored_file(f:&OcrFileResult)->OcrFileResult{
     let mut saved=f.clone();
     if let Some(diag)=&mut saved.diagnostics{
+        if let Some(timings)=&mut diag.timings{timings.save_ms=None;}
         diag.jev.raw_response=None;
         for c in &mut diag.jev.candidates {
             c.original_text = c.masked_text.clone(); // 擦除未脱敏原文，避免明文泄露

@@ -54,10 +54,10 @@ impl Worker{
         let(tx,rx)=mpsc::channel();std::thread::spawn(move||{let mut reader=BufReader::new(output);loop{let mut data=Vec::new();let result=std::io::Read::take(&mut reader,8_000_001).read_until(b'\n',&mut data);match result{Ok(0)=>break,Ok(_)if data.len()>8_000_000=>{let _=tx.send(Err("OCR 单页输出过大".into()));break;},Ok(_)=>{if tx.send(serde_json::from_slice(&data).map_err(|_|"OCR 返回无效消息".into())).is_err(){break;}},Err(e)=>{let _=tx.send(Err(e.to_string()));break;}}}});
         Ok(Self{child,input,rx,pending_preview:None})
     }
-    pub fn recognize(&mut self,file:&OcrFileResult,p:&OcrProfile,skip:&[u32],cancel:&AtomicBool,mut page:impl FnMut(Vec<OcrLine>)->Result<(),String>)->Result<(),String>{
+    pub fn recognize(&mut self,path:&str,p:&OcrProfile,skip:&[u32],cancel:&AtomicBool,timings:&mut OcrTimings,fast_regions:bool,mut page:impl FnMut(Vec<OcrLine>)->Result<(),String>)->Result<(),String>{
         // 用户画框即物理沙箱：完整下发用户圈选的区域，驱动底层执行图像物理切片，彻底阻断框外数据外泄并提升性能
         let regions = p.regions.clone();
-        let id=uuid::Uuid::new_v4().to_string();let body=json!({"version":1,"op":"recognize","id":id,"path":file.path,"pages":p.pages,"dpi":p.dpi,"skip":skip,"regions":regions});
+        let id=uuid::Uuid::new_v4().to_string();let body=json!({"version":1,"op":"recognize","id":id,"path":path,"pages":p.pages,"dpi":p.dpi,"skip":skip,"regions":regions,"fastRegions":fast_regions});
         writeln!(self.input,"{body}").and_then(|_|self.input.flush()).map_err(|e|format!("OCR 输入管道错误：{e}"))?;
         let mut last=Instant::now();let started=Instant::now();
         loop{
@@ -65,7 +65,15 @@ impl Worker{
             if started.elapsed()>Duration::from_secs(900){return Err("OCR 单文件处理超过 15 分钟".into());}
             if last.elapsed()>Duration::from_secs(120){return Err("OCR 引擎超过 120 秒无响应".into());}
             match self.rx.recv_timeout(Duration::from_millis(100)){
-                Ok(Ok(v))=>{if v["id"]!=id||v["version"]!=1{return Err("OCR 协议校验失败".into());}last=Instant::now();match v["kind"].as_str(){Some("done")=>return Ok(()),Some("error")=>return Err(v["error"].as_str().unwrap_or("OCR 失败").to_owned()),Some("page")=>{let lines:Vec<OcrLine>=serde_json::from_value(v["lines"].clone()).map_err(|_|"OCR 行数据无效")?;if lines.iter().any(|l|l.page==0||!l.score.is_finite()||!(0.0..=1.0).contains(&l.score)||l.text.len()>100_000){return Err("OCR 行数据超出范围".into());}page(lines)?;},Some("ready")=>{},_=>return Err("未知 OCR 事件".into())}},
+                Ok(Ok(mut v))=>{
+                    if v["id"]!=id||v["version"]!=1{return Err("OCR 协议校验失败".into());}
+                    last=Instant::now();
+                    if matches!(v["kind"].as_str(),Some("done"|"error"))&&!v["timings"].is_null(){
+                        let measured:OcrEngineTimings=serde_json::from_value(v["timings"].take()).map_err(|_|"OCR 返回无效计时".to_owned())?;
+                        timings.engine.get_or_insert_with(Default::default).add(measured);
+                    }
+                    match v["kind"].as_str(){Some("done")=>return Ok(()),Some("error")=>return Err(v["error"].as_str().unwrap_or("OCR 失败").to_owned()),Some("page")=>{let lines:Vec<OcrLine>=serde_json::from_value(v["lines"].take()).map_err(|_|"OCR 行数据无效")?;if lines.iter().any(|l|l.page==0||!l.score.is_finite()||!(0.0..=1.0).contains(&l.score)||l.text.len()>100_000){return Err("OCR 行数据超出范围".into());}page(lines)?;},Some("ready")=>{},_=>return Err("未知 OCR 事件".into())}
+                },
                 Ok(Err(e))=>return Err(e),Err(mpsc::RecvTimeoutError::Timeout)=>{},Err(_)=>return Err("OCR 引擎意外退出".into()),
             }
         }

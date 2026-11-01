@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 import { api, copy as copyText, desktop, pick } from './api';
 import { Empty, IconButton, Modal } from './components';
 import { basename, dirname, isWithin } from './domain';
-import { completedOcrFileIds, completedOcrTask, defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, localDecisionText, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
+import { completedOcrFileIds, completedOcrTask, defaultWorkflow, oneClickWorkflow, newField, newProfile, updateProfileField, localDecisionText, mergeOcrProgress, type OcrTaskProgress, type OcrBootstrap, type OcrFieldDefinition, type OcrFileResult, type OcrProfile, type OcrRenameBatch, type OcrTask, type OcrWorkflowOptions } from './ocrTypes';
 import './ocr.css';
 import { OcrRegions } from './OcrRegions';
 import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
@@ -40,6 +40,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
   const [recheckPrompt,setRecheckPrompt]=useState<{paths:string[];duplicateCount:number;total:number;profileId:string}|null>(null);
   const [correction,setCorrection]=useState<{taskId:string;fileId:string;profileId:string;name:string}|null>(null);
   const importInput=useRef<HTMLInputElement>(null),mounted=useRef(true),tasksRef=useRef<OcrTask[]>([]),importing=useRef(false),operation=useRef(false);
+  const refreshingTasks=useRef(new Set<string>());
   const [detailVersion,setDetailVersion]=useState(0);
   const task=data.tasks.find(t=>t.id===taskId),file=task?.files.find(f=>f.id===fileId),profile=data.profiles.find(p=>p.id===profileId);
   const allIdentifiedPaths=new Set(data.tasks.flatMap(t=>t.files.map(f=>f.path.toLowerCase())));
@@ -55,7 +56,20 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
     const changed=(event:Event)=>{const {from,to}=(event as CustomEvent<{from:string;to:string}>).detail;setPaths(paths=>paths.filter(path=>!isWithin(path,from)&&!isWithin(path,to)));setBatch(null);setCorrection(null);setRecheckPrompt(null);void refresh().catch(e=>setError(String(e)));};
     window.addEventListener('workspace-renamed',changed);return()=>window.removeEventListener('workspace-renamed',changed);
   },[refresh]);
-  const refreshTask=useCallback(async(id:string)=>{const next=await api<OcrTask>('ocr_get_task',{id});if(mounted.current)setData(current=>{if(!current.tasks.some(t=>t.id===id))return current;const tasks=current.tasks.map(t=>t.id===id?next:t);tasksRef.current=tasks;return {...current,tasks};});},[]);
+  const refreshTask=useCallback(async(id:string)=>{
+    const task=tasksRef.current.find(t=>t.id===id);
+    if(!task||!active(task)||refreshingTasks.current.has(id))return;
+    refreshingTasks.current.add(id);
+    try{
+      const progress=desktop?await api<OcrTaskProgress>('ocr_get_task_progress',{id,known:Object.fromEntries(task.files.map(f=>[f.id,f.status]))}):null;
+      const snapshot=progress?null:await api<OcrTask>('ocr_get_task',{id});
+      if(mounted.current)setData(current=>{
+        // A newer full refresh (including manual edits) supersedes this request.
+        const tasks=current.tasks.map(t=>t!==task?t:progress?mergeOcrProgress(t,progress):snapshot!);
+        tasksRef.current=tasks;return {...current,tasks};
+      });
+    }finally{refreshingTasks.current.delete(id);}
+  },[]);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   useEffect(()=>{if(visible)void refresh().catch(e=>setError(String(e)));},[visible,refresh]);
   useEffect(()=>{
@@ -314,7 +328,7 @@ function ProfileMatchDetail({file}:{file:OcrFileResult}){
   const score=(value:number|null)=>value===null?'无效分数':String(value);
   return <details className="ocr-task-options ocr-profile-match">
     <summary>自动匹配诊断 · {match.message}</summary>
-    <p className="muted">本次任务使用已保存配置的快照，探测第 {match.page} 页（{match.dpi} DPI，共 {match.linesCount} 行）。以下行号属于首页探测，与最终提取文本的行号可能不同。</p>
+    <p className="muted">本次任务使用已保存配置的快照，探测第 {match.page} 页{match.probeRegion?'的上部区域':'全页'}（{match.dpi} DPI，共 {match.linesCount} 行）。以下行号属于首页探测，与最终提取文本的行号可能不同。</p>
     <p className="muted">按不同关键词命中数计分，仅唯一最高分可选中。忽略同一行内汉字间的单个空格及全半角差异，不拼接断行、多个空格、制表符或不同 OCR 块。低分文字不参与计分；当前匹配与字段复核共用阈值。</p>
     {match.candidates.map(candidate=><details key={candidate.profileId} className="ocr-decision-card">
       <summary>{candidate.profileName} · 命中 {candidate.score} 个关键词 · 阈值 {candidate.threshold}{!candidate.keywords.length?' · 未配置关键词，不参与匹配':''}</summary>
@@ -616,13 +630,14 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
         ):tab==='logs'&&(
           <div className="ocr-steps-panel">
             {(()=>{
-              const totalElapsed = file.elapsedMs || ((diag?.ocrElapsedMs || 0) + (jev?.elapsedMs || 0)) || 1;
+              const totalElapsed = (file.elapsedMs || ((diag?.ocrElapsedMs || 0) + (jev?.elapsedMs || 0)) || 1)+(diag?.timings?.saveMs||0);
               const ocrMs = diag?.ocrElapsedMs || 0;
               const jevMs = jev?.elapsedMs || 0;
-              const ruleMs = Math.max(0, file.elapsedMs - ocrMs - jevMs);
+              const otherMs = Math.max(0, totalElapsed - ocrMs - jevMs);
+              const ruleMs = diag?.timings?.extractMs;
               const ocrPct = Math.max(0, Math.min(100, Math.round((ocrMs / totalElapsed) * 100)));
               const jevPct = Math.max(0, Math.min(100, Math.round((jevMs / totalElapsed) * 100)));
-              const rulePct = Math.max(0, 100 - ocrPct - jevPct);
+              const otherPct = Math.max(0, 100 - ocrPct - jevPct);
 
               const step1Logs = diag?.logs?.filter(l => l.includes('处理文件') || l.includes('OCR') || l.includes('指纹')) || [];
               const step2Logs = diag?.logs?.filter(l => l.includes('构建 Jev') || l.includes('候选') || l.includes('脱敏')) || [];
@@ -638,10 +653,10 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                       <span className="muted" style={{fontSize:11}}>总耗时：<strong>{(totalElapsed / 1000).toFixed(2)}s</strong></span>
                     </div>
 
-                    <div className="ocr-timeline-track" title={`本地OCR: ${ocrMs}ms (${ocrPct}%), AI推理: ${jevMs}ms (${jevPct}%), 规则规整: ${ruleMs}ms (${rulePct}%)`}>
+                    <div className="ocr-timeline-track" title={`本地OCR: ${ocrMs}ms (${ocrPct}%), AI推理: ${jevMs}ms (${jevPct}%), 其他处理: ${otherMs}ms (${otherPct}%)`}>
                       <div className="ocr-timeline-seg ocr-seg-ocr" style={{width: `${ocrPct}%`}}/>
                       <div className="ocr-timeline-seg ocr-seg-jev" style={{width: `${jevPct}%`}}/>
-                      <div className="ocr-timeline-seg ocr-seg-rule" style={{width: `${rulePct}%`}}/>
+                      <div className="ocr-timeline-seg ocr-seg-rule" style={{width: `${otherPct}%`}}/>
                     </div>
 
                     <div className="ocr-timing-metrics">
@@ -654,14 +669,30 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                         <strong>{jevMs}ms ({jevPct}%)</strong>
                       </div>
                       <div className="ocr-timing-metric-item">
-                        <span><span className="ocr-timing-dot ocr-dot-rule"/>4. 规则裁决与重命名</span>
-                        <strong>{ruleMs}ms ({rulePct}%)</strong>
+                        <span><span className="ocr-timing-dot ocr-dot-rule"/>文件核对、提取等其他处理</span>
+                        <strong>{otherMs}ms ({otherPct}%)</strong>
                       </div>
                       <div className="ocr-timing-metric-item">
                         <span><span className="ocr-timing-dot ocr-dot-total"/>全流程执行总用时</span>
-                        <strong>{file.elapsedMs}ms</strong>
+                        <strong>{totalElapsed}ms</strong>
                       </div>
                     </div>
+                    {diag?.timings&&<details className="ocr-timing-details"><summary>查看实测分阶段耗时{diag.timings.reusedPages>0?' · 已复用首页':''}</summary>
+                      <div className="ocr-timing-metrics">
+                        {([
+                          ['引擎进程启动',diag.timings.workerStartMs],['模型加载',diag.timings.engine?.modelLoadMs],
+                          ['页面渲染 / 图片读取',diag.timings.engine?.renderMs],['文字检测',diag.timings.engine?.detectMs],
+                          ['文字方向判断',diag.timings.engine?.classifyMs],['文字识别',diag.timings.engine?.recognizeMs],
+                          ['OCR 预处理等推理开销',diag.timings.engine?Math.max(0,diag.timings.engine.inferenceMs-diag.timings.engine.detectMs-diag.timings.engine.classifyMs-diag.timings.engine.recognizeMs):null],
+                          ['文件一致性核对',diag.timings.fingerprintMs],['配置匹配',diag.timings.profileMatchMs],
+                          ['字段提取与拟命名',diag.timings.extractMs],['结果保存（本次运行）',diag.timings.saveMs],
+                        ] as const).map(([label,ms])=><div className="ocr-timing-metric-item" key={label}><span>{label}</span><strong>{ms==null?'未记录':`${ms}ms`}</strong></div>)}
+                      </div>
+                      {diag.timings.engine&&<p className="muted">实际识别 {diag.timings.engine.pagesProcessed} 页 · 复用 {diag.timings.reusedPages} 页 · OCR 进程累计 CPU 时间 {diag.timings.engine.workerCpuMs}ms</p>}
+                      {diag.timings.regionFastPath&&<p className="muted">{diag.timings.regionFallback?'区域快速检测后，因字段缺失或置信度不足，已按原检测精度重新识别。':'已使用区域快速检测；方向判断与文字识别保留原清晰度。'}</p>}
+                      {diag.timings.classificationFastPath&&<p className="muted">{diag.timings.classificationFallback?'首页上部未匹配，已补充完整首页探测。':'唯一候选配置已在首页上部命中。'}</p>}
+                      <p className="muted">分阶段计时包含在对应处理耗时中；CPU 时间是各线程工作时间之和，不计入总耗时。保存耗时仅本次运行可见，有记录时计入总耗时。</p>
+                    </details>}
                   </div>
 
                   {/* 四大结构化执行步骤卡片 */}
@@ -800,7 +831,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                           <span className="ocr-step-title">综合裁决、格式校验与拟重命名</span>
                         </div>
                         <div className="ocr-step-right">
-                          <span className="ocr-step-time" style={{color:'#6d28d9'}}>耗时 {ruleMs}ms</span>
+                          <span className="ocr-step-time" style={{color:'#6d28d9'}}>{ruleMs==null?'未单独记录耗时':`耗时 ${ruleMs}ms`}</span>
                         </div>
                       </div>
                       <div className="ocr-step-card-body">

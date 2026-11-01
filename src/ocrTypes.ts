@@ -36,9 +36,17 @@ export function localDecisionText(d:OcrDecisionLog):string {
 export interface OcrFileDiagnostics {
   ocrLinesCount: number; ocrElapsedMs: number; jev: OcrJevLog; decisions: OcrDecisionLog[]; logs: string[];
   profileMatch?: OcrProfileMatch | null;
+  timings?: OcrTimings | null;
+}
+export interface OcrTimings {
+  engine: {modelLoadMs:number;renderMs:number;inferenceMs:number;detectMs:number;classifyMs:number;recognizeMs:number;workerCpuMs:number;pagesProcessed:number;requests:number} | null;
+  workerStartMs:number;fingerprintMs:number;profileMatchMs:number;extractMs:number;reusedPages:number;saveMs:number | null;
+  regionFastPath?:boolean;regionFallback?:boolean;
+  classificationFastPath?:boolean;classificationFallback?:boolean;
 }
 export interface OcrProfileMatch {
   outcome: string; message: string; page: number; dpi: number; linesCount: number;
+  probeRegion?:OcrRegion|null;
   candidates: {
     profileId: string; profileName: string; threshold: number; score: number;
     keywords: { keyword: string; normalized: string; hits: { lineIndex: number; score: number | null; accepted: boolean }[] }[];
@@ -54,6 +62,15 @@ export interface OcrFileResult {
 export interface OcrWorkflowOptions {exportFormat:'none'|'txt'|'csv'|'json';exportDirectory:string;rename:'review'|'preview'|'apply';renameConfirmed:boolean}
 export interface OcrWorkflow {enabled:boolean;options:OcrWorkflowOptions;status:string;exportPath:string;renameBatchId:string;error:string}
 export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow;clearedFileIds?:string[] }
+export interface OcrTaskProgress {id:string;status:string;workflow:OcrWorkflow;files:OcrFileResult[];completeSnapshot:boolean}
+export function mergeOcrProgress(task:OcrTask,progress:OcrTaskProgress):OcrTask {
+  if(task.id!==progress.id)return task;
+  // A full refresh may have completed while an older progress request was in flight.
+  if(!['queued','running'].includes(task.status)&&['queued','running'].includes(progress.status))return task;
+  const changed=new Map(progress.files.map(file=>[file.id,file]));
+  return {...task,status:progress.status,workflow:progress.workflow,
+    files:progress.completeSnapshot?progress.files:task.files.map(file=>changed.get(file.id)||file)};
+}
 export const defaultWorkflow:OcrWorkflowOptions={exportFormat:'none',exportDirectory:'',rename:'apply',renameConfirmed:false};
 // Clicking the explicitly labelled action authorizes this task's rename step.
 export const oneClickWorkflow=(options:OcrWorkflowOptions):OcrWorkflowOptions=>({...options,rename:'apply',renameConfirmed:true});

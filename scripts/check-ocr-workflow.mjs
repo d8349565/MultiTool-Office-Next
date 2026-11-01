@@ -4,7 +4,7 @@ import ts from 'typescript';
 
 const source=readFileSync(new URL('../src/ocrTypes.ts',import.meta.url),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
-const {defaultWorkflow,oneClickWorkflow,completedOcrFileIds,completedOcrTask,localDecisionText}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const {defaultWorkflow,oneClickWorkflow,completedOcrFileIds,completedOcrTask,localDecisionText,mergeOcrProgress}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const decision={fieldKey:'日期',finalValue:'',finalSource:'missing',reviewRequired:true};
 assert.equal(localDecisionText({...decision,localAttempted:true}),'（已执行本地提取，未得到有效候选）');
 assert.equal(localDecisionText({...decision,localAttempted:false}),'（已有 Jev 结果，未执行本地回退）');
@@ -54,3 +54,17 @@ assert.deepEqual(completedOcrFileIds({...success,workflow},[{...batch,items:[{..
 assert.deepEqual(completedOcrFileIds({...success,workflow},[{...batch,taskId:'other-task'}]),[]);
 assert.deepEqual(completedOcrFileIds({...success,workflow},[{...batch,items:[{...batch.items[0],target:'D:/status-check/other.pdf'}]}]),[]);
 console.log('OCR completion rules: review, failure, interruption, export, and rename protection passed.');
+
+const running={...task,status:'running'};
+const delta={id:task.id,status:'running',workflow,files:[{...task.files[1],status:'ready'}],completeSnapshot:false};
+const merged=mergeOcrProgress(running,delta);
+assert.equal(merged.files[0],running.files[0]);
+assert.equal(merged.files[1],delta.files[0]);
+assert.equal(running.files[1].status,'review');
+const terminal={...delta,status:'completed',completeSnapshot:true,files:[{...delta.files[0],path:'renamed.pdf'}]};
+const finished=mergeOcrProgress(merged,terminal);
+assert.equal(finished.files,terminal.files);
+assert.equal(finished.files[0].path,'renamed.pdf');
+assert.equal(mergeOcrProgress(finished,delta),finished);
+assert.equal(mergeOcrProgress(running,{...delta,id:'another-task'}),running);
+console.log('OCR progress: unchanged buffers, deltas, final rename snapshot, and stale responses passed.');
