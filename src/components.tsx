@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode, type ReactElement, type HTMLAttributes, useLayoutEffect } from 'react';
-import { Button, Tooltip, Menu, MenuTrigger, MenuPopover, MenuList, MenuItem } from '@fluentui/react-components';
+import { useEffect, useRef, useState, type ReactNode, type HTMLAttributes, useLayoutEffect } from 'react';
+import { Button, Tooltip } from '@fluentui/react-components';
 import { X, FolderSimple, CaretRight, ArrowSquareOut, Copy, ArrowUp, FolderOpen, PencilSimple } from '@phosphor-icons/react';
 import type { Entry } from './types';
 import { basename, samePath } from './domain';
@@ -16,12 +16,6 @@ export function Modal({title,children,onClose,wide=false,className=''}:{title:st
 }
 export function Empty({title,detail,action}:{title:string;detail?:string;action?:ReactNode}) {return <div className="empty"><FolderOpen size={32} weight="thin"/><strong>{title}</strong>{detail&&<p>{detail}</p>}{action}</div>;}
 export function Skeleton(){return <div className="skeleton" aria-label="加载中">{[1,2,3,4].map(i=><div key={i}/>)}</div>;}
-
-export function EntryMenu({children,entry,onOpen,onReveal,onCopy,onRename}:{children:ReactElement;entry:Entry;onOpen:(entry:Entry)=>void;onReveal?:(entry:Entry)=>void;onCopy:(value:string)=>void;onRename:(entry:Entry)=>void}) {
-  return <Menu openOnContext><MenuTrigger disableButtonEnhancement>{children}</MenuTrigger><MenuPopover><MenuList>
-    <MenuItem icon={<ArrowSquareOut/>} onClick={()=>onOpen(entry)}>打开</MenuItem>{onReveal&&<MenuItem onClick={()=>onReveal(entry)}>在资源管理器中定位</MenuItem>}<MenuItem icon={<Copy/>} onClick={()=>onCopy(entry.name)}>复制名称</MenuItem><MenuItem icon={<PencilSimple/>} onClick={()=>onRename(entry)}>重命名… <kbd>F2</kbd></MenuItem>
-  </MenuList></MenuPopover></Menu>;
-}
 
 // Scroll position is keyed by parent. Ancestor panels stay mounted when descendants change.
 export function DirectoryPanel({title,level,parent,items,selected,busy,error,filterText,onSelect,onEnter,onOpen,onCopy,onBack,className,dragProps,onRename}:{title:string;level:number;parent:string;items:Entry[];selected?:string;busy:boolean;error?:string;filterText?:string;onSelect:(e:Entry)=>void;onEnter?:(e:Entry)=>void;onOpen:(e:Entry)=>void;onCopy:(s:string)=>void;onRename:(e:Entry)=>void;onBack?:()=>void;className?:string;dragProps?:(entry:Entry)=>HTMLAttributes<HTMLDivElement>}) {
