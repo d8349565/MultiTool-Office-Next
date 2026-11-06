@@ -1,5 +1,30 @@
 # 变更日志
 
+## v0.5.8 - 2026-11-06
+
+### Improvements
+
+- Right-click a file to open its containing folder and select it in Windows Explorer. Right-click a directory to open it directly; selected files also have an explicit folder button.
+- Distinguish 18 file categories with a consistent SVG icon set in the file list and quick panel: red PDF, blue Word, green Excel, orange PowerPoint and white text icons, plus images, archives, audio, video, code, configuration, CAD, email, databases, applications and fonts.
+- Recognize legacy Office formats and uppercase extensions, retain a generic icon for unknown formats, and suppress the browser context menu in the file panel.
+
+### 修复与完善
+
+- 右键文件即可在资源管理器中打开所在文件夹并选中文件，右键目录直接打开该目录；所选文件另提供“打开所在文件夹”按钮。
+- 文件列表和快捷面板统一使用 18 类 SVG 图标：PDF 红色、Word 蓝色、Excel 绿色、PowerPoint 橙色、文本白色，并覆盖 OFD、图片、压缩包、音视频、代码、配置、CAD、邮件、数据库、应用和字体等常见格式。
+- 补齐旧版 Office 格式及大写扩展名的识别，未知格式显示通用图标；文件面板不再弹出浏览器默认右键菜单。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. SVG icons are bundled locally; existing settings and OCR components remain compatible.
+- 需要 Windows x64 和 Microsoft Edge WebView2。SVG 图标随软件提供，继续兼容已有设置和 OCR 组件。
+- Application build / 应用构建版本：`2026.1106.1318`。
+
+### Verification scope / 验证范围
+
+- Local frontend and Windows installer builds, 18 static SVG resources, production-bundle checks, directory-action checks and SHA-256 verification passed. A candidate with the same application behavior was upgraded and opened locally; this release increments its build version. A complete desktop workflow was not run, and no GitHub Actions workflows are configured.
+- 本机前端与 Windows 安装包构建、18 枚静态 SVG 资源、生产构建内容、目录操作检查及 SHA-256 核验通过。功能一致的候选版已在本机覆盖安装并成功启动，本次发布递增构建版本；未进行完整桌面流程验收，仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.7 - 2026-11-02
 
 ### Improvements

@@ -4,6 +4,7 @@ import { ArrowUpRight, CaretRight, FileText, FolderSimple, MagnifyingGlass, X } 
 import { api } from './api';
 import { isWithin, cleanPath } from './domain';
 import { IconButton, Modal } from './components';
+import { FileIcon } from './FileIcon';
 import { getLauncherVisual } from './launcherVisuals';
 import { currentTool, type RecentItem } from './quickHistory';
 import type { Entry, Launcher, Results } from './types';
@@ -48,7 +49,7 @@ export function QuickPanel({roots,launchers,history,historyError,onRemove,onClea
       {candidates.map((item,i)=>{const visual=item.tool?getLauncherVisual(item.tool):undefined,Icon=visual?.icon||(item.kind==='directory'?FolderSimple:FileText);return <div key={item.key}>
         {(i===0||candidates[i-1].group!==item.group)&&<p className="quick-group">{item.group}</p>}
         <div className="quick-row"><button type="button" id={`quick-result-${i}`} role="option" aria-selected={selected===i} aria-disabled={!!item.invalid||executing} className={`quick-option ${selected===i?'active':''}`} onMouseEnter={()=>setIndex(i)} onClick={()=>void execute(item)} title={item.path}>
-          <Icon aria-hidden="true" size={21}/><span><strong>{item.name}<em>{item.kind==='tool'?'启动工具':item.kind==='directory'?'定位目录':'定位文件'}</em></strong><small>{item.invalid||item.path}</small></span>{item.kind==='tool'?<ArrowUpRight aria-hidden="true"/>:<CaretRight aria-hidden="true"/>}
+          {item.kind==='file'?<FileIcon extension={item.name.includes('.')?item.name.split('.').at(-1)!:''}/>:<Icon aria-hidden="true" size={21}/>}<span><strong>{item.name}<em>{item.kind==='tool'?'启动工具':item.kind==='directory'?'定位目录':'定位文件'}</em></strong><small>{item.invalid||item.path}</small></span>{item.kind==='tool'?<ArrowUpRight aria-hidden="true"/>:<CaretRight aria-hidden="true"/>}
         </button>{item.recent&&<IconButton label={`移除记录：${item.name}`} onClick={()=>onRemove(item.recent!.key)}><X/></IconButton>}</div>
       </div>;})}
       {!candidates.length&&<p className="muted">{busy?'正在查找…':query?'没有匹配项，请调整关键词。':'打开文件、文件夹或启动工具后，会在这里显示。'}</p>}

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MultiTool Office Next",
-  "version": "2026.1102.37",
+  "version": "2026.1106.1318",
   "identifier": "com.multitool.office.next",
   "build": {
     "beforeDevCommand": "npm run dev",
