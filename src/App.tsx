@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense, type CSSProperties } from 'react';
 import { FluentProvider, webDarkTheme, webLightTheme, Button, Checkbox, type Theme } from '@fluentui/react-components';
-import { IconContext, FolderSimple, MagnifyingGlass, Command, Sparkle, GearSix, Info, CaretRight, ArrowSquareOut, Copy, ArrowClockwise, Plus, FileText, X, ArrowLeft, ArrowRight, SquaresFour, Translate, ArrowUpRight, FunnelSimple, Check, HardDrives, Sun, Moon, Stop, CheckSquare, PencilSimple, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { IconContext, FolderSimple, MagnifyingGlass, Command, Sparkle, GearSix, Info, CaretRight, ArrowSquareOut, Copy, ArrowClockwise, Plus, FileText, X, ArrowLeft, ArrowRight, SquaresFour, ArrowUpRight, FunnelSimple, Check, HardDrives, Sun, Moon, CheckSquare, PencilSimple, ArrowCounterClockwise } from '@phosphor-icons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { listen } from '@tauri-apps/api/event';
 import { api, copy, pick, demo, desktop } from './api';
@@ -10,15 +10,11 @@ import { DirectoryPanel, Empty, IconButton, Modal, Skeleton, Splitter } from './
 import { ProposalDiff } from './ProposalDiff';
 import { hasPricingChange } from './assistantPricing';
 import type { OcrDiagnosticRequest } from './OcrDiagnosticShare';
-import { ReasoningSelect } from './ReasoningSelect';
 import { SettingsView, type ModuleId } from './SettingsView';
 import { AboutView } from './AboutView';
 import { NetworkConsent, NetworkIndicator, openSetup } from './NetworkControls';
 import { SetupWizard } from './SetupWizard';
 import { ToolsWorkbench } from './ToolsWorkbench';
-import { TranslatePane, useTranslationSync, type BlockRange, type PaneSide } from './TranslatePane';
-import { alignTranslationBlocks, balanceFences, detectFormat, mapBlockRange, segmentBlocks, FORMAT_LABELS, type SourceFormat } from './translateFormat';
-import { htmlToPlainText } from './htmlTokens';
 import { DirectoryFilter } from './DirectoryFilter';
 import { QuickPanel } from './QuickPanel';
 import { useQuickHistory } from './quickHistory';
@@ -27,8 +23,13 @@ import { FilePreview } from './FilePreview';
 import { FileIcon } from './FileIcon';
 import { useFileDrag } from './useFileDrag';
 import { WorkspaceRenameDialog, WorkspaceRenameHistory, type RenameRecord } from './WorkspaceRename';
-const moduleNavigation=[{id:'files',label:'文件工作区',icon:<FolderSimple/>},{id:'translate',label:'文本翻译',icon:<Translate/>},{id:'tools',label:'常用工具',icon:<SquaresFour/>},{id:'ocr',label:'文档 OCR',icon:<FileText/>},{id:'todo',label:'待办事项',icon:<CheckSquare/>}];
-const pageModuleMap: Record<string, ModuleId> = { files: 'workspace', tools: 'tools', translate: 'model', ocr: 'integrations', todo: 'workspace' };
+const moduleNavigation=[
+  {id:'files',label:'文件工作区',icon:<FolderSimple/>,shortcut:1},
+  {id:'tools',label:'常用工具',icon:<SquaresFour/>,shortcut:3},
+  {id:'ocr',label:'文档 OCR',icon:<FileText/>,shortcut:4},
+  {id:'todo',label:'待办事项',icon:<CheckSquare/>,shortcut:5},
+];
+const pageModuleMap: Record<string, ModuleId> = { files: 'workspace', tools: 'tools', ocr: 'integrations', todo: 'workspace' };
 const Assistant=lazy(()=>import('./Assistant'));
 const OcrWorkbench=lazy(()=>import('./OcrWorkbench'));
 const TodoWorkbench=lazy(()=>import('./TodoWorkbench'));
@@ -77,26 +78,6 @@ export default function App(){
   const [about,setAbout]=useState(false);
   const [renameEntry,setRenameEntry]=useState<Entry|null>(null),[renameHistory,setRenameHistory]=useState(false);
   const openSettings=(target?:ModuleId|string)=>{const validModules:ModuleId[]=['workspace','tools','model','assistant','pricing','integrations','privacy','transfer'];const resolved=(target&&validModules.includes(target as ModuleId))?(target as ModuleId):(pageModuleMap[page]||'workspace');setSettingsTab(resolved);};
-  const [source,setSource]=useState(''),[translated,setTranslated]=useState(''),[language,setLanguage]=useState('zh'),[translationTask,setTranslationTask]=useState(''),[translationError,setTranslationError]=useState('');
-  const translationRun=useRef('');
-  const [translationSource,setTranslationSource]=useState<string|null>(null);
-  const sourceFormat=useMemo(()=>detectFormat(source),[source]);
-  const [targetFormat,setTargetFormat]=useState<SourceFormat>('plain'),[sourcePreview,setSourcePreview]=useState(false);
-  const [syncOn,setSyncOn]=useState(()=>localStorage.getItem('office-translate-sync')!=='off'),[focus,setFocus]=useState<{side:PaneSide;range:BlockRange}|null>(null),[fenceNotice,setFenceNotice]=useState(false);
-  const sourceBlocks=useMemo(()=>segmentBlocks(source,sourceFormat),[source,sourceFormat]);
-  const targetBlocks=useMemo(()=>segmentBlocks(translated,targetFormat),[translated,targetFormat]);
-  const alignment=useMemo(()=>alignTranslationBlocks(source,translated,sourceFormat,targetFormat,sourceBlocks,targetBlocks),[source,translated,sourceFormat,targetFormat,sourceBlocks,targetBlocks]);
-  const sourceChanged=translationSource!==null&&source!==translationSource;
-  const matchingReady=!translationTask&&!translationError&&!sourceChanged&&translationSource!==null&&alignment.reliable;
-  const matchingNotice=translated&&!translationTask?(sourceChanged?'原文已修改，当前译文对应的是修改前的内容。重新翻译后恢复对应高亮和同步滚动。':!alignment.reliable?'原文与译文的段落结构不一致，已暂停对应高亮和同步滚动，避免错误匹配。请核对译文或重新翻译。':''):'';
-  const sync=useTranslationSync({enabled:syncOn&&matchingReady,sourceBlocks,targetBlocks,alignment,resetKey:translationTask});
-  useEffect(()=>{setFocus(null);},[source,translated]);
-  // A highlight is a momentary cue, so it clears itself instead of lingering.
-  useEffect(()=>{if(!focus)return;const timer=setTimeout(()=>setFocus(null),2500);return()=>clearTimeout(timer);},[focus]);
-  // The highlight marks the counterpart, so it belongs on the pane the user did not select in.
-  const focusFor=(side:PaneSide)=>syncOn&&matchingReady&&focus&&focus.side!==side?focus.range:null;
-  const onPaneSelection=(side:PaneSide)=>(range:BlockRange|null)=>{const mapped=syncOn&&matchingReady?mapBlockRange(range,side==='source'?alignment.forward:alignment.backward):null;setFocus(mapped?{side,range:mapped}:null);};
-  const toggleSync=()=>{setFocus(null);setSyncOn(value=>{try{localStorage.setItem('office-translate-sync',value?'off':'on');}catch{/* 存储失败不影响当前同步开关。 */}return !value;});};
   const [jevTask,setJevTask]=useState(''),[jevResult,setJevResult]=useState<AIResult|null>(null);
   const [ocrIncoming,setOcrIncoming]=useState<string[]>([]),[ocrVisited,setOcrVisited]=useState(false),[todoVisited,setTodoVisited]=useState(false);
   const [todoReminder,setTodoReminder]=useState<{id:string}|null>(null);
@@ -159,11 +140,11 @@ export default function App(){
     const listener=(e:KeyboardEvent)=>{
       if(e.defaultPrevented||e.isComposing||e.repeat)return;
       if(e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey){
-        const index=moduleNavigation.findIndex((_,i)=>e.code===`Digit${i+1}`);
+        const module=moduleNavigation.find(tab=>e.code===`Digit${tab.shortcut}`);
         const editing=e.target instanceof Element&&e.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]');
-        if(index>=0&&!editing&&!document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')){
-          e.preventDefault();setPage(moduleNavigation[index].id);
-          document.querySelector<HTMLButtonElement>(`nav button[aria-keyshortcuts="Alt+${index+1}"]`)?.focus();
+        if(module&&!editing&&!document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]')){
+          e.preventDefault();setPage(module.id);
+          document.querySelector<HTMLButtonElement>(`nav button[aria-keyshortcuts="Alt+${module.shortcut}"]`)?.focus();
         }
         return;
       }
@@ -255,31 +236,8 @@ export default function App(){
   }
   const openDirectory=(path:string)=>void openAction(path,basename(path),false,async()=>{await api('open_path',{path,reveal:false});recent.opened({path,name:basename(path),isDir:true});});
   const openEntry=(e:Entry,reveal=false)=>void openAction(e.path,e.name,reveal,async()=>{await api('open_path',{path:e.path,reveal});if(!reveal)recent.opened(e);});
-  async function launchTool(id:string,reveal=false){const launcher=settings?.launchers.find(l=>l.id===id);if(!launcher)return false;return openAction(launcher.path,launcher.name,reveal,async()=>{await api(reveal?'reveal_launcher':'launch',{id,expectedPath:launcher.path});if(!reveal)recent.launch(launcher);});}
+  async function launchTool(id:string,reveal=false){const launcher=settings?.launchers.find(l=>l.id===id);if(!launcher)return false;return openAction(launcher.path,launcher.name,reveal,()=>api(reveal?'reveal_launcher':'launch',{id,expectedPath:launcher.path}));}
   const copyValue=(s:string)=>void run(async()=>{await copy(s);setNotice('已复制');});
-  function clearTranslation(){
-    const id=translationRun.current;translationRun.current='';
-    setSource('');setTranslated('');setTranslationSource(null);setTranslationTask('');setTranslationError('');setTargetFormat('plain');setFocus(null);setFenceNotice(false);
-    if(desktop&&id)void run(()=>api('cancel_task',{id}));
-  }
-  async function translate(){
-    if(translationRun.current)return;
-    const id=crypto.randomUUID();translationRun.current=id;setTranslationSource(source);setTranslationTask(id);setTranslationError('');setTranslated('');setTargetFormat(sourceFormat);setFocus(null);setFenceNotice(false);
-    let stopStream:(()=>void)|undefined;
-    try{
-      if(desktop){stopStream=await listen<{id:string;text:string}>('translation-stream',e=>{if(e.payload.id===id&&translationRun.current===id)setTranslated(e.payload.text);});}
-      if(translationRun.current!==id)return;
-      const v=await api<AIResult>('ai_task',{id,kind:'translate',text:source,language});
-      if(translationRun.current!==id)return;
-      if(v.text){
-        // The backend reports the format it actually translated, so the preview never
-        // disagrees with the structure the model was asked to preserve.
-        setTargetFormat(v.format||sourceFormat);
-        const balanced=balanceFences(v.text);setFenceNotice(balanced.repaired);setTranslated(balanced.text);
-      }
-    }catch(e){if(translationRun.current===id){setTranslationError(String(e));setTargetFormat(sourceFormat);}}
-    finally{stopStream?.();if(translationRun.current===id){translationRun.current='';setTranslationTask('');}}
-  }
   async function evaluateJev(){const id=crypto.randomUUID();setJevTask(id);setJevResult(null);try{const result=await api<AIResult>('ai_task',{id,kind:'jev',text:q,items:files.items.slice(0,20).map(e=>({name:e.name,path:relativePath(e.path,settings?.roots.find(r=>isWithin(e.path,r))||root)}))});setJevResult(result);}catch(e){setNotice(`${e}；保留本地搜索结果`);}finally{setJevTask('');}}
   function beginRename(entry:Entry){preview.close();if(!desktop){setNotice('安全改名请在 Windows 桌面版使用。');return;}setRenameEntry(entry);}
   function renamed(record:RenameRecord){
@@ -295,7 +253,7 @@ export default function App(){
   const directoryProps={dragProps,onOpen:(e:Entry)=>openEntry(e),onCopy:copyValue,onRename:beginRename,filterText:directoryFilter};
   const viewContext={page,root,currentDirectory:current,selectedDirectories:trail,query,filter,recursive,selectedFile:selected?{name:selected.name,path:selected.path}:null};
   return <FluentProvider theme={theme} className={`office-app ${dark?'dark':''}`}><IconContext.Provider value={{size:18,weight:'regular'}}>
-    <header className="app-header"><div className="wordmark"><span className="brand-mark"><SquaresFour size={22} weight="fill"/></span><span>MultiTool <strong>Office</strong></span></div><nav aria-label="主导航">{moduleNavigation.map((t,index)=><button className={page===t.id?'active':''} onClick={()=>setPage(t.id)} key={t.id} title={`${t.label} · Alt+${index+1}`} aria-label={t.label} aria-keyshortcuts={`Alt+${index+1}`} aria-current={page===t.id?'page':undefined}>{t.icon}{page===t.id&&<span>{t.label}</span>}</button>)}</nav><div className="header-actions"><button className="quick-trigger" onClick={()=>setQuick(true)} aria-label="快捷面板" title={quickShortcutHint}><Command/><kbd>Ctrl K</kbd></button><IconButton label="关于" onClick={()=>setAbout(true)}><Info/></IconButton><IconButton label="设置" onClick={()=>openSettings()}><GearSix/></IconButton><Button appearance="primary" className="assistant-toggle" aria-label="助手" icon={<Sparkle weight="fill"/>} onClick={()=>setAssistant(a=>!a)}>助手</Button></div></header>
+    <header className="app-header"><div className="wordmark"><span className="brand-mark"><SquaresFour size={22} weight="fill"/></span><span>MultiTool <strong>Office</strong></span></div><nav aria-label="主导航">{moduleNavigation.map(t=><button className={page===t.id?'active':''} onClick={()=>setPage(t.id)} key={t.id} title={`${t.label} · Alt+${t.shortcut}`} aria-label={t.label} aria-keyshortcuts={`Alt+${t.shortcut}`} aria-current={page===t.id?'page':undefined}>{t.icon}{page===t.id&&<span>{t.label}</span>}</button>)}</nav><div className="header-actions"><button className="quick-trigger" onClick={()=>setQuick(true)} aria-label="快捷面板" title={quickShortcutHint}><Command/><kbd>Ctrl K</kbd></button><IconButton label="关于" onClick={()=>setAbout(true)}><Info/></IconButton><IconButton label="设置" onClick={()=>openSettings()}><GearSix/></IconButton><Button appearance="primary" className="assistant-toggle" aria-label="助手" icon={<Sparkle weight="fill"/>} onClick={()=>setAssistant(a=>!a)}>助手</Button></div></header>
     <div className="network-status-bar"><NetworkIndicator onOpen={()=>openSettings('privacy')}/><span>本地文件整理 · 外部服务按需授权</span><Button type="button" size="small" appearance="subtle" onClick={()=>openSetup()}>配置引导</Button></div>
     {demo&&<div className="demo-banner">交互预览 · 当前为示例文件，系统操作请使用桌面版</div>}
     {fatal?<div className="fatal"><h2>无法加载工作台</h2><p>{fatal}</p><Button onClick={()=>location.reload()}>重新加载</Button></div>:!settings?<Skeleton/>:<>
@@ -327,7 +285,6 @@ export default function App(){
             {showDeep&&<Splitter axis="x" container={workspace} variable="--left" min={0} max={100} minPixels={[500,160]}/>}<Splitter axis="y" container={workspace} variable="--top" min={30} max={65}/>
           </div>}
         </div>
-        <div className="translation-page" hidden={page!=='translate'}><div className="page-heading"><div><h1>文本翻译<span className="heading-dot">/</span><span className="heading-sub">让表达跨越语言。</span></h1><p>保留格式，准确传达。只处理你主动提交的文本。</p></div></div><div className="translation-grid"><TranslatePane side="source" title="原文" subtitle="自动识别语言" text={source} format={sourceFormat} blocks={sourceBlocks} scrollRef={sync.sourceScroll} docRef={sync.sourceDoc} sourceMirror={sync.sourceMirror} focusedRange={focusFor('source')} editable preview={sourcePreview} onPreviewChange={setSourcePreview} onTextChange={setSource} onInteract={()=>sync.markActive('source')} onScroll={()=>sync.handleScroll('source')} onSelection={onPaneSelection('source')} id="source" label="翻译原文" placeholder="在这里粘贴需要翻译的文字…" headerExtra={<span className={`format-badge ${sourceFormat}`}>{FORMAT_LABELS[sourceFormat]}</span>} footer={<><span>{source.length.toLocaleString()} 字符</span><Button appearance="subtle" onClick={clearTranslation}>清空</Button></>}/><TranslatePane side="target" title="译文" text={translated} format={targetFormat} blocks={targetBlocks} scrollRef={sync.targetScroll} docRef={sync.targetDoc} focusedRange={focusFor('target')} onInteract={()=>sync.markActive('target')} onScroll={()=>sync.handleScroll('target')} onSelection={onPaneSelection('target')} label="翻译结果" placeholder={translationTask?'正在翻译…':'译文将显示在这里'} headerExtra={<><span className={`format-badge ${targetFormat}`}>{FORMAT_LABELS[targetFormat]}</span><button type="button" className={`translate-toggle ${syncOn?'on':''}`} aria-pressed={syncOn} onClick={toggleSync}>同步滚动</button><select aria-label="目标语言" value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh">中文</option><option value="en">英语</option><option value="ja">日语</option></select></>} footer={<><span>{translationTask?'正在调用模型':fenceNotice?'已修正代码块围栏':'可直接复制使用'}</span><span className="translate-copy">{targetFormat==='html'&&<Button appearance="subtle" disabled={!translated} onClick={()=>copyValue(htmlToPlainText(translated))}>复制纯文本</Button>}<Button icon={<Copy/>} disabled={!translated} onClick={()=>copyValue(translated)}>复制译文</Button></span></>}/></div>{matchingNotice&&<p className="translate-notice" role="status">{matchingNotice}</p>}{fenceNotice&&<p className="translate-notice" role="status">译文中的代码块围栏未闭合，已自动补齐以便正常显示。</p>}{translationError&&<p className="inline-error" role="alert">{translationError}</p>}<div className="translation-actions"><ReasoningSelect label="翻译思考程度" value={settings.translationReasoning||'default'} disabled={!!translationTask} onChange={value=>void run(async()=>saved(await api<Settings>('save_settings',{next:{...settings,translationReasoning:value}})))}/><span>文本会发送到你配置的模型服务</span>{translationTask?<Button icon={<Stop/>} onClick={()=>void run(()=>api('cancel_task',{id:translationTask}))}>取消翻译</Button>:<Button appearance="primary" size="large" icon={<Translate/>} disabled={!source.trim()} onClick={()=>void translate()}>{translationError?'重试翻译':'开始翻译'}</Button>}</div></div>
         <div className="tools-page" hidden={page!=='tools'}><ToolsWorkbench launchers={settings.launchers} pendingActions={pendingActions} onLaunch={id=>launchTool(id)} onOpenFolder={id=>launchTool(id,true)} onCopyPath={copyValue} onOpenSettings={tab=>openSettings(tab||'tools')}/></div>
         {(ocrVisited||page==='ocr')&&<Suspense fallback={<Skeleton/>}><OcrWorkbench visible={page==='ocr'} incoming={ocrIncoming} onDiagnose={request=>{setDiagnosticRequest(request);setAssistant(true);}} onConsumed={done=>setOcrIncoming(current=>current.filter(path=>!done.includes(path)))} onSettings={()=>openSettings('integrations')}/></Suspense>}
         {(todoVisited||page==='todo')&&<Suspense fallback={<Skeleton/>}><TodoWorkbench visible={page==='todo'} reminderRequest={todoReminder}/></Suspense>}
@@ -340,7 +297,7 @@ export default function App(){
       <SetupWizard settings={settings} onSaved={saved} onAddRoot={addRoot}/>
       {settingsTab&&<SettingsView settings={settings} initialTab={settingsTab} onSaved={saved} onClose={()=>setSettingsTab(null)}/>}
       {proposal&&<Modal title={hasPricingChange(proposal)?'确认计价调整':'确认配置变更'} onClose={()=>{if(!proposalBusy)setProposal(null);}} wide><p className="proposal-confirm-hint">{hasPricingChange(proposal)?'检查下方调整建议。确认后用于下一次任务，历史费用保留原单价。':'检查下方调整建议，确认后应用。'}</p><ProposalDiff proposal={proposal}/>{proposalError&&<p className="inline-error" role="alert">{proposalError}</p>}<div className="dialog-actions"><span>需要你的确认才会生效</span><Button disabled={proposalBusy} onClick={()=>{setProposalBusy(true);void api('decide_proposal',{id:proposal.id,approve:false}).then(()=>setProposal(null)).catch(e=>setProposalError(String(e))).finally(()=>setProposalBusy(false));}}>不应用</Button><Button disabled={proposalBusy} appearance="primary" onClick={()=>{setProposalBusy(true);void api<Settings>('decide_proposal',{id:proposal.id,approve:true}).then(s=>{saved(s);setProposal(null);setNotice('配置已更新');}).catch(e=>setProposalError(String(e))).finally(()=>setProposalBusy(false));}}>{proposalBusy?'正在处理…':'确认并应用'}</Button></div></Modal>}
-      {quick&&<QuickPanel roots={settings.roots} launchers={settings.launchers} history={recent.items} historyError={recent.error} onRemove={recent.remove} onClear={recent.clear} onLocate={locatePath} onLaunch={launchTool} onClose={()=>setQuick(false)} shortcut={quickShortcutHint}/>}
+       {quick&&<QuickPanel roots={settings.roots} launchers={settings.launchers} history={recent.items} historyError={recent.error} onRemove={recent.remove} onClear={recent.clear} onLocate={locatePath} onLaunch={launchTool} onClose={()=>setQuick(false)}/>}
     </>}
     {preview.target&&<FilePreview key={preview.target.entry.path} target={preview.target} request={preview.request} generation={status.generation} onClose={preview.close} onPin={preview.pinPanel} onEnter={preview.enterPanel} onLeave={preview.leavePanel} onOpen={openEntry}/>}
     {notice&&<div className="toast" role="status">{notice}<IconButton label="关闭提示" onClick={()=>setNotice('')}><X/></IconButton></div>}

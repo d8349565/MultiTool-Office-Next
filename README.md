@@ -4,7 +4,7 @@
 
 **Find files, preview documents, and rename scans in one Windows desktop app.**
 
-MultiTool Office Next (MTO) is a free, open-source toolbox for column-based file browsing, local file search, document previews, and offline OCR batch renaming. Browsing, search, preview, and default OCR run on your PC without an app account or AI API key. An AI assistant and translation are available through services you choose to connect.
+MultiTool Office Next (MTO) is a free, open-source toolbox for column-based file browsing, local file search, document previews, and offline OCR batch renaming. Browsing, search, preview, and default OCR run on your PC without an app account or AI API key. The AI assistant uses a model service you choose to connect.
 
 [**Download for Windows x64**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [Quick start](#quick-start) · [Features](#features) · [Report an issue](https://github.com/d8349565/MultiTool-Office-Next/issues)
 
@@ -105,7 +105,7 @@ Connect your own model service to ask for file searches, check whether related f
 - Create basic TXT, Markdown, Word, Excel, PowerPoint, HTML, and PDF documents. Outputs focus on text, simple tables, and bullet slides; new files do not overwrite existing ones.
 - PDF creation and local preview are supported; reading PDF body text through the assistant is not currently supported.
 
-Extra DeepSeek page fetching is off by default and shares the task's web-request limit with search. AI, translation, and other connected services send relevant information to your chosen providers; see [Privacy and data](#privacy-and-data).
+Extra DeepSeek page fetching is off by default and shares the task's web-request limit with search. Connected services send relevant information to your chosen providers. See [Privacy and data](#privacy-and-data).
 
 <details>
 <summary>Watch the AI assistant search public information</summary>
@@ -118,18 +118,15 @@ Extra DeepSeek page fetching is off by default and shares the task's web-request
 
 | Tool | What you can do |
 | :--- | :--- |
-| Quick launcher | Press `Ctrl + K` for frequently used tools and recently opened files or folders. Selecting, browsing, locating, and previewing do not add history entries. Files and folders are located inside the app; tools launch directly. Search or remove history entries. Use `Ctrl + Shift + Space` to bring the app back from another application. |
-| Translation | Submit text, Markdown, or HTML content and read the source and translation side by side. Requires a connected model service. |
+| Quick panel | Press `Ctrl + K` to see up to five recently opened files or folders, with more available on demand. Search by name or path to locate files and folders or launch matching tools. Only files and folders you open appear in history. Use `Ctrl + Shift + Space` to bring the app back from another application. |
 | Tasks and reminders | Organize work in a quadrant or list view, add dates and steps, and restore deleted tasks. |
 
 Tasks with a specific date and time can remind you 10 minutes before they are due. The app must remain running; closing the main window can leave it in the system tray.
 
 <details>
-<summary>See the launcher, translation, and task views</summary>
+<summary>See the quick panel and task views</summary>
 
-![Quick launcher for applications, documents, and templates](images/ctrl+k.png)
-
-![Side-by-side translation with corresponding passages and synchronized scrolling](images/快速翻译.gif)
+![Quick panel showing recently opened files and folders with their locations](images/ctrl+k.png)
 
 ![Tasks organized in a quadrant view](images/todo.png)
 
@@ -159,7 +156,7 @@ Connection tests send fixed test content, not your business files, and may incur
 | `Ctrl + left-click` / `Ctrl + Enter` | Keep a file preview open |
 | `Ctrl + K` | Toggle the quick launcher |
 | `Ctrl + Shift + Space` | Bring the desktop app back and open the launcher |
-| `Alt + 1` through `Alt + 5` | Switch between the main modules |
+| `Alt + 1` / `Alt + 3` / `Alt + 4` / `Alt + 5` | Open File Workspace, Tools, Document OCR, or Tasks, respectively |
 | `Esc` | Close the current dialog or preview |
 
 ## Privacy and data
@@ -169,9 +166,9 @@ Connection tests send fixed test content, not your business files, and may incur
 | Browsing, indexing, and file search | Local metadata processing: filenames, paths, size, and dates; document body text is not indexed. |
 | Document preview | Reads limited content from the selected file locally; does not upload it or automatically include it in AI context. |
 | Default OCR | Reads selected PDFs or images and extracts text locally. |
-| AI assistant, translation, and AI profile drafting | Sends relevant input to the configured model service. Assistant requests can include chat history, images, role files, filenames, full paths, and document content you approved for reading. |
+| AI assistant and AI profile drafting | Sends relevant input to the configured model service. Assistant requests can include chat history, images, role files, filenames, full paths, and document content you approved for reading. |
 | Tavily / DeepSeek search and optional fetching | Sends public queries or URLs to the selected provider and passes returned material to the model. A session that has accessed local workspace material cannot continue with public search or fetching. |
-| Optional Jev scoring | Sends candidate information. Sensitive numeric strings in OCR candidate lines are filtered first; this does not anonymize all translation text, chats, images, or role files. |
+| Optional Jev scoring | Sends candidate information. Sensitive numeric strings in OCR candidate lines are filtered first. The filter applies only to OCR candidate lines. |
 
 File-browser folders and the assistant's authorized read/create folder have separate permissions. API keys are stored in **Windows Credential Manager**. Conversations, OCR results, tasks, and generated files may remain on your PC until you clear them.
 

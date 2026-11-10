@@ -171,7 +171,7 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
 #[tauri::command] fn task_status(state:tauri::State<Arc<AppState>>,id:String)->Result<Value,String>{task_state::get(&state,&id)}
 #[tauri::command] fn assistant_context(state:tauri::State<Arc<AppState>>,session_id:String)->Result<Value,String>{serde_json::to_value(assistant_context::load(&state,&session_id)?).map_err(|e|e.to_string())}
 #[tauri::command] fn delete_assistant_session(state:tauri::State<Arc<AppState>>,session_id:String)->Result<(),String>{assistant_context::delete_session(&state,&session_id)}
-#[tauri::command] async fn ai_task(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandle,id:String,kind:String,text:String,language:Option<String>,context:Option<Value>,items:Option<Value>)->Result<Value,String>{
+#[tauri::command] async fn ai_task(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandle,id:String,kind:String,text:String,context:Option<Value>,items:Option<Value>)->Result<Value,String>{
     let state=state.inner().clone();let cancel=Arc::new(AtomicBool::new(false));let session=context.as_ref().and_then(|c|c["sessionId"].as_str()).unwrap_or(&id).to_owned();{
         let mut tasks=state.tasks.lock().unwrap();if tasks.contains_key(&id)||tasks.len()>=4{return Err("已有任务运行，请稍后重试".into());}tasks.insert(id.clone(),cancel.clone());
         if kind=="agent"{
@@ -181,7 +181,6 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
     }
     let start=Instant::now();let settings=state.settings.lock().unwrap().clone();
     let result=match kind.as_str(){
-        "translate"=>ai::translate_stream(app.clone(),id.clone(),&settings,&text,language.as_deref().unwrap_or("zh"),cancel.clone()).await,
         "agent"=>{let budget=settings.assistant_task_timeout_secs;let c=cancel.clone();let mut context=context.filter(Value::is_object).unwrap_or(json!({}));context["nativeWorkspaceRevision"]=json!(state.workspace.revision());match tokio::time::timeout(std::time::Duration::from_secs(budget),ai::run_with_pi(state.clone(),text,context,cancel,app.clone(),id.clone())).await{Ok(_) if c.load(Ordering::Relaxed)=>Err("任务已取消".into()),Ok(v)=>v,Err(_)=>{c.store(true,Ordering::Relaxed);Err(format!("任务达到 {budget} 秒总预算"))}}},
         "jev"=>if settings.jev_enabled {ai::jev(&text,items.unwrap_or(json!([])),&cancel).await}else{Err("请先在设置中启用 Jev 实验功能".into())},
         _=>Err("未知任务".into()),

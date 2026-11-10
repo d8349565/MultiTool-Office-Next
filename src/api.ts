@@ -1,7 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Settings, Entry, Query, Results } from './types';
 import { basename, cleanPath, isWithin } from './domain';
-import { detectFormat } from './translateFormat';
 import { localDate } from './todoSchedule';
 import { previewDemo } from './filePreviewModel';
 export const desktop = isTauri();
@@ -49,15 +48,6 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
       return {items:filtered.slice(q.offset||0,(q.offset||0)+(q.limit||100)), total:filtered.length} as Results as T;
     }
     case 'save_settings': settings={...args.next as Settings, revision:settings.revision+1}; return settings as T;
-    // 演示用的结构保留翻译：标记、标签与代码围栏原样保留，只给可见文字加前缀。
-    case 'ai_task': {
-      if(String(args.kind)!=='translate')throw new Error('这是交互演示数据。请在桌面版使用系统操作、模型连接和导入功能。');
-      const text=String(args.text||'');
-      if(!text.trim())throw new Error('请输入文本，最多 60,000 字节');
-      const format=detectFormat(text);
-      await new Promise(r=>setTimeout(r,120));
-      return {text:format==='html'?demoTranslateHtml(text):demoTranslateMarkdown(text),model:'demo',format,usage:{}} as T;
-    }
     case 'reindex': return undefined as T;
     case 'launch':
     case 'reveal_launcher':
@@ -134,28 +124,6 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
     }
     default: throw new Error('这是交互演示数据。请在桌面版使用系统操作、模型连接和导入功能。');
   }
-}
-/** 演示翻译：保留 Markdown 结构，只给标题、列表项和正文加“译：”前缀。 */
-function demoTranslateMarkdown(text:string){
-  let inFence=false;
-  return text.split('\n').map(line=>{
-    if(/^\s*(```|~~~)/.test(line)){inFence=!inFence;return line;}
-    if(inFence||!line.trim())return line;
-    if(/^\s*\|/.test(line))return line;
-    if(/^#{1,6}\s/.test(line))return line.replace(/^(#{1,6}\s+)/,'$1译：');
-    if(/^\s{0,3}([-*+]|\d+[.)])\s+/.test(line))return line.replace(/^(\s*(?:[-*+]|\d+[.)])\s+)/,'$1译：');
-    return `译：${line}`;
-  }).join('\n');
-}
-/** 演示翻译：只给标签之间的可见文字加前缀，标签与属性原样保留。 */
-function demoTranslateHtml(text:string){
-  return text.replace(/>([^<]+)</g,(match,inner:string)=>{
-    const trimmed=inner.trim();
-    if(!trimmed)return match;
-    const lead=inner.slice(0,inner.length-inner.trimStart().length);
-    const tail=inner.slice(inner.trimEnd().length);
-    return `>${lead}译：${trimmed}${tail}<`;
-  });
 }
 export async function pick(directory: boolean) {
   if (!desktop) throw new Error('选择本地路径需要运行桌面版');

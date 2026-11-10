@@ -3,9 +3,8 @@ import remarkGfm from 'remark-gfm';
 import { localLink, webLink, type Link } from './assistantState';
 
 /**
- * Shared Markdown renderer for the assistant and the translation preview.
- * `onLink` is optional: the assistant passes it to route local paths through the
- * workspace, while the translation preview omits it and only allows external links.
+ * Renders Markdown in the assistant and file preview.
+ * The assistant uses onLink to route links through the workspace.
  */
 export function MarkdownView({text,onLink}:{text:string;onLink?:(link:Link)=>void}) {
   return <div className="assistant-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml

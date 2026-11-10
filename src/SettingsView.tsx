@@ -157,8 +157,8 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
           <section className="settings-section model-task-presets"><div><h3>按任务快速设置</h3><p>预设先填入草稿，保存后生效；连接与等待时间保持当前设置。</p></div><div className="button-row"><Button type="button" title="适合问答和文件整理，使用模型默认思考" onClick={()=>preset(false)}>日常办公</Button><Button type="button" title="增加思考强度、历史长度及工具与搜索预算" onClick={()=>preset(true)}>复杂任务</Button><Button type="button" title="关闭长思考，缩减历史、工具轮数与搜索次数" onClick={()=>{setDraft(d=>({...d,assistantReasoning:'none',assistantOutputTokens:8192,assistantToolRounds:6,assistantSearchLimit:3,assistantHistoryMessages:6,assistantHistoryChars:2000,assistantAutoContinue:true,assistantContinueTokens:4096}));setMessage('高效配置已填入草稿，点击“保存模型参数”后生效。');}}>高效配置</Button></div></section>
           <section className="settings-section"><div className="model-reply-groups"><div><h3>助手回复</h3><div className="form-grid"><ReasoningSelect label="助手思考程度" value={draft.assistantReasoning||'default'} onChange={v=>change('assistantReasoning',v)}/>
             {numberField('assistantOutputTokens','助手输出上限',0,0,384000,'0 自动选择；DeepSeek 官方服务 / MiniMax 模型 65536，其他服务 8192。')}
-          </div></div><div><h3>翻译回复</h3><div className="form-grid"><ReasoningSelect label="翻译思考程度" value={draft.translationReasoning||'default'} onChange={v=>change('translationReasoning',v)}/>
-            {numberField('translationOutputTokens','翻译输出上限',0,0,384000,'0 使用服务默认。此上限用于每个翻译分段。')}
+          </div></div><div><h3>助手文本翻译</h3><div className="form-grid"><ReasoningSelect label="翻译思考程度" value={draft.translationReasoning||'default'} onChange={v=>change('translationReasoning',v)}/>
+            {numberField('translationOutputTokens','翻译输出上限',0,0,384000,'0 使用服务默认。适用于助手翻译你直接提交的文本。')}
           </div></div></div><p>输出上限以标记数计，思考和正文可能共用额度。填写的值还需符合所选模型的限制。</p></section>
           <section className="settings-section"><h3>截断后恢复</h3><Switch checked={draft.assistantAutoContinue??true} onChange={(_,d)=>change('assistantAutoContinue',d.checked)} label="回复截断后自动补写一次"/><div className="form-grid">
             {numberField('assistantContinueTokens','截断后补写上限',16384,256,384000,'自动补写仅收尾，不再执行工具；关闭自动补写时不使用此上限。')}
