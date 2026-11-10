@@ -63,13 +63,13 @@ The index stores filenames, paths, and other metadata. Search does not index doc
 
 ### Local document previews
 
-Hold `Ctrl` and hover to preview; use `Ctrl + left-click` or `Ctrl + Enter` to keep a preview open.
+Hold `Ctrl` and hover to preview. Press `Ctrl + Enter` on a focused file or click the pin in the preview to keep it open.
 
-- Preview PDF, common image formats, text, Markdown, CSV, Word (`.docx`), and Excel (`.xlsx`).
-- Turn PDF pages, switch Excel worksheets, and resize the preview window.
+- Preview PDF, common image formats, text, Markdown, CSV, Word (`.docx`), Excel (`.xls`, `.xlsx`), and PowerPoint (`.ppt`, `.pptx`).
+- Turn PDF and PowerPoint pages, switch Excel worksheets, and resize the preview window.
 - Preview content stays local and is not automatically added to AI conversations. Macros, formulas, and scripts are not executed.
 
-Word previews focus on text. Excel previews have row, column, and content limits and use cached formula values. Use the original application for complex layouts, charts, and editing.
+Word and PowerPoint previews focus on text. Excel previews have row, column, and content limits and use cached formula values; `.xls` previews show cell values. Use the original application for images and charts in these documents, complex layouts, and editing.
 
 ### Offline OCR and batch renaming
 
@@ -149,14 +149,17 @@ Connection tests send fixed test content, not your business files, and may incur
 
 ## Keyboard shortcuts
 
+Use Settings → Keyboard Shortcuts to change or disable page, search, and quick launcher bindings, or to restore the defaults below.
+
 | Shortcut | Action |
 | :--- | :--- |
-| `Ctrl + F` | Focus file search in File Workspace or task search in the task view |
+| `Ctrl + F` | Focus file, tool, or task search in the current view |
 | `Ctrl + hover` | Temporarily preview a file |
-| `Ctrl + left-click` / `Ctrl + Enter` | Keep a file preview open |
+| `Ctrl + left-click` / `Ctrl + Space` | Toggle file selection for batch import with Send to OCR |
+| `Ctrl + Enter` | Keep a file preview open |
 | `Ctrl + K` | Toggle the quick launcher |
 | `Ctrl + Shift + Space` | Bring the desktop app back and open the launcher |
-| `Alt + 1` / `Alt + 3` / `Alt + 4` / `Alt + 5` | Open File Workspace, Tools, Document OCR, or Tasks, respectively |
+| `Alt + 1` / `Alt + 2` / `Alt + 3` / `Alt + 4` | Open File Workspace, Tools, Document OCR, or Tasks, respectively |
 | `Esc` | Close the current dialog or preview |
 
 ## Privacy and data

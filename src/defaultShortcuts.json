@@ -1,0 +1,9 @@
+{
+  "files": "Alt+1",
+  "tools": "Alt+2",
+  "ocr": "Alt+3",
+  "todo": "Alt+4",
+  "search": "Ctrl+F",
+  "quick": "Ctrl+K",
+  "globalQuick": "Ctrl+Shift+Space"
+}

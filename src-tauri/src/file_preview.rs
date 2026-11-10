@@ -17,7 +17,7 @@ impl PreviewError {
 fn validate(path:&Path,page:u32,sheet:u32)->Result<(),String>{
     if !(1..=10000).contains(&page)||sheet>=32{return Err("预览页码或工作表无效".into());}
     let extension=path.extension().and_then(|value|value.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !["pdf","png","jpg","jpeg","bmp","tif","tiff","webp","gif","txt","md","markdown","csv","tsv","json","xml","yaml","yml","log","ini","toml","rs","ts","tsx","js","jsx","css","html","htm","py","sql","docx","xlsx"].contains(&extension.as_str()){
+    if !["pdf","png","jpg","jpeg","bmp","tif","tiff","webp","gif","txt","md","markdown","csv","tsv","json","xml","yaml","yml","log","ini","toml","rs","ts","tsx","js","jsx","css","html","htm","py","sql","docx","xls","xlsx","ppt","pptx"].contains(&extension.as_str()){
         return Err("此格式暂不支持内容预览，请用原程序打开".into());
     }
     let metadata=std::fs::metadata(path).map_err(|_|"文件已移动、删除或无法读取")?;

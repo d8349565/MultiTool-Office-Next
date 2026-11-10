@@ -1,5 +1,32 @@
 # 变更日志
 
+## v0.5.9 - 2026-11-10
+
+### Improvements
+
+- Find tools, files and folders by name or path in the quick panel, and reopen recent items. Text and Excel translation are available in the Assistant.
+- See more files at once in the compact File Workspace. Ctrl-click files on the current page and use Send to OCR to add supported documents and images to the queue together.
+- Customize page, search and quick panel shortcuts in Settings, including the global quick panel shortcut. Press Ctrl+Enter on a focused file or use the preview pin to keep it open.
+- Preview worksheets in legacy Excel files (`.xls`) and move between slides to read text in PowerPoint files (`.ppt`, `.pptx`).
+
+### 修复与完善
+
+- 快捷面板可按名称或路径查找工具、文件和文件夹，并打开最近访问的项目。文本和 Excel 翻译可在助手中使用。
+- 文件工作区采用更紧凑的布局，首屏可显示更多文件。在当前页按住 Ctrl 单击可增减选中项，点击「送入 OCR」即可批量加入待识别清单。
+- 在「设置 → 快捷键」中可自定义页面切换、搜索、快捷面板及全局唤起键。聚焦文件后按 Ctrl+Enter，或使用预览中的图钉，可固定预览。
+- 支持预览旧版 Excel（`.xls`）的工作表，以及逐页查看 PowerPoint（`.ppt`、`.pptx`）中的幻灯片文字。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. PowerPoint previews show slide text. Legacy Excel previews show cell values and cached formula results. The OCR queue accepts PDF, PNG, JPEG, BMP and TIFF.
+- 需要 Windows x64 和 Microsoft Edge WebView2。PowerPoint 预览显示幻灯片文字，旧版 Excel 预览显示单元格值及已有的公式结果。OCR 支持 PDF、PNG、JPEG、BMP 和 TIFF。
+- Application build / 应用构建版本 `2026.1110.1651`。
+
+### Verification scope / 验证范围
+
+- Local production frontend and Windows installer builds passed. The embedded version, x64 runtime, bundled Office preview modules and SHA-256 were verified. Multi-select and batch import were checked with sample files in the browser preview.
+- 本机前端生产构建和 Windows 安装包构建通过，已核验内嵌版本、x64 运行组件、Office 预览模块和 SHA-256。多选与批量导入已在浏览器示例预览中核对。
+
 ## v0.5.8 - 2026-11-06
 
 ### Improvements

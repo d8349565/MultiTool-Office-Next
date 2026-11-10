@@ -15,6 +15,7 @@ export interface Settings { schemaVersion: number; revision: number; roots: stri
   modelPricing?: PricingConfig;
   modelProfiles?: ModelProfile[]; activeModelProfileId?:string|null;
   modelConnectionRevision?:number;
+  shortcuts?:import('./shortcuts').ShortcutBindings;
 }
 export interface Status { scanning: boolean; count: number; scanned: number; errors: string[]; generation: number }
 export interface Query { query?: string; kind?: 'file' | 'directory'; root?: string; recursive?: boolean; filter?: string; extension?: string; after?: number; before?: number; offset?: number; limit?: number }

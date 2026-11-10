@@ -54,6 +54,7 @@ pub struct Settings {
     #[serde(default)] pub model_temperature: Option<f64>,
     #[serde(default)] pub model_top_p: Option<f64>,
     #[serde(default)] pub model_pricing: crate::pricing::PricingConfig,
+    #[serde(default="crate::shortcuts::defaults")] pub shortcuts: crate::shortcuts::Bindings,
 
 }
 fn default_request_timeout()->u64{600}
@@ -70,7 +71,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -88,6 +89,7 @@ pub fn launcher_target(raw: &str) -> Result<LauncherTarget, String> {
     Err("工具目标需要本地绝对路径，或以 http://、https:// 开头的网页地址".into())
 }
 pub fn validate(s: &Settings) -> Result<(), String> {
+    crate::shortcuts::validate(&s.shortcuts)?;
     crate::pricing::validate(&s.model_pricing)?;
     if !["tavily","deepseek"].contains(&s.search_provider.as_str()){return Err("未知搜索渠道".into());}
     if let Some(id)=&s.deepseek_search_profile_id {

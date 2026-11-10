@@ -39,7 +39,8 @@ function remember(key:string,data:FilePreviewData){
 export function FilePreview({target,request,generation,onClose,onPin,onEnter,onLeave,onOpen}:Props) {
   const {entry,anchor,pinned}=target;
   const [page,setPage]=useState(1),[sheet,setSheet]=useState(0),[retry,setRetry]=useState(0);
-  const [result,setResult]=useState<{key:string;data?:FilePreviewData;error?:string}>({key:''});
+  const [loaded,setLoaded]=useState<{fileKey:string;key:string;data:FilePreviewData}|null>(null);
+  const [failed,setFailed]=useState<{key:string;error:string}|null>(null);
   const [viewport,setViewport]=useState({width:window.innerWidth,height:window.innerHeight});
   const [dimensions,setDimensions]=useState(savedSize),[placement,setPlacement]=useState<{left:number;top:number}|null>(null);
   const panel=useRef<HTMLElement>(null);
@@ -52,23 +53,26 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
     setPlacement({left:d?.corner==='start'?d.left+d.width-next.width:position.left,top:d?.corner==='start'?d.top+d.height-next.height:position.top});setDimensions(next);
     try{localStorage.setItem(sizeKey,JSON.stringify(next));}catch{/* 保存失败不影响本次调整。 */}
   }
-  const key=`${entry.path}|${entry.modified}|${entry.size}|${generation}|${page}|${sheet}`;
-  const data=result.key===key?result.data:undefined,error=result.key===key?result.error:undefined;
+  const fileKey=`${entry.path}|${entry.modified}|${entry.size}|${generation}`;
+  const key=`${fileKey}|${page}|${sheet}`;
+  const data=loaded?.key===key?loaded.data:undefined,error=failed?.key===key?failed.error:undefined;
+  const navigation=loaded?.fileKey===fileKey?loaded.data:undefined;
+  const pageCount=navigation?.pageCount??0;
   const columns=Math.max(0,...(data?.rows||[]).map(row=>row.length));
   useEffect(()=>{const resize=()=>setViewport({width:window.innerWidth,height:window.innerHeight});window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
   useEffect(()=>{
     let alive=true;
     const cached=cache.get(key);
-    if(cached&&Date.now()-cached.time<30_000){setResult({key,data:cached.data});return;}
-    setResult({key});
+    setFailed(null);
+    if(cached&&Date.now()-cached.time<30_000){setLoaded({fileKey,key,data:cached.data});return;}
     const requestId=crypto.randomUUID();request.current=requestId;
-    const timer=setTimeout(()=>{if(alive){alive=false;setResult({key,error:'预览加载超时，可重试或用原程序打开。'});void api('cancel_file_preview',{requestId}).catch(()=>{});}},15_000);
+    const timer=setTimeout(()=>{if(alive){alive=false;setFailed({key,error:'预览加载超时，可重试或用原程序打开。'});void api('cancel_file_preview',{requestId}).catch(()=>{});}},15_000);
     void api<FilePreviewData>('file_preview',{path:entry.path,requestId,page,sheet}).then(value=>{
       if(!alive||request.current!==requestId)return;
-      clearTimeout(timer);remember(key,value);setResult({key,data:value});
-    }).catch(reason=>{if(alive&&request.current===requestId){clearTimeout(timer);setResult({key,error:String(reason)});}});
+      clearTimeout(timer);remember(key,value);setLoaded({fileKey,key,data:value});
+    }).catch(reason=>{if(alive&&request.current===requestId){clearTimeout(timer);setFailed({key,error:String(reason)});}});
     return()=>{alive=false;clearTimeout(timer);if(request.current===requestId)request.current=null;void api('cancel_file_preview',{requestId}).catch(()=>{});};
-  },[key,retry,entry.path,page,sheet,request]);
+  },[fileKey,key,retry,entry.path,page,sheet,request]);
   useEffect(()=>{if(pinned&&!panel.current?.contains(document.activeElement))panel.current?.focus({preventScroll:true});},[pinned]);
   return <section className={`file-preview ${pinned?'pinned':''}`} role="dialog" aria-label={`文件预览：${entry.name}`} aria-modal="false" tabIndex={-1} ref={panel}
     style={position} onPointerEnter={onEnter} onPointerLeave={onLeave} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onClose();}}}>
@@ -79,17 +83,17 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
         <IconButton label="关闭预览" onClick={onClose}><X size={16}/></IconButton>
       </div>
     </header>
-    {(data?.sheets||(data?.pageCount||0)>1)&&<div className="file-preview-controls">
-      {data?.sheets&&<label className="file-preview-sheet-picker"><span>工作表</span><select aria-label="预览工作表" value={sheet} onChange={event=>{onPin();setSheet(Number(event.target.value));}}>{data.sheets.map((name,index)=><option key={index} value={index}>{name}</option>)}</select></label>}
-      {(data?.pageCount||0)>1&&<div className="file-preview-pagination"><IconButton label="预览上一页" disabled={page<=1} onClick={()=>{onPin();setPage(value=>value-1);}}><ArrowLeft size={14}/></IconButton><span>第 {page} / {data?.pageCount} 页</span><IconButton label="预览下一页" disabled={page>=data!.pageCount!} onClick={()=>{onPin();setPage(value=>value+1);}}><ArrowRight size={14}/></IconButton></div>}
+    {(navigation?.sheets||pageCount>1)&&<div className="file-preview-controls">
+      {navigation?.sheets&&<label className="file-preview-sheet-picker"><span>工作表</span><select aria-label="预览工作表" value={sheet} onChange={event=>{onPin();setSheet(Number(event.target.value));}}>{navigation.sheets.map((name,index)=><option key={index} value={index}>{name}</option>)}</select></label>}
+      {pageCount>1&&<div className="file-preview-pagination"><IconButton label="预览上一页" disabled={page<=1} onClick={()=>{onPin();setPage(value=>value-1);}}><ArrowLeft size={14}/></IconButton><span>第 {page} / {pageCount} 页</span><IconButton label="预览下一页" disabled={page>=pageCount} onClick={()=>{onPin();setPage(value=>value+1);}}><ArrowRight size={14}/></IconButton></div>}
     </div>}
     <div className="file-preview-body" key={key}>
       {error?<div className="file-preview-message" role="alert"><p>{error}</p><Button size="small" onClick={()=>setRetry(value=>value+1)}>重试预览</Button></div>:!data?<div className="file-preview-message" role="status">正在读取本地文件…</div>:
         data.kind==='image'?<div className="file-preview-image"><img src={data.image} alt={`${entry.name} 第 ${data.page||1} 页`}/></div>:
         data.kind==='table'?data.rows?.length?data.grid?<SheetPreview rows={data.rows} grid={data.grid}/>:<table className="file-preview-table"><thead><tr><th aria-label="行号">#</th>{Array.from({length:columns},(_,index)=><th key={index}>{String.fromCharCode(65+index)}</th>)}</tr></thead><tbody>{data.rows.map((row,index)=><tr key={index}><th scope="row">{index+1}</th>{Array.from({length:columns},(_,column)=><td key={column}>{row[column]||''}</td>)}</tr>)}</tbody></table>:<p className="file-preview-message">此工作表没有可预览的数据。</p>:
-        data.format==='markdown'?<MarkdownView text={data.text||''}/>:<pre className="file-preview-text">{data.text||'此文件没有可预览的文字。'}</pre>}
+        data.format==='markdown'?<MarkdownView text={data.text||''}/>:<pre className="file-preview-text">{data.text||(data.pageCount?'此页没有可预览的文字。':data.pageCount===0?'演示文稿没有幻灯片。':'此文件没有可预览的文字。')}</pre>}
     </div>
-    <footer className="file-preview-footer"><span>{data?.truncated?'内容已截取 · ':''}{data?.notice||'仅在本机预览'}{!pinned&&' · Ctrl＋左键可固定'}</span><Button appearance="subtle" size="small" icon={<ArrowSquareOut size={14}/>} onClick={()=>onOpen(entry)}>打开文件</Button></footer>
+    <footer className="file-preview-footer"><span>{data?.truncated?'内容已截取 · ':''}{data?.notice||'仅在本机预览'}{!pinned&&' · 点击图钉固定'}</span><Button appearance="subtle" size="small" icon={<ArrowSquareOut size={14}/>} onClick={()=>onOpen(entry)}>打开文件</Button></footer>
     {(['start','end'] as const).map(corner=><div key={corner} className={`file-preview-resize ${corner}`} role="separator" aria-label={`从${corner==='start'?'左上':'右下'}角调整文件预览窗口大小`} aria-valuetext={`${Math.round(position.width)} × ${Math.round(position.height)} 像素`} title="拖动调整大小，方向键微调" tabIndex={0}
       onPointerDown={event=>{if(event.button!==0||drag.current)return;event.preventDefault();onPin();drag.current={pointerId:event.pointerId,corner,x:event.clientX,y:event.clientY,left:position.left,top:position.top,width:position.width,height:position.height};event.currentTarget.setPointerCapture(event.pointerId);}}
       onPointerMove={event=>{const d=drag.current;if(d?.pointerId===event.pointerId){const direction=d.corner==='start'?-1:1;changeSize(d.width+(event.clientX-d.x)*direction,d.height+(event.clientY-d.y)*direction);}}}

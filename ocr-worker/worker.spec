@@ -1,13 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 # Keep the bundled OCR models/config; discover Python imports normally instead
 # of collecting ONNX's training, conversion, quantization and test toolchains.
 a = Analysis(
     [str(Path(SPECPATH) / "worker.py")],
-    datas=collect_data_files("rapidocr_onnxruntime"),
+    datas=collect_data_files("rapidocr_onnxruntime") + copy_metadata("xlrd") + copy_metadata("olefile"),
     excludes=[
         "onnxruntime.tools",
         "onnxruntime.transformers",

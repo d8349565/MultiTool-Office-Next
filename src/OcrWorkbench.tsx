@@ -85,10 +85,17 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
     setPaths(p=>[...new Set([...p,...result.files])]);
     setTaskId('');
     setFileId('');
-    if(result.errors.length)setError(result.errors.join('\n'));
+    setError(result.errors.join('\n'));
     setNotice('');
   },[]);
-  useEffect(()=>{if(!incoming.length||importing.current)return;importing.current=true;const selected=[...incoming];void importPaths(selected).then(()=>onConsumed(selected)).catch(e=>setError(String(e))).finally(()=>{importing.current=false;});},[incoming,importPaths,onConsumed]);
+  useEffect(()=>{
+    if(!incoming.length||importing.current)return;
+    importing.current=true;
+    void importPaths(incoming).catch(e=>setError(String(e))).finally(()=>{
+      importing.current=false;
+      onConsumed(incoming);
+    });
+  },[incoming,importPaths,onConsumed]);
   useEffect(()=>{if(!desktop)return;let disposed=false;let cleanup:(()=>void)|undefined;void import('@tauri-apps/api/webviewWindow').then(async({getCurrentWebviewWindow})=>{const fn=await getCurrentWebviewWindow().onDragDropEvent(e=>{if(visible&&e.payload.type==='drop')void importPaths(e.payload.paths).catch(e=>setError(String(e)));});if(disposed)fn();else cleanup=fn;});return()=>{disposed=true;cleanup?.();};},[visible,importPaths]);
   useEffect(()=>{let disposed=false;let unlisten:(()=>void)|undefined;let timer:ReturnType<typeof setTimeout>|undefined;const pending=new Set<string>();const update=(id:string)=>{pending.add(id);if(timer)return;timer=setTimeout(()=>{timer=undefined;const ids=[...pending];pending.clear();for(const taskId of ids)void refreshTask(taskId).catch(e=>setError(String(e)));},300);};if(desktop)void listen<{id:string;status:string}>('ocr-progress',event=>{if(tasksRef.current.some(t=>t.id===event.payload.id))update(event.payload.id);}).then(fn=>{if(disposed)fn();else unlisten=fn;});const poll=setInterval(()=>{for(const t of tasksRef.current.filter(active))update(t.id);},2000);return()=>{disposed=true;unlisten?.();clearInterval(poll);if(timer)clearTimeout(timer);};},[refreshTask]);
   async function pickFiles(directory:boolean){if(!desktop){await importPaths(['D:/演示工作区/单据示例/报价单/演示商品报价单-20251226.pdf','D:/演示工作区/单据示例/合同/演示年度采购合同-已签署.pdf','D:/演示工作区/单据示例/对账单/演示2025年11月对账单.pdf','D:/演示工作区/单据示例/送货单/演示商品送货单-20251229.jpg']);return;}const {open}=await import('@tauri-apps/plugin-dialog');const values=await open({directory,multiple:!directory,filters:directory?undefined:[{name:'PDF 与图片',extensions:['pdf','png','jpg','jpeg','bmp','tif','tiff']}]});if(values)await importPaths(Array.isArray(values)?values:[values]);}

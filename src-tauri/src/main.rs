@@ -28,6 +28,7 @@ mod shell;
 mod window_state;
 mod ocr;
 mod file_preview;
+mod shortcuts;
 mod workspace_rename;
 mod todo_reminders;
 use std::{collections::HashMap, path::Path, sync::{Arc, Mutex, atomic::{AtomicBool,Ordering}},time::Instant};
@@ -88,7 +89,17 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
     let search_changed=next.search_enabled!=current.search_enabled||next.search_provider!=current.search_provider||next.deepseek_search_profile_id!=current.deepseek_search_profile_id||next.deepseek_fetch_enabled!=current.deepseek_fetch_enabled||next.assistant_search_limit!=current.assistant_search_limit;
     let needs_test=!current.search_enabled||next.search_provider!=current.search_provider||next.deepseek_search_profile_id!=current.deepseek_search_profile_id||next.deepseek_fetch_enabled&&!current.deepseek_fetch_enabled;
     if next.search_enabled&&needs_test{web_search::ready(&next)?;}
-    let next=settings::save(&state.dir,&current,next)?;let roots_changed=next.roots!=current.roots;*current=next.clone();if roots_changed{state.index.configure(&next.roots);}drop(current);if search_changed{network::search_changed(next.search_enabled)?;}assistant_workspace::model_service_changed(&state,&app);Ok(next)
+    let next=if next.shortcuts==current.shortcuts{
+        settings::save(&state.dir,&current,next)?
+    }else{
+        shortcuts::validate(&next.shortcuts)?;
+        let new=shortcuts::global(&next.shortcuts).map(str::to_owned);
+        shortcuts::save(&app,shortcuts::global(&current.shortcuts),new.as_deref(),||settings::save(&state.dir,&current,next))?
+    };
+    let roots_changed=next.roots!=current.roots;*current=next.clone();if roots_changed{state.index.configure(&next.roots);}drop(current);if search_changed{network::search_changed(next.search_enabled)?;}assistant_workspace::model_service_changed(&state,&app);Ok(next)
+}
+#[tauri::command] fn global_shortcut_registered(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle)->bool{
+    shortcuts::registered(&app,shortcuts::global(&state.settings.lock().unwrap().shortcuts))
 }
 #[tauri::command] fn decide_proposal(state:tauri::State<Arc<AppState>>,app:tauri::AppHandle,id:String,approve:bool)->Result<settings::Settings,String>{
     let next=state.proposals.lock().unwrap().remove(&id).ok_or("提案已失效")?;
@@ -232,9 +243,11 @@ fn main(){
             #[cfg(debug_assertions)] if std::env::var("OFFICE_NEXT_TEST_WINDOW_HIDDEN").as_deref()==Ok("1"){return;}
             let _=webview.window().show();
         }})
-        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,_,event|{
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,pressed,event|{
             use tauri_plugin_global_shortcut::ShortcutState;
-            if event.state()==ShortcutState::Pressed {show_main_window(app);if let Some(w)=app.get_webview_window("main"){let _=w.emit("quick-open",());}}
+            if event.state()!=ShortcutState::Pressed{return;}
+            let active=app.try_state::<Arc<AppState>>().is_some_and(|state|state.settings.try_lock().is_ok_and(|settings|shortcuts::matches(shortcuts::global(&settings.shortcuts),pressed)));
+            if active {show_main_window(app);if let Some(w)=app.get_webview_window("main"){let _=w.emit("quick-open",());}}
         }).build())
         .setup(|app|{
             let dir=app.path().app_data_dir()?;
@@ -248,10 +261,9 @@ fn main(){
             let reports=std::fs::read(dir.join("reports.json")).ok().and_then(|data|serde_json::from_slice::<HashMap<String,std::path::PathBuf>>(&data).ok()).unwrap_or_default();
             let ocr_exe=if cfg!(debug_assertions){std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries/ocr-worker/ocr-worker.exe")}else{app.path().resource_dir()?.join("ocr-worker/ocr-worker.exe")};
             let ocr=match ocr::OcrStore::open(&dir,ocr_exe.clone()){Ok(store)=>store,Err(error)=>{eprintln!("OCR initialization failed: {error}");ocr::OcrStore::disabled(&dir,ocr_exe,error).map_err(std::io::Error::other)?}};
+            if let Some(binding)=shortcuts::global(&settings.shortcuts){if let Err(error)=shortcuts::register(app.handle(),binding){eprintln!("{error}");}}
             app.manage(Arc::new(AppState{workspace_renames:workspace_rename::Renames::default(),workspace:assistant_workspace::Workspace::load(&dir),file_previews:file_preview::Previews::default(),dir,ocr,todo_reminders:todo_reminders::TodoReminders::default(),settings:Mutex::new(settings),index,reports:Mutex::new(reports),proposals:Mutex::new(HashMap::new()),tasks:Mutex::new(HashMap::new()),task_results:Mutex::new(HashMap::new()),pi_sessions:Mutex::new(HashMap::new())}));
             todo_reminders::TodoReminders::start(app.handle().clone());
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
-            if let Err(e)=app.global_shortcut().register("CommandOrControl+Shift+Space"){eprintln!("Shortcut unavailable: {e}");}
             let menu=tauri::menu::Menu::with_items(app,&[
                 &tauri::menu::MenuItem::with_id(app,"show","打开工作台",true,None::<&str>)?,
                 &tauri::menu::MenuItem::with_id(app,"quit","退出",true,None::<&str>)?
@@ -259,6 +271,6 @@ fn main(){
             let mut tray=tauri::tray::TrayIconBuilder::new().tooltip("工作台 · 待办提醒在后台运行").menu(&menu).on_menu_event(|app,event|match event.id.as_ref(){"show"=>show_main_window(app),"quit"=>app.exit(0),_=>{}});
             if let Some(icon)=app.default_window_icon(){tray=tray.icon(icon.clone());}tray.build(app)?;Ok(())
         })
-        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,workspace_rename::workspace_rename_preview,workspace_rename::workspace_rename_apply,workspace_rename::workspace_rename_history,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_update,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,locate_entry,search,index_status,reindex,save_settings,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::diagnostic_share::ocr_diagnostic_preview,ocr::assistant::ocr_get_proposal,ocr::assistant::ocr_decide_proposal,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_get_task_progress,ocr::ocr_start_task,ocr::ocr_resume_workflow,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_clear_completed_results,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile,ocr::ocr_export_profiles])
+        .invoke_handler(tauri::generate_handler![network::network_status,network::network_decide,network::network_local_mode,network::network_revoke,network::network_clear_activity,network::setup_progress,network::service_status,tavily::tavily_test_connection,web_search::search_test_connection,file_preview::file_preview,file_preview::cancel_file_preview,workspace_rename::workspace_rename_preview,workspace_rename::workspace_rename_apply,workspace_rename::workspace_rename_history,model_profiles::model_test,model_profiles::model_profile_add,model_profiles::model_profile_update,model_profiles::model_profile_activate,pi_runtime::pi_step,bootstrap,assistant_documents,save_assistant_document,open_web_url,list_dirs,locate_entry,search,index_status,reindex,save_settings,global_shortcut_registered,import_settings,export_settings,decide_proposal,set_key,open_path,drag_file,reveal_paths,launch,reveal_launcher,assistant_workspace,assistant_workspace::assistant_workspace_set,assistant_workspace::assistant_workspace_revoke,assistant_workspace::assistant_workspace_disable_interactive,assistant_workspace::assistant_workspace_prepare,assistant_workspace::assistant_workspace_confirm,assistant_workspace::assistant_workspace_audit,assistant_workspace::assistant_workspace_pending,assistant_workspace::assistant_workspace_decide,open_report,cancel_task,task_status,assistant_context,delete_assistant_session,assistant_budget_proposal,ai_task,get_todos,save_todos,get_todo_reminder_status,todo_ai_assist,ocr::diagnostic_share::ocr_diagnostic_preview,ocr::assistant::ocr_get_proposal,ocr::assistant::ocr_decide_proposal,ocr::ocr_bootstrap,ocr::ocr_preview_sample,ocr::ocr_save_profile,ocr::ocr_delete_profile,ocr::ocr_import_profiles,ocr::ocr_generate_profile,ocr::ocr_import_files,ocr::ocr_get_task,ocr::ocr_get_task_progress,ocr::ocr_start_task,ocr::ocr_resume_workflow,ocr::ocr_cancel_task,ocr::ocr_delete_task,ocr::ocr_clear_completed_tasks,ocr::ocr_clear_completed_results,ocr::ocr_update_result,ocr::ocr_preview_rename,ocr::ocr_apply_rename,ocr::ocr_export,ocr::ocr_open_file,ocr::ocr_export_profile,ocr::ocr_export_profiles])
         .run(tauri::generate_context!()).expect("MultiTool Office failed to start");
 }

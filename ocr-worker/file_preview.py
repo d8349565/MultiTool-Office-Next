@@ -20,6 +20,11 @@ IMAGE_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+STRICT_P = "{http://purl.oclc.org/ooxml/presentationml/main}"
+STRICT_A = "{http://purl.oclc.org/ooxml/drawingml/main}"
+STRICT_R = "{http://purl.oclc.org/ooxml/officeDocument/relationships}"
 
 
 def xml_part(archive, name):
@@ -90,6 +95,104 @@ def docx_preview(path):
         parts.append(value)
         length += len(value) + 1
     return dict(kind="text", text="\n".join(parts), format="plain", truncated=truncated, notice="文档正文预览；不还原分页、图表和复杂排版。")
+
+
+def slide_preview(page, count, paragraphs):
+    parts = []
+    remaining = MAX_CHARS
+    truncated = count > 10000
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            continue
+        remaining -= 2 if parts else 0
+        if len(paragraph) > remaining:
+            if remaining > 0:
+                parts.append(paragraph[:remaining])
+            truncated = True
+            break
+        parts.append(paragraph)
+        remaining -= len(paragraph)
+    return dict(kind="text", text="\n\n".join(parts), format="plain", page=page, pageCount=min(count, 10000),
+                truncated=truncated, notice="仅显示幻灯片文字；图片、图表与原排版请用原程序查看。")
+
+
+def pptx_preview(path, page):
+    try:
+        with zipfile.ZipFile(path) as archive:
+            presentation = xml_part(archive, "ppt/presentation.xml")
+            if presentation.tag not in {P + "presentation", STRICT_P + "presentation"}:
+                raise ValueError("演示文稿内容无效")
+            slide_list = next((node for node in presentation if node.tag in {P + "sldIdLst", STRICT_P + "sldIdLst"}), ())
+            slides = [node.get(R + "id") or node.get(STRICT_R + "id") for node in slide_list
+                      if node.tag in {P + "sldId", STRICT_P + "sldId"}]
+            if not slides:
+                return slide_preview(page, 0, ())
+            if not 1 <= page <= min(10000, len(slides)):
+                raise ValueError("幻灯片不存在或超出预览范围")
+            rel = next((node for node in xml_part(archive, "ppt/_rels/presentation.xml.rels")
+                        if slides[page - 1] and node.get("Id") == slides[page - 1]), None)
+            if rel is None or rel.get("TargetMode") == "External" or not rel.get("Type", "").endswith("/slide"):
+                raise ValueError("无法读取演示文稿内的幻灯片；不会加载外部内容")
+            target = rel.get("Target", "")
+            target = posixpath.normpath(target.lstrip("/") if target.startswith("/") else "ppt/" + target)
+            if not target.startswith("ppt/") or "\\" in target:
+                raise ValueError("幻灯片路径无效")
+            slide = xml_part(archive, target)
+            if slide.tag not in {P + "sld", STRICT_P + "sld"}:
+                raise ValueError("幻灯片内容无效")
+    except (zipfile.BadZipFile, KeyError, ET.ParseError) as error:
+        raise ValueError("PPTX 文件无法读取，可能已加密或损坏，请用原程序打开") from error
+    text = ("".join(node.text or "" if node.tag in {A + "t", STRICT_A + "t"} else
+                    "\n" if node.tag in {A + "br", STRICT_A + "br"} else "" for node in paragraph.iter())
+            for paragraph in slide.iter() if paragraph.tag in {A + "p", STRICT_A + "p"})
+    return slide_preview(page, len(slides), text)
+
+
+def xls_preview(path, sheet):
+    import xlrd
+
+    def value_of(cell, datemode):
+        if cell.ctype == xlrd.XL_CELL_DATE:
+            try:
+                date = xlrd.xldate_as_datetime(cell.value, datemode)
+                if 0 <= cell.value < 1:
+                    return date.time().isoformat()
+                return date.isoformat(sep=" ") if date != date.replace(hour=0, minute=0, second=0, microsecond=0) else date.date().isoformat()
+            except (OverflowError, ValueError):
+                return format(cell.value, ".15g")
+        if cell.ctype == xlrd.XL_CELL_NUMBER:
+            return format(cell.value, ".15g")
+        if cell.ctype == xlrd.XL_CELL_BOOLEAN:
+            return "TRUE" if cell.value else "FALSE"
+        if cell.ctype == xlrd.XL_CELL_ERROR:
+            return xlrd.error_text_from_code.get(cell.value, "#ERROR!")
+        return str(cell.value)
+
+    try:
+        with xlrd.open_workbook(str(path), on_demand=True, ragged_rows=True, use_mmap=False) as book:
+            names = book.sheet_names()
+            if not 0 <= sheet < min(32, len(names)):
+                raise ValueError("工作表不存在或超过预览范围")
+            worksheet = book.sheet_by_index(sheet)
+            truncated = len(names) > 32 or worksheet.nrows > MAX_ROWS or worksheet.ncols > MAX_COLS
+            rows, remaining = [], MAX_CHARS
+            for row_index in range(min(MAX_ROWS, worksheet.nrows)):
+                row = []
+                for column in range(min(MAX_COLS, worksheet.row_len(row_index))):
+                    value = value_of(worksheet.cell(row_index, column), book.datemode)
+                    limit = min(400, remaining)
+                    truncated |= len(value) > limit
+                    row.append(value[:limit])
+                    remaining -= len(row[-1])
+                rows.append(row)
+                if not remaining and row_index + 1 < worksheet.nrows:
+                    truncated = True
+                    break
+    except xlrd.XLRDError as error:
+        raise ValueError("XLS 文件无法读取，可能已加密或损坏，请用原程序打开") from error
+    return dict(kind="table", rows=rows, sheets=names[:32], sheet=sheet, truncated=truncated,
+                notice="最多显示 120 行、24 列；显示单元格值和已有公式结果，原样式请用原程序查看。")
 
 
 def column_index(reference):
@@ -306,6 +409,14 @@ def preview_file(path, page, sheet, images):
         return docx_preview(path)
     if extension == ".xlsx":
         return xlsx_preview(path, sheet)
+    if extension == ".xls":
+        return xls_preview(path, sheet)
+    if extension == ".pptx":
+        return pptx_preview(path, page)
+    if extension == ".ppt":
+        from ppt_text import slide_text
+        count, text = slide_text(path, page, MAX_FILE, MAX_CHARS + 1)
+        return slide_preview(page, count, text)
     if extension in IMAGE_TYPES:
         return image_preview(path, page, images)
     raise ValueError("此格式暂不支持内容预览，请用原程序打开")

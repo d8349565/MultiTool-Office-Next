@@ -14,10 +14,13 @@ import { SearchConnection } from './SearchConnection';
 import { NetworkSettings, openSetup } from './NetworkControls';
 import { rebaseSettings, settingsEqual, settingsFieldEqual, searchSettingsKeys } from './settingsDraft';
 import { AssistantWorkspaceSettings } from './AssistantWorkspaceSettings';
+import { ShortcutSettings } from './ShortcutSettings';
+import { defaultShortcuts } from './shortcuts';
 import './settingsLaunchers.css';
 
 const modules = [
   {id:'workspace',label:'工作台',description:'设置文件搜索范围、外观和默认浏览方式。',keys:['roots','theme','recursive','filter']},
+  {id:'shortcuts',label:'快捷键',description:'点击当前组合键即可更改，保存后立即生效。',keys:['shortcuts']},
   {id:'tools',label:'常用工具',description:'整理每天需要打开的程序、文件、快捷方式和网页入口。',keys:['launchers']},
   {id:'model',label:'模型参数',description:'配置连接、回复、思考和等待时间。新参数在下一次任务生效。',keys:['modelUrl','modelId','assistantReasoning','translationReasoning','modelContextTokens','assistantOutputTokens','translationOutputTokens','modelRequestTimeoutSecs','modelFirstResponseTimeoutSecs','modelIdleTimeoutSecs','modelRetryCount','assistantTaskTimeoutSecs','assistantHistoryMessages','assistantHistoryChars','assistantToolRounds','assistantSearchLimit','assistantAutoContinue','assistantContinueTokens','modelTemperature','modelTopP']},
   {id:'assistant',label:'助理配置',description:'选择助理工作目录，确认文件读写权限，并设置表达方式和工作规范。',keys:[]},
@@ -27,10 +30,11 @@ const modules = [
   {id:'transfer',label:'导入导出',description:'导出已保存的配置，或导入配置文件并确认应用。',keys:[]},
 ] as const;
 export type ModuleId=typeof modules[number]['id'];
+export function isSettingsModule(id:string):id is ModuleId{return modules.some(module=>module.id===id);}
 type NumberKey='modelContextTokens'|'assistantOutputTokens'|'translationOutputTokens'|'modelFirstResponseTimeoutSecs'|'modelIdleTimeoutSecs'|'modelRequestTimeoutSecs'|'modelRetryCount'|'assistantTaskTimeoutSecs'|'assistantHistoryMessages'|'assistantHistoryChars'|'assistantToolRounds'|'assistantSearchLimit'|'assistantContinueTokens';
 type ModelPage='connections'|'reply'|'advanced';
 
-export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{settings:Settings;onSaved:(s:Settings)=>void;onClose:()=>void;initialTab?:ModuleId}) {
+export function SettingsView({settings,onSaved,onClose,initialTab='workspace',globalShortcutActive}:{settings:Settings;onSaved:(s:Settings)=>void;onClose:()=>void;initialTab?:ModuleId;globalShortcutActive?:boolean}) {
   const [draft,setDraft]=useState(()=>structuredClone(settings)),[tab,setTab]=useState<ModuleId>(initialTab);
   const [modelPage,setModelPage]=useState<ModelPage>('connections'),modelScroller=useRef<HTMLDivElement>(null);
   useEffect(()=>{modelScroller.current?.scrollTo({top:0});},[modelPage]);
@@ -110,6 +114,10 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
             {!draft.roots.length&&<p className="settings-empty">还没有搜索目录，添加文件夹后即可建立本地索引。</p>}<Button icon={<Plus/>} onClick={()=>void run(addRoot)}>添加目录</Button>
           </section>
           <section className="settings-section"><h3>外观与浏览</h3><div className="form-grid"><label>主题<select value={draft.theme} onChange={e=>change('theme',e.target.value as Settings['theme'])}><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label><label>默认文件筛选<input value={draft.filter} onChange={e=>change('filter',e.target.value)} placeholder="文件名或后缀"/></label></div><Switch checked={draft.recursive} onChange={(_,d)=>change('recursive',d.checked)} label="默认包含子文件夹"/></section>
+        </div>
+        <div id="settings-panel-shortcuts" role="tabpanel" aria-labelledby="settings-tab-shortcuts" hidden={tab!=='shortcuts'}>
+          {tab==='shortcuts'&&<ShortcutSettings bindings={draft.shortcuts??defaultShortcuts} savedGlobal={(savedSettings.shortcuts??defaultShortcuts).globalQuick}
+            globalActive={globalShortcutActive} onChange={bindings=>{change('shortcuts',bindings);setError('');setMessage('');}}/>}
         </div>
         <div id="settings-panel-tools" role="tabpanel" aria-labelledby="settings-tab-tools" hidden={tab!=='tools'}>
           <section className="settings-section launcher-tools-section">
@@ -197,8 +205,8 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace'}:{
         </div>
         <div id="settings-panel-privacy" role="tabpanel" aria-labelledby="settings-tab-privacy" hidden={tab!=='privacy'}><NetworkSettings/></div>
         <div id="settings-panel-transfer" role="tabpanel" aria-labelledby="settings-tab-transfer" hidden={tab!=='transfer'}>
-          <section className="settings-section"><h3>导出当前配置</h3><p>导出已保存的搜索目录、常用工具、外观、模型参数和联网开关。API 密钥、助理角色文件、报告目录和业务记录不包含在内。</p><Button type="button" icon={<DownloadSimple/>} onClick={()=>void run(exportSettings)}>导出配置</Button></section>
-          <section className="settings-section"><h3>导入配置文件</h3><p>选择本应用导出的 JSON 配置文件。确认后将替换工作台、常用工具、模型参数与联网设置，并清除这些模块中未保存的草稿。</p><Button type="button" icon={<UploadSimple/>} onClick={()=>void run(importSettings)}>选择配置文件</Button>
+          <section className="settings-section"><h3>导出当前配置</h3><p>导出已保存的搜索目录、快捷键、常用工具、外观、模型参数和联网开关。API 密钥、助理角色文件、报告目录和业务记录不包含在内。</p><Button type="button" icon={<DownloadSimple/>} onClick={()=>void run(exportSettings)}>导出配置</Button></section>
+          <section className="settings-section"><h3>导入配置文件</h3><p>选择本应用导出的 JSON 配置文件。确认后将替换工作台、快捷键、常用工具、模型参数与联网设置，并清除这些模块中未保存的草稿。</p><Button type="button" icon={<UploadSimple/>} onClick={()=>void run(importSettings)}>选择配置文件</Button>
             {imported&&<><p>待导入：{imported.roots.length} 个搜索目录、{imported.launchers.length} 个常用工具；模型：{imported.modelId||'未配置'}。</p><details className="settings-advanced"><summary>查看待导入的完整配置</summary><pre>{JSON.stringify(imported,null,2)}</pre></details></>}
           </section>
         </div>
