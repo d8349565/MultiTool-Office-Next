@@ -41,7 +41,20 @@ pub struct TaskContext {
     pub intent:Intent, pub status:String, pub result_set_ids:Vec<String>,
     pub evidence_ids:Vec<String>,
 }
-impl TaskContext{pub fn has_private_data(&self)->bool{self.has_workspace_file_data||self.has_ocr_diagnostic_data}}
+impl TaskContext{
+    pub fn has_private_data(&self)->bool{self.has_workspace_file_data||self.has_ocr_diagnostic_data}
+    pub fn model_snapshot(&self)->Value{
+        let mut value=serde_json::to_value(self).unwrap();
+        for (key,ids) in [("evidenceIds",&self.evidence_ids),("resultSetIds",&self.result_set_ids)]{
+            let mut recent=ids.iter().rev().take(8).collect::<Vec<_>>();recent.reverse();
+            if let Some(pinned)=self.intent.result_set_id.as_ref(){if ids.contains(pinned)&&!recent.contains(&pinned){recent.insert(0,pinned);}}
+            value[key]=json!(recent);
+        }
+        value["referenceCounts"]=json!({"evidence":self.evidence_ids.len(),"resultSets":self.result_set_ids.len()});
+        if self.evidence_ids.len()>8||self.result_set_ids.len()>8{value["referenceNotice"]=json!("仅列出最近资料及本轮指定集合，完整资料保留在本机会话中；未展示的资料不代表不存在。");}
+        value
+    }
+}
 pub fn init(db:&rusqlite::Connection)->Result<(),String>{
     db.execute_batch("CREATE TABLE IF NOT EXISTS assistant_contexts(session TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS assistant_evidence(id TEXT PRIMARY KEY,session TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL); CREATE INDEX IF NOT EXISTS assistant_evidence_session ON assistant_evidence(session); UPDATE assistant_contexts SET data=json_set(data,'$.status','interrupted') WHERE json_extract(data,'$.status')='running';").map_err(|e|e.to_string())
 }
@@ -51,6 +64,30 @@ pub fn session(context:&Value,task:&str)->String{
 pub fn load(state:&AppState,session:&str)->Result<TaskContext,String>{
     let raw:Option<String>=state.index.db.lock().unwrap().query_row("SELECT data FROM assistant_contexts WHERE session=?1",[session],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
     raw.map(|s|serde_json::from_str(&s).map_err(|_|"会话任务状态无法读取".to_string())).unwrap_or_else(||Ok(TaskContext{session_id:session.into(),schema_version:1,..Default::default()}))
+}
+// 重试和续接都绑定被点击的任务，同时继承当前会话的隐私限制与版本。
+pub fn action_context(state:&AppState,latest:&TaskContext,context:&Value)->Result<TaskContext,String>{
+    if !matches!(context["action"]["type"].as_str(),Some("resume_task"|"retry_task")){return Ok(latest.clone());}
+    let id=context["action"]["taskId"].as_str().filter(|id|!id.is_empty()&&id.len()<=200).ok_or("缺少要恢复的任务编号")?;
+    match crate::task_state::get(state,id){
+        Ok(record)=>context_from_record(latest,id,&record),
+        Err(error) if context["action"]["type"]=="retry_task"&&error=="任务记录不存在"=>{
+            let mut base=latest.clone();base.task_id.clear();base.intent=Intent::default();base.result_set_ids.clear();base.evidence_ids.clear();Ok(base)
+        },
+        Err(error)=>Err(error),
+    }
+}
+fn context_from_record(latest:&TaskContext,id:&str,record:&Value)->Result<TaskContext,String>{
+    if record["sessionId"]!=latest.session_id||record["taskContext"]["sessionId"]!=latest.session_id{return Err("任务不属于当前会话，不能重试或续接".into());}
+    if record["status"]=="running"{return Err("此任务仍在运行，请等待完成或取消后继续".into());}
+    let mut selected:TaskContext=serde_json::from_value(record["taskContext"].clone()).map_err(|_|"原任务状态无法读取，请核对任务记录")?;
+    if selected.has_workspace_file_data&&latest.has_workspace_file_data&&selected.file_workspace_binding!=latest.file_workspace_binding{return Err("原任务的文件授权已变化，请新建会话并重新确认读取".into());}
+    if selected.has_ocr_diagnostic_data&&latest.has_ocr_diagnostic_data&&selected.ocr_diagnostic_binding!=latest.ocr_diagnostic_binding{return Err("原任务的诊断授权已变化，请重新共享诊断资料".into());}
+    if latest.has_workspace_file_data&&!selected.has_workspace_file_data{selected.has_workspace_file_data=true;selected.file_workspace_binding=latest.file_workspace_binding.clone();}
+    if latest.has_ocr_diagnostic_data&&!selected.has_ocr_diagnostic_data{selected.has_ocr_diagnostic_data=true;selected.ocr_diagnostic_binding=latest.ocr_diagnostic_binding.clone();selected.ocr_diagnostic_evidence_id=latest.ocr_diagnostic_evidence_id.clone();}
+    selected.version=latest.version;
+    if selected.task_id==id{selected.status=record["status"].as_str().unwrap_or("failed").into();}
+    Ok(selected)
 }
 pub fn save(state:&AppState,current:&TaskContext)->Result<(),String>{
     let mut db=state.index.db.lock().unwrap();let tx=db.transaction().map_err(|e|e.to_string())?;
@@ -163,12 +200,14 @@ pub fn finish(state:&AppState,current:&mut TaskContext,status:&str)->Result<(),S
 pub fn delete_session(state:&AppState,session:&str)->Result<(),String>{
     let current=load(state,session)?;
     if state.tasks.lock().unwrap().contains_key(&current.task_id){return Err("运行中的会话不能删除".into());}
-    if state.task_results.lock().unwrap().values().any(|v|v["sessionId"]==session&&v["status"]=="running"){return Err("运行中的会话不能删除".into());}
+    let mut snapshots=state.task_results.lock().unwrap();
+    if snapshots.values().any(|v|v["sessionId"]==session&&v["status"]=="running"){return Err("运行中的会话不能删除".into());}
     let mut db=state.index.db.lock().unwrap();let tx=db.transaction().map_err(|e|e.to_string())?;
     tx.execute("DELETE FROM assistant_contexts WHERE session=?1",[session]).map_err(|e|e.to_string())?;
     tx.execute("DELETE FROM assistant_evidence WHERE session=?1",[session]).map_err(|e|e.to_string())?;
     tx.execute("DELETE FROM assistant_tasks WHERE json_extract(data,'$.taskContext.sessionId')=?1 OR json_extract(data,'$.sessionId')=?1",[session]).map_err(|e|e.to_string())?;
-    tx.commit().map_err(|e|e.to_string())
+    tx.commit().map_err(|e|e.to_string())?;drop(db);
+    snapshots.retain(|_,value|value["sessionId"]!=session);Ok(())
 }
 pub fn query(state:&AppState,current:&mut TaskContext,request:Request,analysis:bool)->Result<Value,String>{
     validate_fields(&mut current.intent.fields)?;
@@ -244,4 +283,40 @@ pub fn validate_delivery(state:&AppState,current:&TaskContext,trace:&[Value])->R
     }
     if current.intent.delivery=="table"&&!current.intent.fields.is_empty()&&!trace.iter().any(|r|r["result"]["delivery"]["columns"].as_array().is_some_and(|cols|current.intent.fields.iter().all(|f|cols.iter().any(|c|c["key"]==*f)))){return Err("结果缺少本轮所需字段，不能用数量代替字段表".into());}
     Ok(())
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn model_references_are_bounded_without_changing_local_history(){
+        let ids=(0..3000).map(|n|format!("source-{n:06}-aaaaaaaa-bbbb-cccc-dddd")).collect::<Vec<_>>();
+        let context=TaskContext{evidence_ids:ids.clone(),result_set_ids:ids.clone(),intent:Intent{goal:"本轮目标与权限保持完整".into(),result_set_id:Some(ids[0].clone()),..Default::default()},..Default::default()};
+        let snapshot=context.model_snapshot();
+        assert_eq!(snapshot["evidenceIds"].as_array().unwrap().len(),9);assert_eq!(snapshot["resultSetIds"].as_array().unwrap().len(),9);
+        assert_eq!(snapshot["evidenceIds"][0],ids[0]);assert_eq!(snapshot["intent"]["goal"],context.intent.goal);
+        assert_eq!(context.evidence_ids,ids);assert_eq!(snapshot["referenceCounts"]["evidence"],3000);
+        let settings=crate::settings::Settings{model_context_tokens:32768,..Default::default()};
+        let mut before=json!({"max_tokens":8192,"messages":[{"role":"user","content":serde_json::to_string(&context).unwrap()}]});
+        let mut after=json!({"max_tokens":8192,"messages":[{"role":"user","content":snapshot.to_string()}]});
+        assert!(crate::model_context::prepare(&settings,&mut before,false).is_err());
+        assert!(crate::model_context::prepare(&settings,&mut after,false).is_ok());
+    }
+    #[test]
+    fn restoring_an_older_task_keeps_its_goal_and_current_privacy_rules(){
+        let latest=TaskContext{session_id:"session".into(),task_id:"summary".into(),status:"completed".into(),version:20,has_workspace_file_data:true,file_workspace_binding:"current-binding".into(),intent:Intent{goal:"整理进度".into(),..Default::default()},..Default::default()};
+        let original=TaskContext{session_id:"session".into(),task_id:"original".into(),version:3,status:"partial".into(),intent:Intent{goal:"处理原目录里的文件 A".into(),root:Some("D:/original".into()),..Default::default()},evidence_ids:vec!["original-source".into()],..Default::default()};
+        let record=json!({"id":"original","sessionId":"session","status":"partial","taskContext":original});
+        let selected=context_from_record(&latest,"original",&record).unwrap();
+        assert_eq!(selected.task_id,"original");assert_eq!(selected.version,20);assert_eq!(selected.intent.goal,original.intent.goal);assert_eq!(selected.intent.root,original.intent.root);
+        assert_eq!(selected.evidence_ids,original.evidence_ids);assert!(selected.has_private_data());assert_eq!(selected.file_workspace_binding,"current-binding");
+    }
+    #[test]
+    fn task_restore_rejects_other_sessions_running_tasks_and_changed_bindings(){
+        let latest=TaskContext{session_id:"session".into(),has_workspace_file_data:true,file_workspace_binding:"current".into(),..Default::default()};
+        let mut record=json!({"sessionId":"session","status":"partial","taskContext":TaskContext{session_id:"session".into(),task_id:"task".into(),..Default::default()}});
+        record["sessionId"]=json!("other");assert!(context_from_record(&latest,"task",&record).is_err());
+        record["sessionId"]=json!("session");record["status"]=json!("running");assert!(context_from_record(&latest,"task",&record).is_err());
+        record["status"]=json!("partial");record["taskContext"]["hasWorkspaceFileData"]=json!(true);record["taskContext"]["fileWorkspaceBinding"]=json!("previous");assert!(context_from_record(&latest,"task",&record).is_err());
+    }
 }

@@ -55,12 +55,16 @@ pub fn content(text:&str,images:&Value)->Value{
 }
 // Keep reusable history ahead of changing task IDs, timestamps and permissions.
 // The current user request stays last; background data never grants authority.
+fn history_items(context:&Value)->impl Iterator<Item=&Value>{
+    context["history"].as_array().into_iter().flatten().filter(|item|!item["content"].as_str().unwrap_or("").is_empty()||has_items(&item["images"]))
+}
+pub fn history_len(context:&Value)->usize{history_items(context).count()}
 pub fn messages(prompt:&str,context:&Value,background:Vec<Value>)->Vec<Value>{
     let mut messages=vec![];
-    if let Some(history)=context["history"].as_array(){for item in history{
+    for item in history_items(context){
         let text=item["content"].as_str().unwrap_or("");
-        if !text.is_empty()||has_items(&item["images"]){messages.push(json!({"role":item["role"],"content":content(text,&item["images"])}));}
-    }}
+        messages.push(json!({"role":item["role"],"content":content(text,&item["images"])}));
+    }
     messages.extend(background);
     messages.push(json!({"role":"user","content":content(prompt,&context["images"])}));messages
 }

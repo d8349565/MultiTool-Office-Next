@@ -36,39 +36,54 @@ fn compact_inner(value:&mut Value,limit:usize,annotate:bool){
         _=>{},
     }
 }
+fn compact_messages(body:&mut Value,limit:usize)->Result<(),String>{
+    let messages=body["messages"].as_array_mut().ok_or("模型消息格式无效")?;
+    for message in messages{
+        match message["role"].as_str(){
+            Some("tool")=>{
+                if let Some(text)=message["content"].as_str(){
+                    let text=if let Ok(mut value)=serde_json::from_str::<Value>(text){compact(&mut value,limit);value.to_string()}else{excerpt(text,limit)};
+                    message["content"]=json!(text);
+                }
+            },
+            Some("assistant")=>{
+                for key in ["content","reasoning_content","reasoning"]{if let Some(text)=message[key].as_str(){message[key]=json!(excerpt(text,limit));}}
+                if let Some(calls)=message.get_mut("tool_calls").and_then(Value::as_array_mut){for call in calls{if let Some(args)=call["function"]["arguments"].as_str(){
+                    if let Ok(mut value)=serde_json::from_str::<Value>(args){compact_inner(&mut value,limit,false);call["function"]["arguments"]=json!(value.to_string());}
+                }}}
+            },
+            // 原始用户要求、原生目标和权限约束不做截断，也不改变工具调用配对。
+            _=>{},
+        }
+    }
+    Ok(())
+}
+fn drop_oldest_history_turn(body:&mut Value)->bool{
+    // 仅使用原生组装时标记的历史边界；收尾、续写和校验提示同样是 user，不能据此猜测当前请求。
+    let Some(end)=body["_historyEnd"].as_u64().map(|n|n as usize) else{return false;};
+    let Some(messages)=body["messages"].as_array_mut() else{return false;};let end=end.min(messages.len());
+    let Some(start)=(0..end).find(|&i|!matches!(messages[i]["role"].as_str(),Some("system"|"developer"))) else{return false;};
+    let next=(start+1..end).find(|&i|matches!(messages[i]["role"].as_str(),Some("user"|"system"|"developer"))).unwrap_or(end);
+    // 一次删除旧用户消息及其全部回复/工具结果，不留下孤立的 tool 消息。
+    messages.drain(start..next);body["_historyEnd"]=json!(end-(next-start));true
+}
 pub fn prepare(s:&Settings,body:&mut Value,force:bool)->Result<bool,String>{
     let capacity=capacity(s);let margin=(capacity/10).max(512);
     let requested=body["max_tokens"].as_u64().or_else(||body["max_completion_tokens"].as_u64()).unwrap_or(8192) as usize;
     let budget=capacity.saturating_sub(margin+requested.min(capacity/2));
-    let before=estimate(body);let mut changed=false;
-    if force||before>budget*4/5{
-        let messages=body["messages"].as_array_mut().ok_or("模型消息格式无效")?;
-        let limit=if force{256}else{1200};
-        for message in messages{
-            match message["role"].as_str(){
-                Some("tool")=>{
-                    if let Some(text)=message["content"].as_str(){
-                        let text=if let Ok(mut value)=serde_json::from_str::<Value>(text){compact(&mut value,limit);value.to_string()}else{excerpt(text,limit)};
-                        message["content"]=json!(text);
-                    }
-                },
-                Some("assistant")=>{
-                    for key in ["content","reasoning_content","reasoning"]{if let Some(text)=message[key].as_str(){message[key]=json!(excerpt(text,limit));}}
-                    if let Some(calls)=message["tool_calls"].as_array_mut(){for call in calls{if let Some(args)=call["function"]["arguments"].as_str(){
-                        if let Ok(mut value)=serde_json::from_str::<Value>(args){compact_inner(&mut value,limit,false);call["function"]["arguments"]=json!(value.to_string());}
-                    }}}
-                },
-                // 原始用户要求、原生目标和权限约束不做截断，也不改变工具调用配对。
-                _=>{},
-            }
-        }
-        changed=estimate(body)<before;
-    }
+    let before=estimate(body);
+    if force||before>budget*4/5{compact_messages(body,if force{256}else{1200})?;}
+    // 服务端的真实分词或容量可能小于本地估算；重试必须实际缩小请求。
+    let target=if force{budget.min(before*3/4)}else{budget};
+    while estimate(body)>target&&drop_oldest_history_turn(body){}
+    if !force&&estimate(body)>budget{compact_messages(body,256)?;}
+    let mut changed=estimate(body)<before;
     let available=capacity.saturating_sub(estimate(body)+margin);
     if available<256{return Err("模型上下文容量不足，自动压缩后仍无法容纳本轮要求。完整资料已保留，请缩短本轮输入、减少历史条数，或在模型参数中核对实际上下文容量后继续。".into());}
-    if requested>available{
+    let output=if force{requested.min(available).min((requested/2).max(256))}else{requested.min(available)};
+    if output<requested{
         let key=if body.get("max_completion_tokens").is_some(){"max_completion_tokens"}else{"max_tokens"};
-        body[key]=json!(available);changed=true;
+        body[key]=json!(output);changed=true;
     }
     Ok(changed)
 }
@@ -96,5 +111,45 @@ mod tests{
         let settings=Settings{model_context_tokens:1024,..Default::default()};let requirement="原始用户约束".repeat(2000);
         let mut body=json!({"max_tokens":256,"messages":[{"role":"user","content":requirement}]});
         assert!(prepare(&settings,&mut body,true).is_err());assert_eq!(body["messages"][0]["content"],requirement);
+    }
+    #[test]
+    fn overflowing_history_is_removed_in_turns_without_losing_current_context(){
+        let settings=Settings{model_context_tokens:6000,..Default::default()};
+        let mut body=json!({"max_tokens":2048,"_historyEnd":5,"messages":[
+            {"role":"system","content":"固定权限约束"},
+            {"role":"user","content":"历史资料".repeat(3000)},{"role":"assistant","content":"旧回答一"},
+            {"role":"user","content":"历史要求".repeat(3000)},{"role":"assistant","content":"旧回答二"},
+            {"role":"user","content":"本轮原生权限范围"},{"role":"assistant","content":"当前证据来源"},
+            {"role":"user","content":"当前真实要求"},
+            {"role":"assistant","tool_calls":[{"id":"current-call","function":{"name":"files_query","arguments":"{}"}}]},
+            {"role":"tool","tool_call_id":"current-call","content":"已有结果"},
+            {"role":"user","content":"仅整理已有结果，不再调用工具"}
+        ]});
+        let original=body.clone();
+        assert!(prepare(&settings,&mut body,false).unwrap());
+        assert_eq!(body["_historyEnd"],1);
+        assert_eq!(body["messages"][0],original["messages"][0]);
+        assert_eq!(body["messages"].as_array().unwrap()[1..],original["messages"].as_array().unwrap()[5..]);
+        assert!(estimate(&body)+body["max_tokens"].as_u64().unwrap() as usize+600<=6000);
+    }
+    #[test]
+    fn forced_retry_reduces_output_budget_even_without_history(){
+        let settings=Settings{model_context_tokens:32768,..Default::default()};
+        let mut body=json!({"max_completion_tokens":8192,"messages":[{"role":"system","content":"固定权限约束"},{"role":"user","content":"当前要求"}]});
+        let messages=body["messages"].clone();
+        assert!(!prepare(&settings,&mut body,false).unwrap());
+        assert!(prepare(&settings,&mut body,true).unwrap());
+        assert_eq!(body["messages"],messages);assert_eq!(body["max_completion_tokens"],4096);assert!(body.get("max_tokens").is_none());
+    }
+    #[test]
+    fn forced_retry_drops_only_marked_history_when_local_estimate_fits(){
+        let settings=Settings{model_context_tokens:32768,..Default::default()};
+        let mut body=json!({"max_tokens":512,"_historyEnd":3,"messages":[
+            {"role":"system","content":"权限约束"},{"role":"user","content":[{"type":"text","text":"旧图片"},{"type":"image_url","image_url":{"url":"data:image/png;base64,old-image"}}]},{"role":"assistant","content":"旧答案"},
+            {"role":"user","content":"本轮原生范围"},{"role":"user","content":"原始要求"},{"role":"assistant","content":"未完成回答"},{"role":"user","content":"继续回答"}
+        ]});
+        let current=body["messages"].as_array().unwrap()[3..].to_vec();
+        assert!(prepare(&settings,&mut body,true).unwrap());
+        assert_eq!(body["_historyEnd"],1);assert_eq!(body["messages"].as_array().unwrap()[1..],current);
     }
 }

@@ -39,6 +39,6 @@ export async function resumeAssistantTask(result:AIResult){
 export async function initializeAssistantRuntime(){
   if(!desktop)return;await ensureListener();
   let ids:string[]=[];
-  try{const saved=JSON.parse(localStorage.getItem('office-assistant-conversations-v1')||'null');ids=[...new Set<string>((saved?.sessions||[]).map((session:{task?:string;recoverTask?:string})=>session.task||session.recoverTask).filter((id:unknown)=>typeof id==='string'&&!!id))].slice(0,4);}catch{return;}
+  try{const saved=JSON.parse(localStorage.getItem('office-assistant-conversations-v1')||'null');ids=[...new Set<string>((saved?.sessions||[]).map((session:{task?:string;recoverTask?:string}|null)=>session?.task||session?.recoverTask).filter((id:unknown)=>typeof id==='string'&&!!id))];}catch{return;}
   await Promise.all(ids.map(async id=>{try{await resumeAssistantTask(await api<AIResult>('task_status',{id}));}catch{/* 已结束或旧版本任务由会话恢复界面处理。 */}}));
 }

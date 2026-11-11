@@ -184,10 +184,10 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
 #[tauri::command] fn delete_assistant_session(state:tauri::State<Arc<AppState>>,session_id:String)->Result<(),String>{assistant_context::delete_session(&state,&session_id)}
 #[tauri::command] async fn ai_task(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandle,id:String,kind:String,text:String,context:Option<Value>,items:Option<Value>)->Result<Value,String>{
     let state=state.inner().clone();let cancel=Arc::new(AtomicBool::new(false));let session=context.as_ref().and_then(|c|c["sessionId"].as_str()).unwrap_or(&id).to_owned();{
-        let mut tasks=state.tasks.lock().unwrap();if tasks.contains_key(&id)||tasks.len()>=4{return Err("已有任务运行，请稍后重试".into());}tasks.insert(id.clone(),cancel.clone());
+        let mut tasks=state.tasks.lock().unwrap();if tasks.contains_key(&id){return Err("此任务已在运行，请等待完成或取消后继续".into());}if tasks.len()>=4{return Err("同时最多处理 4 个任务，请等待完成或取消一个任务后再发送".into());}tasks.insert(id.clone(),cancel.clone());
         if kind=="agent"{
             if state.task_results.lock().unwrap().values().any(|v|v["status"]=="running"&&v["sessionId"]==session){tasks.remove(&id);return Err("本会话已有任务运行，请等待或取消后继续".into());}
-            task_state::start(&state,&id,"agent",&session);
+            if let Err(error)=task_state::start(&state,&id,"agent",&session,context.as_ref().unwrap_or(&Value::Null)){tasks.remove(&id);return Err(error);}
         }
     }
     let start=Instant::now();let settings=state.settings.lock().unwrap().clone();

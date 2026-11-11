@@ -74,10 +74,15 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace',gl
   function addWebLauncher(){const id=crypto.randomUUID();addedLauncher.current=id;change('launchers',[...draft.launchers,{id,name:'',path:'https://',group:'网页入口'}]);}
   function editLauncher(index:number,field:keyof Launcher,value:string){change('launchers',draft.launchers.map((l,i)=>i===index?{...l,[field]:value}:l));}
   function move(index:number,delta:number){const next=[...draft.launchers];[next[index],next[index+delta]]=[next[index+delta],next[index]];change('launchers',next);}
-  function numberField(key:NumberKey,label:string,fallback:number,min:number,max:number,hint:string){return <label>{label}<input aria-label={label} aria-describedby={'settings-hint-'+key} type="number" min={min} max={max} step={1} required value={Number.isNaN(draft[key])?'':draft[key]??fallback} onChange={e=>change(key,e.target.value===''?NaN:Number(e.target.value))}/><small id={'settings-hint-'+key}>{hint}</small></label>;}
+  function numberField(key:NumberKey,label:string,fallback:number,min:number,max:number,hint:string){
+    const value=draft[key]??fallback;
+    const automaticMinimum=key==='modelContextTokens'?1024:['assistantOutputTokens','translationOutputTokens'].includes(key)?256:0;
+    const issue=!Number.isFinite(value)?'请填写数值。':!Number.isInteger(value)?'请填写整数。':value<min||value>max?`请填写 ${min.toLocaleString()}–${max.toLocaleString()}。`:automaticMinimum&&value!==0&&value<automaticMinimum?`请填 0 使用自动值，或填写至少 ${automaticMinimum.toLocaleString()}。`:key==='assistantTaskTimeoutSecs'&&value<(draft.modelRequestTimeoutSecs??600)?'任务等待必须不少于单次请求等待。请增大此值，或缩短单次请求等待。':'';
+    return <label>{label}<input ref={field=>{field?.setCustomValidity(issue);}} aria-label={label} aria-invalid={!!issue} aria-describedby={'settings-hint-'+key+(issue?' settings-error-'+key:'')} type="number" min={min} max={max} step={1} required value={Number.isFinite(value)?value:''} onChange={e=>change(key,e.target.value===''?NaN:Number(e.target.value))}/><small id={'settings-hint-'+key}>{hint}</small>{issue&&<small id={'settings-error-'+key} className="model-field-error">{issue}</small>}</label>;
+  }
   async function saveModule(event:FormEvent<HTMLFormElement>){event.preventDefault();
     if(busy||!canSave)return;
-    const panel=event.currentTarget.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])');
+    const panel=event.currentTarget.querySelector<HTMLElement>('#settings-panel-'+tab);
     for(const field of panel?.querySelectorAll<HTMLInputElement>('input,select')||[]){if(field.closest('.model-connections'))continue;if(!field.checkValidity()){const page=field.closest<HTMLElement>('[data-model-page]')?.dataset.modelPage;if(page)setModelPage(page as ModelPage);const details=field.closest('details');if(details)details.open=true;requestAnimationFrame(()=>{field.focus();field.reportValidity();});return;}}
     await run(async()=>{
       if(tab==='transfer'){
@@ -167,7 +172,7 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace',gl
             {numberField('assistantOutputTokens','助手输出上限',0,0,384000,'0 自动选择；DeepSeek 官方服务 / MiniMax 模型 65536，其他服务 8192。')}
           </div></div><div><h3>助手文本翻译</h3><div className="form-grid"><ReasoningSelect label="翻译思考程度" value={draft.translationReasoning||'default'} onChange={v=>change('translationReasoning',v)}/>
             {numberField('translationOutputTokens','翻译输出上限',0,0,384000,'0 使用服务默认。适用于助手翻译你直接提交的文本。')}
-          </div></div></div><p>输出上限以标记数计，思考和正文可能共用额度。填写的值还需符合所选模型的限制。</p></section>
+          </div></div></div><p>输出上限以标记数计，可填 0 自动选择，或填写 256–384000。思考和正文可能共用额度；系统还会为本轮输入预留上下文空间，实际输出可能低于此上限。</p></section>
           <section className="settings-section"><h3>截断后恢复</h3><Switch checked={draft.assistantAutoContinue??true} onChange={(_,d)=>change('assistantAutoContinue',d.checked)} label="回复截断后自动补写一次"/><div className="form-grid">
             {numberField('assistantContinueTokens','截断后补写上限',16384,256,384000,'自动补写仅收尾，不再执行工具；关闭自动补写时不使用此上限。')}
           </div></section>
@@ -176,15 +181,15 @@ export function SettingsView({settings,onSaved,onClose,initialTab='workspace',gl
           <p className="model-advanced-intro">通常保留默认即可。遇到等待过久、回复中断或上下文不足时，再展开对应设置。</p>
           <details className="settings-advanced model-advanced-section"><summary><span>等待与重试</span><small>请求超时、首响应、输出停滞与重试次数</small></summary><div className="form-grid">
             {numberField('modelRequestTimeoutSecs','单次请求等待（秒）',600,10,1800,'推荐 600 秒；单次模型请求的总预算，持续输出也受此限制。')}
-            {numberField('modelFirstResponseTimeoutSecs','首响应等待（秒）',120,10,1800,'推荐 120 秒；等待首段思考、正文或工具参数，连接等待另限10秒。')}
-            {numberField('modelIdleTimeoutSecs','输出停滞等待（秒）',120,10,1800,'推荐 120 秒；持续有效输出会重新计时，心跳不会延长等待。')}
-            {numberField('assistantTaskTimeoutSecs','助手任务等待（秒）',1800,30,7200,'推荐 1800 秒（30 分钟），可设至 2 小时；包含模型、工具及等待文件确认的时间。')}
+            {numberField('modelFirstResponseTimeoutSecs','首响应等待（秒）',120,10,1800,'推荐 120 秒；等待首段思考、正文或工具参数，连接等待另限 10 秒。实际等待不会超过单次请求预算。')}
+            {numberField('modelIdleTimeoutSecs','输出停滞等待（秒）',120,10,1800,'推荐 120 秒；持续有效输出会重新计时，心跳不会延长等待，且受单次请求预算限制。')}
+            {numberField('assistantTaskTimeoutSecs','助手任务等待（秒）',1800,30,7200,'推荐 1800 秒（30 分钟），可设至 2 小时，须不少于单次请求等待；包含模型、工具及等待文件确认的时间。')}
             {numberField('modelRetryCount','服务繁忙重试次数',2,0,2,'仅对短暂连接失败、限流或繁忙重试；0 不重试。')}
           </div></details>
           <details className="settings-advanced model-advanced-section"><summary><span>上下文与工具预算</span><small>历史长度、上下文容量、模型轮数与联网次数</small></summary><div className="form-grid">
-            {numberField('modelContextTokens','模型上下文容量',0,0,10000000,'用于占用率与自动压缩；0 自动识别 DeepSeek Flash / V4，未识别模型采用保守发送预算。建议按服务实际容量填写。')}
-            {numberField('assistantHistoryMessages','发送历史消息条数',12,0,12,'0 不发送聊天历史，最多最近 12 条。')}
-            {numberField('assistantHistoryChars','每条历史文字上限',4000,500,12000,'只影响发送给模型的历史，保留本机完整记录。')}
+            {numberField('modelContextTokens','模型上下文容量',0,0,10000000,'0 自动识别，未识别模型采用保守发送预算；手动值至少 1024，并应按服务实际容量填写。调大此值不能扩大模型本身的容量。')}
+            {numberField('assistantHistoryMessages','发送历史消息条数',12,0,12,'每次发送最多最近 12 条，包含你的提问和助手回复，约为 6 轮对话；0 不发送聊天历史。')}
+            {numberField('assistantHistoryChars','每条历史文字上限',4000,500,12000,'影响每次发送的历史长度；接近上下文容量时还会自动精简，本机完整记录保留。')}
             {numberField('assistantToolRounds','任务模型轮数上限',25,1,25,'包含最后汇报的一轮；1 只回复，不调用工具。')}
             {numberField('assistantSearchLimit','任务搜索与抓取次数上限',8,0,20,'0 禁用联网工具；已有资料仍可用于汇报。')}
           </div><p>历史思考内容留在本机；已收集的工具资料摘要单独传递。调整这些参数不会扩大文件访问权限。</p></details>

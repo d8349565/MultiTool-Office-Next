@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { stripTypeScriptTypes } from 'node:module';
+
+// 仅检查会话反序列化与历史处理，不读取本机会话、不启动应用或模型服务。
+const encode=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64');
+const compile=async name=>stripTypeScriptTypes(await readFile(new URL(`../src/${name}.ts`,import.meta.url),'utf8'),{mode:'strip'})+'\n//# sourceURL='+name+'.mjs';
+const metricsUrl=encode(await compile('assistantMetrics'));
+const imagesUrl=encode(await compile('assistantImages'));
+const source=(await compile('assistantState')).replace("'./assistantMetrics'",JSON.stringify(metricsUrl)).replace("'./assistantImages'",JSON.stringify(imagesUrl));
+const {loadConversations,newConversation,conversationHistory,taskInput,recoveryAction,continuedTasks,taskMessage}=await import(encode(source));
+
+const session={...newConversation(),id:'session-a',title:'恢复检查',task:'task-a',started:1234,deadline:5678,draft:'下一条草稿',streaming:'已完成的部分回复',activities:[{id:'tool-a',kind:'tool',status:'running'}],messages:[{role:'user',text:'当前任务'}]};
+const stored={sessions:[null,session],active:session.id};
+const first=loadConversations(JSON.stringify(stored));
+assert.equal(first.sessions.length,1,'单条无效记录不能导致全部会话丢失');
+assert.equal(first.active,session.id);
+assert.equal(first.sessions[0].task,session.task,'核对状态前必须保留任务锁');
+assert.equal(first.sessions[0].recoverTask,session.task);
+assert.equal(first.sessions[0].started,1234);
+assert.equal(first.sessions[0].deadline,5678);
+assert.equal(first.sessions[0].streaming,session.streaming);
+assert.equal(first.sessions[0].draft,session.draft);
+assert.deepEqual(first.sessions[0].messages,session.messages.map(m=>({...m,images:[],stats:undefined,proposals:undefined})));
+assert.equal(first.sessions[0].activities[0].status,'running','核对结果前不能提前显示中断');
+
+const second=loadConversations(JSON.stringify(first));
+assert.equal(second.sessions[0].task,session.task);
+assert.equal(second.sessions[0].recoverTask,session.task,'恢复过程中再次保存和加载不能丢失任务');
+assert.equal(second.sessions[0].messages.length,1,'重复恢复不能插入重复的中断消息');
+const legacy=loadConversations(JSON.stringify({sessions:[{...session,task:'',recoverTask:'task-a'}],active:session.id}));
+assert.equal(legacy.sessions[0].task,'task-a','兼容只保存 recoverTask 的会话');
+assert.equal(legacy.sessions[0].recoverTask,'task-a');
+assert.equal(loadConversations('{').sessions.length,1);
+assert.equal(loadConversations(null).sessions.length,1);
+assert.deepEqual(conversationHistory(session.messages,0),[]);
+const image={id:'original-image',name:'原图.png',mimeType:'image/png',size:100};
+const messages=[{role:'user',text:'分析原图',images:[image],activityKey:'original',taskView:{root:'D:/original'}},{role:'assistant',text:'部分回答',activityKey:'original',status:'partial',taskContext:{taskId:'original'}},{role:'user',text:'其他问题',activityKey:'later'},{role:'assistant',text:'其他结果',activityKey:'later',status:'completed'}];
+const input=taskInput(messages,1);
+assert.equal(input.message.text,'分析原图');assert.deepEqual(input.message.images,[image]);assert.deepEqual(input.message.taskView,{root:'D:/original'});assert.deepEqual(input.history,[]);
+assert.deepEqual(conversationHistory(input.history,0),[],'关闭聊天历史也不能丢失单独恢复的原图');
+assert.equal(recoveryAction(messages[1]),'resume_task');assert.equal(recoveryAction({...messages[1],taskContext:undefined}),'retry_task');
+assert.equal(taskInput([{role:'user',text:'旧记录问题'},{role:'assistant',text:'旧记录回答'}],1).message.text,'旧记录问题');
+const next=[...messages,{role:'user',text:'分析原图',activityKey:'retry',retryOf:'original'}, {role:'assistant',text:'处理完成',activityKey:'retry',status:'completed'}];
+assert.ok(continuedTasks(next).has('original'),'新一次续接已有结果后，旧错误不能继续提供重复执行入口');
+const legacyResume=[...messages,{role:'user',text:'继续上次未完成的任务',activityKey:'legacy-resume'},{role:'assistant',text:'未完成',activityKey:'legacy-resume',status:'partial',taskContext:{taskId:'legacy-resume',intent:{relation:'resume',parentTaskId:'original'}}}];
+assert.deepEqual(taskInput(legacyResume,5).message.images,[image],'旧版续接记录也应沿原任务链找回图片');
+assert.equal(taskInput(legacyResume,5).message.text,'分析原图');assert.ok(continuedTasks(legacyResume).has('original'));
+const restored=loadConversations(JSON.stringify({sessions:[{...session,messages:next}],active:session.id}));
+assert.equal(taskInput(restored.sessions[0].messages,1).message.activityKey,'original');
+assert.equal(restored.sessions[0].messages.filter(m=>m.role==='user'&&m.activityKey==='original').length,1);
+assert.equal(taskMessage({status:'completed',text:'结果',storageWarning:'尚未保存'},'task').storageWarning,'尚未保存');
+console.log('Assistant state checks passed: recovery, task inputs, original images/view, retry chains, drafts, warnings, legacy records.');

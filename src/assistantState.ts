@@ -4,15 +4,44 @@ import { withTaskScope } from './assistantMetrics';
 import type { AssistantStats } from './assistantMetrics';
 import { imageReferences, type AssistantImage } from './assistantImages';
 export type Link={kind:'report'|'folder'|'file'|'web';label:string;target:string;contentKind?:'summary'|'fulltext';truncated?:boolean};
-export type Message={role:'user'|'assistant';text:string;images?:AssistantImage[];activityKey?:string;activities?:Activity[];trace?:AIResult['trace'];proposals?:Proposal[];links?:Link[];status?:AIResult['status'];fault?:AIResult['fault'];route?:string;delivery?:AIResult['delivery'];taskContext?:TaskContext;stats?:AssistantStats};
-export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;deadline?:number;recoverTask?:string};
+export type Message={role:'user'|'assistant';text:string;images?:AssistantImage[];taskView?:unknown;retryOf?:string;activityKey?:string;activities?:Activity[];trace?:AIResult['trace'];proposals?:Proposal[];links?:Link[];status?:AIResult['status'];fault?:AIResult['fault'];warning?:string;storageWarning?:string;route?:string;delivery?:AIResult['delivery'];taskContext?:TaskContext;stats?:AssistantStats};
+export type Conversation={stats?:AssistantStats;taskContext?:TaskContext;id:string;title:string;messages:Message[];draft:string;draftImages?:AssistantImage[];workspace:string;error:string;lastPrompt:string;task:string;progress:string;streaming?:string;activities?:Activity[];started:number;deadline?:number;recoverTask?:string;preparing?:boolean;storageWarning?:string};
 export const sessionKey='office-assistant-conversations-v1';
 export function newConversation():Conversation{return {id:crypto.randomUUID(),title:'新会话',messages:[],draft:'',workspace:'',error:'',lastPrompt:'',task:'',progress:'',started:0};}
-export function loadConversations():{sessions:Conversation[];active:string}{
+export function taskInput(messages:Message[],index:number){
+  const userBefore=(at:number)=>{
+    const key=messages[at]?.activityKey;
+    for(let i=Math.min(at,messages.length)-1;i>=0;i--){if(messages[i].role==='user'&&key&&messages[i].activityKey===key)return i;}
+    for(let i=Math.min(at,messages.length)-1;i>=0;i--){if(messages[i].role==='user')return i;}return -1;
+  };
+  const requestIndex=userBefore(index),retryOf=messages[requestIndex]?.retryOf;let origin=index;
+  while(messages[origin]?.taskContext?.taskId===messages[origin]?.activityKey&&messages[origin]?.taskContext?.intent?.relation==='resume'){
+    const parent=messages[origin].taskContext?.intent?.parentTaskId;
+    const previous=parent?messages.findIndex((m,i)=>i<origin&&m.role==='assistant'&&m.activityKey===parent):-1;
+    if(previous<0)break;origin=previous;
+  }
+  const userIndex=userBefore(origin);
+  return userIndex<0?null:{message:messages[userIndex],history:messages.slice(0,userIndex),retryOf};
+}
+export function recoveryAction(message:Message):'resume_task'|'retry_task'{
+  return ['partial','interrupted'].includes(message.status||'')&&!!message.activityKey&&message.taskContext?.taskId===message.activityKey?'resume_task':'retry_task';
+}
+export function continuedTasks(messages:Message[]):Set<string>{
+  const replies=new Set(messages.filter(m=>m.role==='assistant').map(m=>m.activityKey));
+  const continued=new Set(messages.filter(m=>m.role==='user'&&m.retryOf&&m.activityKey&&replies.has(m.activityKey)).map(m=>m.retryOf!));
+  for(const reply of messages){const task=reply.taskContext;if(reply.role==='assistant'&&reply.activityKey===task?.taskId&&task?.intent?.relation==='resume'&&task.intent.parentTaskId)continued.add(task.intent.parentTaskId);}
+  return continued;
+}
+export function loadConversations(raw?:string|null):{sessions:Conversation[];active:string}{
   try{
-    const saved=JSON.parse(localStorage.getItem(sessionKey)||'null');
+    const saved=JSON.parse((raw===undefined?localStorage.getItem(sessionKey):raw)||'null');
     if(Array.isArray(saved?.sessions)&&saved.sessions.length){
-      const sessions:Conversation[]=saved.sessions.filter((s:any)=>typeof s.id==='string'&&typeof s.title==='string'&&Array.isArray(s.messages)).map((s:any)=>({...newConversation(),id:s.id,title:s.title,taskContext:s.taskContext?.schemaVersion===1?s.taskContext:undefined,stats:s.stats&&Number.isInteger(s.stats.round)&&s.stats.round>=0&&Number.isInteger(s.stats.steps)&&s.stats.steps>=0&&Number.isFinite(s.stats.contextLimit)&&s.stats.contextLimit>=0?s.stats:undefined,draft:typeof s.draft==='string'?s.draft:'',draftImages:imageReferences(s.draftImages),workspace:typeof s.workspace==='string'?s.workspace:'',lastPrompt:typeof s.lastPrompt==='string'?s.lastPrompt:'',messages:[...s.messages,...(s.task&&(s.streaming||s.activities?.length)?[{role:'assistant',activityKey:s.task,text:(s.streaming||'')+'\n\n（上次任务已中断）',activities:finishActivities(s.activities),links:resultLinks(s.activities?.filter((a:Activity)=>a.kind==='tool'&&a.result!==undefined).map((a:Activity)=>({tool:a.tool||'',result:a.result})))}]:[])].filter((m:any)=>['user','assistant'].includes(m.role)&&typeof m.text==='string').map((m:any)=>({...m,images:m.role==='user'?imageReferences(m.images):undefined,stats:m.stats&&Number.isInteger(m.stats.round)&&m.stats.round>=0&&Number.isInteger(m.stats.steps)&&m.stats.steps>=0&&Number.isFinite(m.stats.contextLimit)&&m.stats.contextLimit>=0?m.stats:undefined,proposals:undefined})),recoverTask:typeof s.task==='string'&&s.task?s.task:undefined,error:s.task?'正在核对上次任务状态…':''}));
+      const sessions:Conversation[]=saved.sessions.filter((s:any)=>s&&typeof s.id==='string'&&typeof s.title==='string'&&Array.isArray(s.messages)).map((s:any)=>{
+        const task=typeof s.task==='string'&&s.task?s.task:typeof s.recoverTask==='string'?s.recoverTask:'';
+        return {...newConversation(),id:s.id,title:s.title,taskContext:s.taskContext?.schemaVersion===1?s.taskContext:undefined,stats:s.stats&&Number.isInteger(s.stats.round)&&s.stats.round>=0&&Number.isInteger(s.stats.steps)&&s.stats.steps>=0&&Number.isFinite(s.stats.contextLimit)&&s.stats.contextLimit>=0?s.stats:undefined,draft:typeof s.draft==='string'?s.draft:'',draftImages:imageReferences(s.draftImages),workspace:typeof s.workspace==='string'?s.workspace:'',lastPrompt:typeof s.lastPrompt==='string'?s.lastPrompt:'',
+          messages:s.messages.filter((m:any)=>m&&['user','assistant'].includes(m.role)&&typeof m.text==='string').map((m:any)=>({...m,images:m.role==='user'?imageReferences(m.images):undefined,stats:m.stats&&Number.isInteger(m.stats.round)&&m.stats.round>=0&&Number.isInteger(m.stats.steps)&&m.stats.steps>=0&&Number.isFinite(m.stats.contextLimit)&&m.stats.contextLimit>=0?m.stats:undefined,proposals:undefined})),
+          task,recoverTask:task||undefined,started:Number.isFinite(s.started)&&s.started>0?s.started:Date.now(),deadline:Number.isFinite(s.deadline)?s.deadline:undefined,streaming:task&&typeof s.streaming==='string'?s.streaming:'',activities:task&&Array.isArray(s.activities)?s.activities:[],storageWarning:task&&typeof s.storageWarning==='string'?s.storageWarning:undefined,progress:task?'正在核对上次任务状态…':''};
+      });
       if(sessions.length)return {sessions,active:sessions.some(s=>s.id===saved.active)?saved.active:sessions[0].id};
     }
   }catch{/* Invalid local history must not prevent starting a new conversation. */}
@@ -84,7 +113,7 @@ export function lastQuery(messages:Message[]):unknown{
   return null;
 }
 export function taskMessage(result:AIResult,key:string,stats?:AssistantStats):Message{
-  return {role:'assistant',activityKey:key,text:result.text||result.fault?.message||'任务未返回正文',activities:finishActivities(result.activities),trace:result.trace,proposals:result.proposals,links:resultLinks(result.trace),status:result.status,fault:result.fault,route:result.route,delivery:result.delivery,taskContext:result.taskContext,stats:stats?{...stats,serviceUsage:result.serviceUsage??stats.serviceUsage}:undefined};
+  return {role:'assistant',activityKey:key,text:result.text||result.fault?.message||'任务未返回正文',activities:finishActivities(result.activities),trace:result.trace,proposals:result.proposals,links:resultLinks(result.trace),status:result.status,fault:result.fault,warning:result.warning,storageWarning:result.storageWarning,route:result.route,delivery:result.delivery,taskContext:result.taskContext,stats:stats?{...stats,serviceUsage:result.serviceUsage??stats.serviceUsage}:undefined};
 }
 // 会话累计：统计条必须反映本会话全部任务，而不是只看最后一条回复。
 export function sessionTotals(messages:Message[],running?:{stats?:AssistantStats;activities?:Activity[]}):{usage:unknown[];steps:number;rounds:number;serviceUsage:ServiceUsage[]}|null{

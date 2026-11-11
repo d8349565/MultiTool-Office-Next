@@ -33,6 +33,7 @@
 .model-settings-pages { min-height: 0; flex: 1; overflow: auto; padding: 24px; scrollbar-gutter: stable; scrollbar-color: var(--line) var(--surface); }
 .model-settings-pages [role="tabpanel"] { min-width: 0; }
 .model-settings input, .model-settings textarea { caret-color: var(--focus); }
+.model-settings .model-field-error { color: var(--danger); }
 .model-settings ::selection { background: var(--accent); color: var(--accent-text); }
 .settings-form .model-settings .settings-section { padding: 20px 0; }
 .settings-form .model-settings .settings-section:first-child { padding-top: 0; }

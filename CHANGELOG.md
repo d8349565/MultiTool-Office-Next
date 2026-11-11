@@ -1,5 +1,38 @@
 # 变更日志
 
+## v0.5.10 - 2026-11-11
+
+### Improvements
+
+- Reduce Assistant context-limit failures by trimming older sent conversation turns and bounding reference lists. Keep the full local history and the current request.
+- Retry or resume the selected task with its original question, folder and images, including when conversation history is disabled. Restore running-task status after refresh or a temporary connection loss.
+- Report task-record saving failures, retain unsaved results during the current app run and offer saving again. Show the actual connection or service error when automatic continuation fails.
+- Remove the redundant summary buttons and persistent waiting-budget prompt. Show one main recovery action per unresolved error, with parameter settings when relevant; hide superseded retry actions.
+- Validate model parameters before saving. New configurations use the model's default reasoning, while existing explicit settings remain compatible.
+- Use Alt-hover for file previews alongside Ctrl-click selection. Move and resize the preview window, remember its layout, and read long file names from tooltips without expanding file rows.
+
+### 修复与完善
+
+- 通过精简发送的旧对话和限制资料编号清单，减少助手会话超限；保留本机完整记录和本轮要求。
+- 重试和续接绑定被选中的原任务，恢复原问题、目录和图片，关闭聊天历史后也能带回原图；刷新或连接短暂中断后继续核对运行状态。
+- 任务记录保存失败时明确提示，本次运行内保留尚未保存的结果并支持重新保存；自动补写失败显示真实连接或服务错误。
+- 移除重复的“仅整理已有资料/结果”和常驻“调整等待”入口。未解决的错误只提供一个主要恢复操作，参数相关错误再提供设置入口；旧操作被后续恢复承接后不再重复显示。
+- 保存前检查模型参数的范围和等待预算关系。新配置使用模型默认思考程度，已有显式设置保持兼容。
+- 文件预览改为 Alt 悬停，与 Ctrl 单击多选配合使用；预览窗口可移动、缩放并记住布局，长文件名单行显示并提供完整名称提示。
+
+### Compatibility / 使用说明
+
+- Windows x64 and Microsoft Edge WebView2 are required. Existing settings and OCR components remain compatible; file access still requires authorization and per-file confirmation.
+- If results cannot be saved, keep the app running until storage is available and the results have been saved again. In-memory recovery does not survive app exit.
+- 需要 Windows x64 和 Microsoft Edge WebView2。继续兼容已有设置和 OCR 组件，文件访问仍需授权及逐文件确认。
+- 结果无法保存时，请保持应用运行，处理存储问题后重新保存；仅保留在内存中的结果无法保证退出后恢复。
+- Application build / 应用构建版本 `2026.1111.1932`。
+
+### Verification scope / 验证范围
+
+- 21 targeted Rust checks, Assistant/settings state checks, local frontend production and Windows installer builds passed. The embedded version, x64 runtime, bundled components and SHA-256 were verified. Real model requests, desktop end-to-end flows and installation/upgrade were not tested for this release; no GitHub Actions workflows are configured.
+- 21 项针对性 Rust 回归、会话及设置状态检查、本机前端生产构建和 Windows 安装包构建通过，已核验内嵌版本、x64 运行组件、随包资源和 SHA-256。本版未验证真实模型请求、桌面端到端流程及安装升级，仓库未配置 GitHub Actions 工作流。
+
 ## v0.5.9 - 2026-11-10
 
 ### Improvements

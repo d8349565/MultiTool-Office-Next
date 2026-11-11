@@ -71,7 +71,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: "max".into(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: default_reasoning(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -127,6 +127,13 @@ pub fn validate(s: &Settings) -> Result<(), String> {
     }
     Ok(())
 }
+// 旧版值可加载、导出或随无关设置原样保存；新填的参数采用与界面一致的范围。
+fn validate_new_parameters(s:&Settings,previous:Option<&Settings>)->Result<(),String>{
+    validate(s)?;
+    if s.model_context_tokens!=0&&s.model_context_tokens<1024&&previous.is_none_or(|old|old.model_context_tokens!=s.model_context_tokens){return Err("模型上下文容量应至少为 1024，或填 0 自动选择".into());}
+    if s.model_retry_count>2&&previous.is_none_or(|old|old.model_retry_count!=s.model_retry_count){return Err("服务繁忙重试最多 2 次".into());}
+    Ok(())
+}
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("无效保存目录")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -152,7 +159,7 @@ pub fn save(dir: &Path, old: &Settings, mut next: Settings) -> Result<Settings, 
     for profile in &mut next.model_profiles{if let Some(previous)=old.model_profiles.iter().find(|p|p.id==profile.id){profile.credential_revision=profile.credential_revision.max(previous.credential_revision);}}
     let connection=|s:&Settings|{let id=s.active_model_profile_id.as_deref().unwrap_or("legacy");let credential=s.model_profiles.iter().find(|p|p.id==id).map_or(0,|p|p.credential_revision);(s.model_url.clone(),s.model_id.clone(),s.active_model_profile_id.clone(),credential)};
     next.model_connection_revision=if connection(old)!=connection(&next){old.model_connection_revision.checked_add(1).ok_or("模型连接版本超出范围")?}else{old.model_connection_revision};
-    validate(&next)?;
+    validate_new_parameters(&next,Some(old))?;
     let lock = settings_lock(dir)?;
     if load(dir)? != *old { return Err("配置已发生变化，请刷新后重新确认".into()); }
     next.revision += 1;
@@ -172,13 +179,13 @@ pub fn patch(old: &Settings, changes: &Value) -> Result<Settings, String> {
     }
     if changes.get("modelRetryCount").and_then(Value::as_u64).is_some_and(|n|n>2){return Err("重试最多2次".into());}
     let next = serde_json::from_value(value).map_err(|e| format!("配置结构无效：{e}"))?;
-    validate(&next)?; Ok(next)
+    validate_new_parameters(&next,Some(old))?; Ok(next)
 }
 pub fn redacted(s: &Settings) -> Value { let mut v=serde_json::to_value(s).unwrap();let map=v.as_object_mut().unwrap();map.remove("modelUrl");map.remove("modelId");map.remove("modelProfiles");v["modelConfigured"]=json!(!s.model_url.is_empty());v }
 
 pub fn import(path: &Path, current: &Settings) -> Result<Settings, String> {
     let mut next: Settings = serde_json::from_slice(&fs::read(path).map_err(|e| format!("无法读取配置文件：{e}"))?).map_err(|e| format!("配置文件格式无效：{e}"))?;
-    validate(&next)?;
+    validate_new_parameters(&next,None)?;
     next.revision = current.revision;
     Ok(next)
 }
@@ -191,6 +198,20 @@ pub fn export(path: &Path, current: &Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn assistant_parameter_defaults_and_legacy_values_remain_compatible(){
+        let current=Settings::default();assert_eq!(current.assistant_reasoning,"default");
+        assert!(validate_new_parameters(&current,None).is_ok());
+        let mut old=current.clone();old.assistant_reasoning="max".into();old.model_retry_count=5;old.model_context_tokens=512;
+        assert!(validate(&old).is_ok());assert!(validate_new_parameters(&old,None).is_err());
+        assert!(validate_new_parameters(&old,Some(&old)).is_ok());
+        assert!(patch(&old,&json!({"theme":"dark"})).is_ok());
+        let decoded:Settings=serde_json::from_value(json!(old)).unwrap();assert_eq!(decoded,old);
+        assert!(patch(&old,&json!({"modelRetryCount":2,"modelContextTokens":0})).is_ok());
+        for changes in [json!({"modelContextTokens":1}),json!({"modelRetryCount":3}),json!({"assistantOutputTokens":255}),json!({"assistantTaskTimeoutSecs":30})]{assert!(patch(&current,&changes).is_err());}
+        let mut missing=json!(current);missing.as_object_mut().unwrap().remove("assistantReasoning");
+        assert_eq!(serde_json::from_value::<Settings>(missing).unwrap().assistant_reasoning,"default");
+    }
     #[test]
     fn pricing_patch_is_a_draft_until_saved_and_rejects_stale_revision(){
         let dir=tempfile::tempdir().unwrap();let current=Settings::default();
@@ -222,7 +243,7 @@ mod tests {
             model_first_response_timeout_secs: 30, model_idle_timeout_secs: 20, model_retry_count: 1,
             assistant_task_timeout_secs: 360, assistant_history_messages: 6, assistant_history_chars: 1800,
             assistant_tool_rounds: 7, assistant_search_limit: 3, assistant_auto_continue: false, assistant_continue_tokens: 1024,
-            model_temperature: Some(0.3), model_top_p: Some(0.7), model_pricing: Default::default(),
+            model_temperature: Some(0.3), model_top_p: Some(0.7), model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults(),
         };
         export(&path, &source).unwrap();
         let bytes = fs::read(&path).unwrap();
