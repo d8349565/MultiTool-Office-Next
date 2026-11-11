@@ -404,7 +404,7 @@ export default function App(){
                         }}>
                         <FileIcon extension={e.extension}/>
                         <div className="file-description">
-                          <strong>{e.name}</strong>
+                          <strong title={e.name}>{e.name}</strong>
                           <span title={e.parent}>{relativePath(e.parent,q?settings.roots.find(r=>isWithin(e.path,r))||root:current)||'当前目录'}</span>
                         </div>
                         <div className="file-meta">
@@ -419,7 +419,7 @@ export default function App(){
               <div className="file-actions">
                 <span className="file-action-label" title={selectedFile?.name} aria-live="polite">
                   {multipleSelected?<><strong>已选 {selectedFiles.length} 个文件</strong>{ocrPaths.length<selectedFiles.length&&` · ${ocrPaths.length} 个可送入 OCR`}</>
-                    :selectedFile?.name??'Ctrl＋单击多选 · Ctrl 悬停预览 · 双击打开 · 右键打开所在文件夹'}
+                    :selectedFile?.name??'Ctrl＋单击多选 · Alt 悬停预览 · 双击打开 · 右键打开所在文件夹'}
                 </span>
                 {selectedFiles.length>0&&<div className="file-action-buttons" role="group" aria-label="所选文件操作">
                   {selectedFile&&<>

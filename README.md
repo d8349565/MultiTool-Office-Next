@@ -26,7 +26,7 @@ The app is free to use. Optional model, search, and scoring services may require
 
 1. **Add a working folder:** in the first-run setup or File Workspace (`文件工作区`), choose `添加工作目录` and wait for local indexing. You can skip AI setup.
 2. **Find a file:** press `Ctrl + F` and enter part of its filename.
-3. **Check its contents:** hold `Ctrl` while hovering over a result to preview it. Double-click to open it in the default application.
+3. **Check its contents:** hold `Alt` while hovering over a result to preview it. Double-click to open it in the default application.
 
 You can now browse folder levels, search your selected working folders, and preview files from one window.
 
@@ -63,7 +63,9 @@ The index stores filenames, paths, and other metadata. Search does not index doc
 
 ### Local document previews
 
-Hold `Ctrl` and hover to preview. Press `Ctrl + Enter` on a focused file or click the pin in the preview to keep it open.
+Hold `Alt` and hover to preview. Press `Ctrl + Enter` on a focused file, click the preview button, or click the pin in the preview to keep it open. `Ctrl + click` is reserved for multi-selection.
+
+The preview starts in the bottom-right corner. Drag its title to move it, or its top-left or bottom-right corner to resize it. Position and size are remembered locally for the current user. Focus the title or a resize handle and use the arrow keys for fine adjustments.
 
 - Preview PDF, common image formats, text, Markdown, CSV, Word (`.docx`), Excel (`.xls`, `.xlsx`), and PowerPoint (`.ppt`, `.pptx`).
 - Turn PDF and PowerPoint pages, switch Excel worksheets, and resize the preview window.
@@ -154,7 +156,7 @@ Use Settings → Keyboard Shortcuts to change or disable page, search, and quick
 | Shortcut | Action |
 | :--- | :--- |
 | `Ctrl + F` | Focus file, tool, or task search in the current view |
-| `Ctrl + hover` | Temporarily preview a file |
+| `Alt + hover` | Temporarily preview a file |
 | `Ctrl + left-click` / `Ctrl + Space` | Toggle file selection for batch import with Send to OCR |
 | `Ctrl + Enter` | Keep a file preview open |
 | `Ctrl + K` | Toggle the quick launcher |

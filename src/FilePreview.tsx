@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type PointerEvent } from 'react';
 import { Button } from '@fluentui/react-components';
 import { ArrowLeft, ArrowRight, ArrowSquareOut, PushPin, X } from '@phosphor-icons/react';
 import { api } from './api';
 import { MarkdownView } from './AssistantMarkdown';
-import { previewPosition, type FilePreviewData, type PreviewSize } from './filePreviewModel';
+import { previewPosition, type FilePreviewData, type PreviewLayout } from './filePreviewModel';
 import { SheetPreview } from './SheetPreview';
 import { IconButton } from './components';
 import type { PreviewTarget } from './useFilePreview';
@@ -22,11 +22,14 @@ interface Props {
 }
 interface Cached {data:FilePreviewData;time:number;size:number}
 const cache=new Map<string,Cached>();
-const sizeKey='office-file-preview-size';
-function savedSize():PreviewSize {
+const layoutKey='office-file-preview-layout';
+function savedLayout():PreviewLayout {
   try {
-    const size=JSON.parse(localStorage.getItem(sizeKey)||'null');
-    if(Number.isFinite(size?.width)&&size.width>0&&Number.isFinite(size?.height)&&size.height>0)return {width:size.width,height:size.height};
+    const layout=JSON.parse(localStorage.getItem(layoutKey)||localStorage.getItem('office-file-preview-size')||'null');
+    if(Number.isFinite(layout?.width)&&layout.width>0&&Number.isFinite(layout?.height)&&layout.height>0)return {
+      width:layout.width,height:layout.height,
+      ...(Number.isFinite(layout.left)&&Number.isFinite(layout.top)?{left:layout.left,top:layout.top}:{}),
+    };
   }catch{/* 无法读取偏好时使用默认尺寸。 */}
   return {width:520,height:420};
 }
@@ -37,21 +40,41 @@ function remember(key:string,data:FilePreviewData){
 }
 
 export function FilePreview({target,request,generation,onClose,onPin,onEnter,onLeave,onOpen}:Props) {
-  const {entry,anchor,pinned}=target;
+  const {entry,pinned}=target;
   const [page,setPage]=useState(1),[sheet,setSheet]=useState(0),[retry,setRetry]=useState(0);
   const [loaded,setLoaded]=useState<{fileKey:string;key:string;data:FilePreviewData}|null>(null);
   const [failed,setFailed]=useState<{key:string;error:string}|null>(null);
   const [viewport,setViewport]=useState({width:window.innerWidth,height:window.innerHeight});
-  const [dimensions,setDimensions]=useState(savedSize),[placement,setPlacement]=useState<{left:number;top:number}|null>(null);
+  const [layout,setLayout]=useState(savedLayout);
   const panel=useRef<HTMLElement>(null);
-  const drag=useRef<{pointerId:number;corner:'start'|'end';x:number;y:number;left:number;top:number;width:number;height:number}|null>(null);
-  const position=previewPosition(anchor,viewport.width,viewport.height,dimensions);
-  if(placement){position.left=Math.max(12,Math.min(placement.left,viewport.width-position.width-12));position.top=Math.max(12,Math.min(placement.top,viewport.height-position.height-12));}
-  function changeSize(width:number,height:number){
-    const bounded=previewPosition(anchor,window.innerWidth,window.innerHeight,{width,height}),next={width:bounded.width,height:bounded.height};
-    const d=drag.current;
-    setPlacement({left:d?.corner==='start'?d.left+d.width-next.width:position.left,top:d?.corner==='start'?d.top+d.height-next.height:position.top});setDimensions(next);
-    try{localStorage.setItem(sizeKey,JSON.stringify(next));}catch{/* 保存失败不影响本次调整。 */}
+  const drag=useRef<{pointerId:number;mode:'move'|'start'|'end';x:number;y:number;left:number;top:number;width:number;height:number}|null>(null);
+  const position=previewPosition(viewport.width,viewport.height,layout);
+  function changeLayout(next:PreviewLayout){
+    const bounded=previewPosition(window.innerWidth,window.innerHeight,next);
+    setLayout(bounded);
+    try{localStorage.setItem(layoutKey,JSON.stringify(bounded));}catch{/* 保存失败不影响本次调整。 */}
+  }
+  function changeSize(width:number,height:number,corner:'start'|'end',base=position){
+    const bounded=previewPosition(window.innerWidth,window.innerHeight,{width,height});
+    const next={width:Math.min(bounded.width,corner==='start'?base.left+base.width-12:window.innerWidth-base.left-12),height:Math.min(bounded.height,corner==='start'?base.top+base.height-12:window.innerHeight-base.top-12)};
+    changeLayout({...next,left:corner==='start'?base.left+base.width-next.width:base.left,top:corner==='start'?base.top+base.height-next.height:base.top});
+  }
+  function startDrag(event:PointerEvent<HTMLElement>,mode:'move'|'start'|'end'){
+    if(event.button!==0||drag.current)return;
+    event.preventDefault();event.currentTarget.focus({preventScroll:true});onPin();
+    drag.current={...position,pointerId:event.pointerId,mode,x:event.clientX,y:event.clientY};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function moveDrag(event:PointerEvent<HTMLElement>){
+    const d=drag.current;if(d?.pointerId!==event.pointerId)return;
+    const dx=event.clientX-d.x,dy=event.clientY-d.y;
+    if(d.mode==='move')changeLayout({width:d.width,height:d.height,left:d.left+dx,top:d.top+dy});
+    else{const direction=d.mode==='start'?-1:1;changeSize(d.width+dx*direction,d.height+dy*direction,d.mode,d);}
+  }
+  function endDrag(event:PointerEvent<HTMLElement>){
+    if(drag.current?.pointerId!==event.pointerId)return;
+    drag.current=null;
+    if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
   }
   const fileKey=`${entry.path}|${entry.modified}|${entry.size}|${generation}`;
   const key=`${fileKey}|${page}|${sheet}`;
@@ -77,7 +100,11 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
   return <section className={`file-preview ${pinned?'pinned':''}`} role="dialog" aria-label={`文件预览：${entry.name}`} aria-modal="false" tabIndex={-1} ref={panel}
     style={position} onPointerEnter={onEnter} onPointerLeave={onLeave} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onClose();}}}>
     <header className="file-preview-head">
-      <div className="file-preview-title"><span>{pinned?'固定预览':'文件预览'}</span><strong title={entry.path}>{entry.name}</strong></div>
+      <div className="file-preview-title" role="group" aria-label="移动文件预览窗口" tabIndex={0} title="拖动标题移动，方向键微调"
+        onPointerDown={event=>startDrag(event,'move')} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+        onKeyDown={event=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();event.stopPropagation();onPin();changeLayout({...position,left:position.left+(event.key==='ArrowRight'?20:event.key==='ArrowLeft'?-20:0),top:position.top+(event.key==='ArrowDown'?20:event.key==='ArrowUp'?-20:0)});}}>
+        <span>{pinned?'固定预览':'文件预览'}</span><strong title={entry.path}>{entry.name}</strong>
+      </div>
       <div className="file-preview-actions">
         {!pinned&&<IconButton label="固定预览" onClick={onPin}><PushPin size={16}/></IconButton>}
         <IconButton label="关闭预览" onClick={onClose}><X size={16}/></IconButton>
@@ -95,10 +122,7 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
     </div>
     <footer className="file-preview-footer"><span>{data?.truncated?'内容已截取 · ':''}{data?.notice||'仅在本机预览'}{!pinned&&' · 点击图钉固定'}</span><Button appearance="subtle" size="small" icon={<ArrowSquareOut size={14}/>} onClick={()=>onOpen(entry)}>打开文件</Button></footer>
     {(['start','end'] as const).map(corner=><div key={corner} className={`file-preview-resize ${corner}`} role="separator" aria-label={`从${corner==='start'?'左上':'右下'}角调整文件预览窗口大小`} aria-valuetext={`${Math.round(position.width)} × ${Math.round(position.height)} 像素`} title="拖动调整大小，方向键微调" tabIndex={0}
-      onPointerDown={event=>{if(event.button!==0||drag.current)return;event.preventDefault();onPin();drag.current={pointerId:event.pointerId,corner,x:event.clientX,y:event.clientY,left:position.left,top:position.top,width:position.width,height:position.height};event.currentTarget.setPointerCapture(event.pointerId);}}
-      onPointerMove={event=>{const d=drag.current;if(d?.pointerId===event.pointerId){const direction=d.corner==='start'?-1:1;changeSize(d.width+(event.clientX-d.x)*direction,d.height+(event.clientY-d.y)*direction);}}}
-      onPointerUp={event=>{if(drag.current?.pointerId!==event.pointerId)return;drag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
-      onPointerCancel={()=>{drag.current=null;}} onLostPointerCapture={()=>{drag.current=null;}}
-      onKeyDown={event=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();event.stopPropagation();onPin();changeSize(position.width+(event.key==='ArrowRight'?20:event.key==='ArrowLeft'?-20:0),position.height+(event.key==='ArrowDown'?20:event.key==='ArrowUp'?-20:0));}}/>)}
+      onPointerDown={event=>startDrag(event,corner)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+      onKeyDown={event=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();event.stopPropagation();onPin();const direction=corner==='start'?-1:1;changeSize(position.width+(event.key==='ArrowRight'?20:event.key==='ArrowLeft'?-20:0)*direction,position.height+(event.key==='ArrowDown'?20:event.key==='ArrowUp'?-20:0)*direction,corner);}}/>)}
   </section>;
 }

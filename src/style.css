@@ -105,14 +105,14 @@ h1{font-size:22px;font-weight:650;letter-spacing:-.7px;line-height:1.4}
 .office-app .file-row .file-icon{width:24px;height:28px;flex-basis:24px}
 .office-app .file-row .file-icon img{width:21px;height:26px}
 .file-description{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,34%);gap:2px 12px;align-items:center;min-width:0;flex:1}
-.file-description strong{font-size:13px;line-height:1.35;font-weight:550;overflow-wrap:anywhere}
+.file-description strong{min-width:0;font-size:13px;line-height:1.35;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-description>span{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-meta{display:grid;grid-template-columns:72px 88px;gap:8px;flex-shrink:0;color:var(--muted);font-size:11px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .file-score{display:flex;justify-content:flex-end;min-width:32px}
 .file-actions{display:flex;align-items:center;flex-wrap:wrap;flex-shrink:0;gap:4px 8px;min-height:34px;padding:4px 8px;border-top:1px solid var(--line);background:var(--surface-alt);color:var(--muted);font-size:11px}
 .file-action-label{flex:1 1 9rem;min-width:0}
 .file-action-label>strong{color:var(--text);font-weight:550}
-.file-action-label[title]{color:var(--text);font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-action-label[title]{color:var(--text);font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-action-buttons{display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-width:0}
 .file-actions .fui-Button{font-size:11px}
 .pagination{display:flex;align-items:center;flex-shrink:0;gap:4px;margin-inline-start:auto;white-space:nowrap;font-variant-numeric:tabular-nums}

@@ -55,7 +55,7 @@ export function ShortcutSettings({ bindings, savedGlobal, globalActive, onChange
     <details className="settings-advanced shortcut-help"><summary>其他常用操作</summary>
       <p><kbd>F2</kbd> 重命名当前文件或目录</p>
       <p><kbd>Ctrl + 左键</kbd> 或 <kbd>Ctrl + 空格</kbd> 增减文件选择</p>
-      <p><kbd>Ctrl + 悬停</kbd> 临时预览；<kbd>Ctrl + Enter</kbd> 固定预览</p>
+      <p><kbd>Alt + 悬停</kbd> 临时预览；<kbd>Ctrl + Enter</kbd> 固定预览</p>
       <p><kbd>Esc</kbd> 关闭弹窗或预览</p>
     </details>
   </>;

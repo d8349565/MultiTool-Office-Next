@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { api } from './api';
 import type { Entry } from './types';
-import type { PreviewAnchor } from './filePreviewModel';
 
-export interface PreviewTarget { entry:Entry; anchor:PreviewAnchor; pinned:boolean }
+export interface PreviewTarget { entry:Entry; pinned:boolean }
 
 export function useFilePreview(enabled:boolean,scope:string,entries:Entry[]) {
   const [target,setTarget]=useState<PreviewTarget|null>(null);
@@ -19,8 +18,8 @@ export function useFilePreview(enabled:boolean,scope:string,entries:Entry[]) {
     if(request.current){void api('cancel_file_preview',{requestId:request.current}).catch(()=>{});request.current=null;}
   },[clearTimers]);
   const show=useCallback((entry:Entry,element:HTMLElement,pinned:boolean)=>{
-    clearTimers();origin.current=element;const anchor=element.getBoundingClientRect();
-    const next={entry,anchor:{left:anchor.left,right:anchor.right,top:anchor.top,bottom:anchor.bottom},pinned};
+    clearTimers();origin.current=element;
+    const next={entry,pinned};
     current.current=next;setTarget(next);
   },[clearTimers]);
   const schedule=useCallback(()=>{
@@ -29,10 +28,12 @@ export function useFilePreview(enabled:boolean,scope:string,entries:Entry[]) {
     hoverTimer.current=setTimeout(()=>{hoverTimer.current=null;if(hovering.current?.entry.path===item.entry.path)show(item.entry,item.element,false);},300);
   },[enabled,show]);
   const hover=(entry:Entry,event:PointerEvent<HTMLElement>)=>{
+    if(event.buttons){hovering.current=null;if(!current.current?.pinned)close();return;}
     if(leaveTimer.current)clearTimeout(leaveTimer.current);leaveTimer.current=null;
     if(hovering.current?.entry.path!==entry.path){if(hoverTimer.current)clearTimeout(hoverTimer.current);hoverTimer.current=null;}
     hovering.current={entry,element:event.currentTarget};
-    if(event.ctrlKey)schedule();
+    if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey)schedule();
+    else if(!current.current?.pinned)close();
   };
   const leave=()=>{
     hovering.current=null;if(hoverTimer.current)clearTimeout(hoverTimer.current);hoverTimer.current=null;
@@ -46,10 +47,15 @@ export function useFilePreview(enabled:boolean,scope:string,entries:Entry[]) {
     if(entry.modified!==active.entry.modified||entry.size!==active.entry.size)setTarget({...active,entry});
   },[entries,close]);
   useEffect(()=>{
-    const down=(event:KeyboardEvent)=>{if(event.key==='Escape')close();if(event.key==='Control')schedule();};
-    const up=(event:KeyboardEvent)=>{if(event.key==='Control'&&!current.current?.pinned)close();};
-    const blur=()=>close();
-    const outside=(event:globalThis.PointerEvent)=>{if(current.current&&event.target instanceof Element&&!event.target.closest('.file-preview'))close();};
+    const down=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){close();return;}
+      if(event.repeat)return;
+      if(event.key==='Alt'&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey)schedule();
+      else if(!current.current?.pinned)close();
+    };
+    const up=(event:KeyboardEvent)=>{if(event.key==='Alt'&&!current.current?.pinned)close();};
+    const blur=()=>{hovering.current=null;close();};
+    const outside=(event:globalThis.PointerEvent)=>{if(event.target instanceof Element&&!event.target.closest('.file-preview')){hovering.current=null;close();}};
     const scroll=(event:Event)=>{if(event.target instanceof Element&&event.target.closest('.file-list')&&!current.current?.pinned){hovering.current=null;close();}};
     window.addEventListener('keydown',down);window.addEventListener('keyup',up);window.addEventListener('blur',blur);window.addEventListener('pointerdown',outside);window.addEventListener('scroll',scroll,true);
     return()=>{clearTimers();window.removeEventListener('keydown',down);window.removeEventListener('keyup',up);window.removeEventListener('blur',blur);window.removeEventListener('pointerdown',outside);window.removeEventListener('scroll',scroll,true);};
