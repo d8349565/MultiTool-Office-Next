@@ -9,7 +9,7 @@ impl Worker{
         let id=self.pending_preview.as_ref().unwrap().clone();
         loop{
             if cancel.load(Ordering::Relaxed){return Err(Cancelled);}
-            if started.elapsed()>Duration::from_secs(15){return Err(Fatal("预览加载超时，请用原程序打开".into()));}
+            if started.elapsed()>Duration::from_secs(30){return Err(Fatal("预览加载超时，请用原程序打开".into()));}
             match self.rx.recv_timeout(Duration::from_millis(50)){
                 Ok(Ok(value))=>{
                     self.pending_preview=None;

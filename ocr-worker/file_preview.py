@@ -405,18 +405,26 @@ def preview_file(path, page, sheet, images):
     extension = path.suffix.lower()
     if extension in TEXT_TYPES:
         return text_preview(path)
-    if extension == ".docx":
-        return docx_preview(path)
+    if extension in {".docx", ".ppt", ".pptx"}:
+        from office_render import RenderUnavailable, rendered_preview
+        try:
+            return rendered_preview(path, page, images)
+        except RenderUnavailable as error:
+            notice = str(error)
+        if extension == ".docx":
+            result = docx_preview(path)
+        elif extension == ".pptx":
+            result = pptx_preview(path, page)
+        else:
+            from ppt_text import slide_text
+            count, text = slide_text(path, page, MAX_FILE, MAX_CHARS + 1)
+            result = slide_preview(page, count, text)
+        result["notice"] = notice + "；可用原程序查看完整排版。"
+        return result
     if extension == ".xlsx":
         return xlsx_preview(path, sheet)
     if extension == ".xls":
         return xls_preview(path, sheet)
-    if extension == ".pptx":
-        return pptx_preview(path, page)
-    if extension == ".ppt":
-        from ppt_text import slide_text
-        count, text = slide_text(path, page, MAX_FILE, MAX_CHARS + 1)
-        return slide_preview(page, count, text)
     if extension in IMAGE_TYPES:
         return image_preview(path, page, images)
     raise ValueError("此格式暂不支持内容预览，请用原程序打开")

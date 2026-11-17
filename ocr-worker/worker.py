@@ -1,6 +1,7 @@
-"""Offline OCR-only worker. Protocol v1: one JSON request per line, page/done/error events.
+"""Offline OCR/preview worker. Protocol v1: one JSON request per line.
 
-No service credentials, HTTP clients, shell commands or write operations belong here.
+No service credentials or HTTP clients belong here. Office layout conversion
+uses isolated local applications and disposable copies, never source writes.
 """
 import contextlib
 import json
@@ -88,9 +89,9 @@ def rgb_image(image):
 
 def images(path, spec, dpi, skip, regions=None, metadata=None):
     from PIL import Image, ImageOps
-    if path.suffix.lower() == ".pdf":
+    if isinstance(path, bytes) or path.suffix.lower() == ".pdf":
         import pypdfium2 as pdfium
-        doc = pdfium.PdfDocument(str(path))
+        doc = pdfium.PdfDocument(path if isinstance(path, bytes) else str(path))
         try:
             if metadata is not None:
                 metadata["pageCount"] = len(doc)

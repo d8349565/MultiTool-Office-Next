@@ -68,10 +68,12 @@ Hold `Alt` and hover to preview. Press `Ctrl + Enter` on a focused file, click t
 The preview starts in the bottom-right corner. Drag its title to move it, or its top-left or bottom-right corner to resize it. Position and size are remembered locally for the current user. Focus the title or a resize handle and use the arrow keys for fine adjustments.
 
 - Preview PDF, common image formats, text, Markdown, CSV, Word (`.docx`), Excel (`.xls`, `.xlsx`), and PowerPoint (`.ppt`, `.pptx`).
-- Turn PDF and PowerPoint pages, switch Excel worksheets, and resize the preview window.
+- Turn PDF, rendered Word and PowerPoint pages, switch Excel worksheets, and resize the preview window.
 - Preview content stays local and is not automatically added to AI conversations. Macros, formulas, and scripts are not executed.
 
-Word and PowerPoint previews focus on text. Excel previews have row, column, and content limits and use cached formula values; `.xls` previews show cell values. Use the original application for images and charts in these documents, complex layouts, and editing.
+Word and PowerPoint first use an installed local Office, WPS, or LibreOffice engine to render pages, preserving pagination, fonts, images, tables, and slide layouts. The first preview can take a few seconds; turning pages reuses the conversion. Conversion uses disposable copies without changing or uploading the source. Animations and videos appear as static pages. If no suitable engine is available, conversion fails, or a file contains external resources or active content, the preview explains why it falls back to text. Missing fonts and differences between rendering engines can still affect layout.
+
+Excel previews have row, column, and content limits and use cached formula values; `.xls` previews show cell values. Use the original application for editing.
 
 ### Offline OCR and batch renaming
 

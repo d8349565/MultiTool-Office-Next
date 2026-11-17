@@ -155,9 +155,9 @@ try{
   await check('PDF 实际排版保存',async()=>{const {value}=await task('pdf');assert.equal(value.status,'completed',JSON.stringify(value.fault));const bytes=readFileSync(join(workspace,'audit-pdf.pdf'));assert.ok(bytes.subarray(0,5).equals(Buffer.from('%PDF-')));assert.ok(bytes.length>2000,'PDF 不应只有空白页');});
   await check('Word Excel PPT HTML 逐个确认生成',async()=>{for(const format of ['docx','xlsx','pptx','html']){const {value}=await task(format);assert.equal(value.status,'completed',JSON.stringify(value.fault));const bytes=readFileSync(join(workspace,'audit-'+format+'.'+format));assert.ok(bytes.length>100);assert.ok(format==='html'?bytes.includes(Buffer.from('流程验证虚构文档')):bytes.subarray(0,2).equals(Buffer.from('PK')));}});
   await check('文件浏览范围为空时仍可预览助理生成链接',async()=>{
-    for(const [name,kind]of[['audit-create.txt','text'],['audit-docx.docx','text'],['audit-xlsx.xlsx','table'],['audit-pdf.pdf','image']]){
-      const preview=await cdp.invoke('file_preview',{path:join(workspace,name),requestId:crypto.randomUUID(),page:1,sheet:0});assert.equal(preview.kind,kind);
-      if(kind==='image'){assert.ok(preview.image.startsWith('data:image/png;base64,'));writeFileSync(join(folder,'pdf-preview.png'),Buffer.from(preview.image.split(',')[1],'base64'));}
+    for(const [name,kinds]of[['audit-create.txt',['text']],['audit-docx.docx',['text','image']],['audit-xlsx.xlsx',['table']],['audit-pdf.pdf',['image']]]){
+      const preview=await cdp.invoke('file_preview',{path:join(workspace,name),requestId:crypto.randomUUID(),page:1,sheet:0});assert.ok(kinds.includes(preview.kind),name+' 预览类型无效');
+      if(preview.kind==='image'){assert.ok(preview.image.startsWith('data:image/png;base64,'));writeFileSync(join(folder,name+'.preview.png'),Buffer.from(preview.image.split(',')[1],'base64'));}
       else assert.ok(JSON.stringify(preview).includes('中文排版'),name+' 正文缺失');
     }
   });

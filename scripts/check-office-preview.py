@@ -33,6 +33,9 @@ for i, ((name, page, sheet, expected), reply) in enumerate(zip(cases, replies)):
         assert preview["sheets"] == ["Sheet1", "Sheet2", "Sheet3"]
         assert preview["rows"] == ([[expected]] if expected else [])
     else:
-        assert preview["kind"] == "text" and preview["page"] == page and preview["pageCount"] == 2
-        assert preview["text"].startswith(expected), preview
+        assert preview["kind"] in {"text", "image"} and preview["page"] == page and preview["pageCount"] == 2
+        if preview["kind"] == "text":
+            assert preview["text"].startswith(expected), preview
+        else:
+            assert preview["image"].startswith("data:image/png;base64,"), "missing rendered slide"
     print(f"PASS {name}, page {page}, worksheet {sheet + 1}")

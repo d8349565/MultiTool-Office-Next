@@ -43,7 +43,7 @@ pub async fn file_preview(state:tauri::State<'_,Arc<AppState>>,path:String,reque
             let started=Instant::now();
             loop{
                 if cancel.load(Ordering::Relaxed){return Err("预览已取消".into());}
-                if started.elapsed()>Duration::from_secs(15){return Err("预览加载超时，请用原程序打开".into());}
+                if started.elapsed()>Duration::from_secs(30){return Err("预览加载超时，请用原程序打开".into());}
                 if let Ok(mut slot)=state.file_previews.worker.try_lock(){
                     if cancel.load(Ordering::Relaxed){return Err("预览已取消".into());}
                     if slot.is_none(){*slot=Some(Worker::spawn(&state.ocr.exe)?);}

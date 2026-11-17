@@ -89,10 +89,10 @@ export function FilePreview({target,request,generation,onClose,onPin,onEnter,onL
     setFailed(null);
     if(cached&&Date.now()-cached.time<30_000){setLoaded({fileKey,key,data:cached.data});return;}
     const requestId=crypto.randomUUID();request.current=requestId;
-    const timer=setTimeout(()=>{if(alive){alive=false;setFailed({key,error:'预览加载超时，可重试或用原程序打开。'});void api('cancel_file_preview',{requestId}).catch(()=>{});}},15_000);
+    const timer=setTimeout(()=>{if(alive){alive=false;setFailed({key,error:'预览加载超时，可重试或用原程序打开。'});void api('cancel_file_preview',{requestId}).catch(()=>{});}},30_000);
     void api<FilePreviewData>('file_preview',{path:entry.path,requestId,page,sheet}).then(value=>{
       if(!alive||request.current!==requestId)return;
-      clearTimeout(timer);remember(key,value);setLoaded({fileKey,key,data:value});
+      clearTimeout(timer);if(value.kind!=='text'||!/\.(docx|pptx?)$/i.test(entry.path))remember(key,value);setLoaded({fileKey,key,data:value});
     }).catch(reason=>{if(alive&&request.current===requestId){clearTimeout(timer);setFailed({key,error:String(reason)});}});
     return()=>{alive=false;clearTimeout(timer);if(request.current===requestId)request.current=null;void api('cancel_file_preview',{requestId}).catch(()=>{});};
   },[fileKey,key,retry,entry.path,page,sheet,request]);
