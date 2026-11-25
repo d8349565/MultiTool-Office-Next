@@ -1,5 +1,29 @@
 # 变更日志
 
+## v0.6.0 - 2026-11-25
+
+### Improvements
+
+- Choose the Windows x64 installer (`_x64-setup.exe`) or the standalone executable (`_x64-portable.exe`). Both include the same application and offline OCR models. The standalone edition unpacks its runtime into a temporary folder for each launch.
+- Process batches of scans with automatic or manual concurrency of 1–8 files. On smaller or memory-constrained PCs, automatic mode reuses one model and uses up to four inference threads. See elapsed time for the whole batch and the actual inference thread count in file details.
+- Batch renaming follows input order and saves progress per file. Filename conflict handling, review and undo remain available. OCR field extraction runs locally, and the Jev scoring integration has been removed.
+- Word and PowerPoint preview can use a local Office renderer to preserve pagination, tables, images and slide layout. A text fallback is available when the renderer is unavailable or active content prevents rendering.
+- The Assistant reuses compressed conversation context and sends fewer redundant updates while streaming.
+
+### 新功能与改进
+
+- Windows x64 提供安装版（`_x64-setup.exe`）和免安装单文件版（`_x64-portable.exe`）。两者包含同一份主程序和离线 OCR 模型。单文件版双击即可运行，每次启动时将组件展开到临时目录。
+- 扫描件批量识别支持自动推荐，也可手动选择同时处理 1～8 份文件。低配或内存紧张时自动逐份复用一套模型，单份最多使用 4 个推理线程。文件清单显示整批用时，详情可看实际推理线程数。
+- 批量改名按导入顺序分配重名序号，逐份保存进度，支持复核和撤销。OCR 字段由本机规则提取，已移除 Jev 评分功能。
+- Word 和 PowerPoint 可调用本机 Office 排版引擎预览分页、表格、图片和幻灯片布局。遇到活动内容或排版引擎不可用时，可查看文字预览。
+- 助理复用已压缩的会话上下文，流式回复减少重复刷新。
+
+### Compatibility / 使用说明
+
+- Both editions require Windows x64 and Microsoft Edge WebView2. The installer can help obtain WebView2. The standalone edition and the installed app use the same settings and OCR history for the current Windows user.
+- 两个版本都需要 Windows x64 和 Microsoft Edge WebView2。缺少 WebView2 时可选安装版。单文件版和安装版共用当前 Windows 用户的应用配置和 OCR 任务记录。
+- Application build / 应用构建版本 `2026.1125.2301`。
+
 ## v0.5.10 - 2026-11-11
 
 ### Improvements

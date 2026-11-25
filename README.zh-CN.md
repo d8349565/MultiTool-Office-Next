@@ -6,7 +6,7 @@
 
 MultiTool Office Next（MTO）是一款免费开源的 Windows 办公工具箱，集成文件分栏浏览、本地文件搜索、文档预览和离线 OCR 批量命名。浏览、搜索、预览和默认 OCR 均在本机处理，无需注册应用账号或配置 AI Key。AI 助手可按需连接自己的模型服务。
 
-[**下载 Windows x64 安装包**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [快速上手](#快速上手) · [核心功能](#核心功能) · [反馈问题](https://github.com/d8349565/MultiTool-Office-Next/issues)
+[**下载 Windows x64 安装版或单文件版**](https://github.com/d8349565/MultiTool-Office-Next/releases/latest) · [快速上手](#快速上手) · [核心功能](#核心功能) · [反馈问题](https://github.com/d8349565/MultiTool-Office-Next/issues)
 
 ![支持 Windows x64](https://img.shields.io/badge/Windows-x64-0078D4?logo=windows) [![Apache-2.0 开源许可](https://img.shields.io/badge/License-Apache--2.0-blue)](LICENSE)
 
@@ -15,12 +15,12 @@ MultiTool Office Next（MTO）是一款免费开源的 Windows 办公工具箱�
 ## 下载与安装
 
 1. 打开 [最新 Releases 下载页](https://github.com/d8349565/MultiTool-Office-Next/releases/latest)。
-2. 下载以 `_x64-setup.exe` 结尾的 Windows 安装包并运行，无需下载源码 ZIP。
-3. 按向导安装，完成后打开 **MultiTool Office Next**。
+2. 需要常用的开始菜单入口，选择以 `_x64-setup.exe` 结尾的**安装版**，按向导安装后打开 **MultiTool Office Next**。
+3. 需要免安装运行，选择以 `_x64-portable.exe` 结尾的**单文件版**，直接双击。启动时会将程序和组件展开到临时目录，正常退出托盘后清理。两个版本共用当前 Windows 用户的应用配置和 OCR 任务记录。
 
-运行环境为 **Windows x64 + Microsoft Edge WebView2**。缺少 WebView2 时，安装程序可能联网下载运行时；OCR 模型随安装包提供。应用窗口沿用 **MultiTool Office** 名称。
+两个版本都需要 **Windows x64 和 Microsoft Edge WebView2**，都已包含离线 OCR 模型。缺少 WebView2 时，安装版可引导获取运行时。应用窗口名称为 **MultiTool Office**。
 
-应用本身免费；可选模型、搜索和评分服务可能需要服务商账号及付费 API。安装包包含哪些变更以发布说明为准，`main` 分支可能包含尚未发布的修复。
+应用本身免费。可选模型和搜索服务可能需要服务商账号及付费 API。下载版本所含变更以发布说明为准，`main` 分支可能包含尚未发布的修复。
 
 ## 快速上手
 
@@ -76,6 +76,8 @@ Word 和 PowerPoint 优先使用本机已安装的 Office、WPS 或 LibreOffice 
 Excel 预览有行列与内容限制，公式使用已有缓存值；`.xls` 显示单元格值。完整编辑请用原程序打开。
 
 ### 离线 OCR 与批量命名
+
+在「识别设置 → 同时识别文件数」中可选自动或手动指定 1～8 个文件。自动模式在可用逻辑处理器不超过 8 个、总内存不超过 8 GiB 或可用内存少于 6 GiB 时，逐份处理扫描件，整批复用一套模型。此时 4 个逻辑处理器用 2 个推理线程，8 个用 4 个。资源充足时可同时识别多份文件；可用内存足够时，文字识别阶段会复用计算缓冲区。改名按清单顺序执行，文件清单显示整批实际用时。
 
 导入扫描 PDF 或图片，提取公司、日期、单据编号等字段，再按自己的规则组合文件名。
 
@@ -144,10 +146,10 @@ DeepSeek 额外网页抓取默认关闭，与搜索共用任务联网次数上�
 <summary>连接模型与可选联网搜索</summary>
 
 1. **模型**：在 [DeepSeek 官方平台](https://platform.deepseek.com/api_keys)创建 Key，或使用其他 OpenAI 兼容服务。在“模型参数”核对接口和模型，填写 Key、测试并保存，再点击“使用此配置”；既有配置继续保留。
-2. **联网搜索**：在“联网与评分”选择 Tavily 或 DeepSeek。DeepSeek 可复用一份已保存的官方模型配置，或单独填写搜索 Key；Tavily 需从[官方平台](https://app.tavily.com/)获取独立 Key。测试成功后启用搜索，再点击“保存此模块”。搜索测试成功不代表模型已配置。
+2. **联网搜索**：在“联网搜索”选择 Tavily 或 DeepSeek。DeepSeek 可复用一份已保存的官方模型配置，或单独填写搜索 Key；Tavily 需从[官方平台](https://app.tavily.com/)获取独立 Key。测试成功后启用搜索，再点击“保存此模块”。搜索测试成功不代表模型已配置。
 3. **网页正文与费用**：DeepSeek 搜索有正文就使用正文，没有则使用摘要；额外网页抓取默认关闭。Search / Fetch 费用计入会话费用，可在“费用计价”核对单价。详见[搜索与计费说明](docs/deepseek-search.md)。
 
-连接测试只发送固定内容，不携带业务文件，但可能消耗服务额度。无效的新 Key 不会替换原有效 Key。DeepSeek 搜索测试费用在测试结果和联网活动中查看；可选 Jev 辅助判定需单独配置。
+连接测试只发送固定内容，不携带业务文件，但可能消耗服务额度。无效的新 Key 不会替换原有效 Key。DeepSeek 搜索测试费用在测试结果和联网活动中查看。
 
 </details>
 
@@ -175,7 +177,6 @@ DeepSeek 额外网页抓取默认关闭，与搜索共用任务联网次数上�
 | 默认 OCR | 在本机读取所选 PDF 或图片并提取文字。 |
 | AI 助手、AI 配置草稿 | 相关输入发给所配置的模型服务。助手请求可能包含历史对话、图片、角色文件、文件名、完整路径及经确认读取的正文。 |
 | Tavily / DeepSeek 搜索及可选抓取 | 公开搜索词或网址发给所选服务商，返回资料交给模型；接触本地工作目录资料的会话不能继续公开搜索或抓取。 |
-| 可选 Jev 辅助判定 | 发送候选信息。敏感数字过滤仅用于 OCR 候选行。 |
 
 文件浏览目录与助理读写目录分别授权。API Key 保存在 **Windows 凭据管理器**；会话、OCR 结果、待办和生成文件可能在本机留存，按需清理。
 
@@ -208,7 +209,7 @@ npm.cmd run ocr:build
 npm.cmd run desktop
 ```
 
-启动后应出现桌面工作台窗口。执行 `npm.cmd run package:keep` 按当前项目版本生成 Windows 安装包。脚本详情见 [package.json](package.json) 和 [Windows 构建脚本](scripts/windows.ps1)。
+启动后应出现桌面工作台窗口。执行 `npm.cmd run package:keep` 按当前项目版本生成 Windows 安装版和单文件版。脚本详情见 [package.json](package.json) 和 [Windows 构建脚本](scripts/windows.ps1)。
 
 </details>
 

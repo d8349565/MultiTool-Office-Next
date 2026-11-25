@@ -7,7 +7,7 @@ import type { OcrProposal } from './types';
 import type { OcrFieldDefinition, OcrProfile } from './ocrTypes';
 
 const profileLabels:Partial<Record<keyof OcrProfile,string>>={name:'配置名称',keywords:'自动匹配关键词',pages:'提取页范围',dpi:'渲染 DPI',threshold:'匹配与复核阈值',filenamePattern:'命名格式',extraTitles:'附加标题',noiseMarkers:'排除词',extraHeaders:'补充表头'};
-const fieldLabels:Record<keyof OcrFieldDefinition,string>={key:'字段名称',prompt:'Jev 判断要求',kind:'字段类型',multiple:'提取多个值',maxItems:'最多提取数量',separator:'多个值分隔符',required:'必须提取',fallback:'未找到时默认值',anchors:'本地定位词',pattern:'本地正则表达式',stripPrefixes:'清理前缀',format:'输出格式'};
+const fieldLabels:Record<keyof OcrFieldDefinition,string>={key:'字段名称',prompt:'字段用途备注',kind:'字段类型',multiple:'提取多个值',maxItems:'最多提取数量',separator:'多个值分隔符',required:'必须提取',fallback:'未找到时默认值',anchors:'本地定位词',pattern:'本地正则表达式',stripPrefixes:'清理前缀',format:'输出格式'};
 const statuses={pending:'待你确认',applied:'已保存',rejected:'未应用',expired:'已失效，请重新生成'};
 function value(input:unknown):string{
   if(input==null)return '无';

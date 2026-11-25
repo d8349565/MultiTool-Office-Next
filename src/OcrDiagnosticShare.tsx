@@ -15,9 +15,9 @@ function ReadablePreview({content}:{content:string}){
   return <section className="ocr-diagnostic-readable" aria-label="共享内容阅读预览">
     <div className="ocr-form-grid"><p>文件状态：<strong>{status(overview.fileStatus)}</strong><br/>文字范围：{text(overview.sharedLineCount)} / {text(overview.ocrLineCount)} 行</p><p>识别配置：<strong>{text(packet.profiles?.atRecognition?.name)}</strong><br/>当前配置：{text(packet.profiles?.current?.name)}</p></div>
     {overview.profileChangedSinceRecognition===true&&<p className="ocr-warning">识别后配置已经变化，助理将对照两份配置分析。</p>}
-    <details><summary>字段结果与来源（{fields.length} 项）</summary><ul>{fields.map((field:any,index:number)=><li key={index}><strong>{text(field.key)}</strong>：{text(field.result?.value)} · {field.result?.source==='jev'?'Jev 判断':field.result?.source==='local'?'本地提取':field.result?.source==='manual'?'人工修正':'未识别'}{field.result?.review?' · 需复核':''}</li>)}</ul></details>
+    <details><summary>字段结果与来源（{fields.length} 项）</summary><ul>{fields.map((field:any,index:number)=><li key={index}><strong>{text(field.key)}</strong>：{text(field.result?.value)} · {field.result?.source==='local'?'本地提取':field.result?.source==='manual'?'人工修正':field.result?.source==='missing'?'未识别':'历史结果'}{field.result?.review?' · 需复核':''}</li>)}</ul></details>
     <details><summary>脱敏文字与行号（{lines.length} 行）</summary><pre>{lines.length?lines.map((line:any)=>`第 ${text(line.page)} 页 · 第 ${text(line.line)} 行：${text(line.text)}`).join('\n'):'未共享文字；助理将仅依据配置与状态分析。'}</pre></details>
-    <details><summary>流程与决策记录</summary><pre>{JSON.stringify({overview:packet.overview,classification:packet.classification,decisions:packet.decisions,questions:packet.questions},null,2)}</pre></details>
+    <details><summary>流程与决策记录</summary><pre>{JSON.stringify({overview:packet.overview,classification:packet.classification,decisions:packet.decisions},null,2)}</pre></details>
   </section>;
 }
 export function OcrDiagnosticShare({taskId,fileId,onClose,onShare}:{taskId:string;fileId:string;onClose:()=>void;onShare:(request:OcrDiagnosticRequest)=>void}){

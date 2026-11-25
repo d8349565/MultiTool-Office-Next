@@ -19,7 +19,7 @@ const initialDemoLaunchers = [
   { id: '8', name: '团队协作门户系统', path: 'https://example.com', group: '在线入口' },
   { id: '9', name: '设计资产共享目录', path: 'D:/演示工作区/图片资源/', group: '常用目录' },
 ];
-let settings: Settings = { schemaVersion: 1, revision: 0, roots: [demoRoot], theme: 'light', recursive: true, filter: '', launchers: initialDemoLaunchers, modelUrl: '', modelId: '', jevEnabled: false, shortcuts:defaultShortcuts };
+let settings: Settings = { schemaVersion: 1, revision: 0, roots: [demoRoot], theme: 'light', recursive: true, filter: '', launchers: initialDemoLaunchers, modelUrl: '', modelId: '', shortcuts:defaultShortcuts };
 const folders = ['项目文件','共享文件','参考资料','图片资源','归档文件','个人文件','项目文件/演示项目甲','项目文件/演示项目乙','项目文件/演示项目丙','项目文件/演示项目丁','项目文件/演示项目甲/第一阶段','项目文件/演示项目甲/第二阶段','项目文件/演示项目甲/阶段记录','项目文件/演示项目甲/第一阶段/文档资料','项目文件/演示项目甲/第一阶段/图片素材','项目文件/演示项目甲/第一阶段/交付文件','项目文件/演示项目甲/第一阶段/文档资料/历史版本','项目文件/演示项目甲/第一阶段/文档资料/历史版本/2026'];
 const filePaths = ['项目文件/演示项目甲/第一阶段/项目说明.docx','项目文件/演示项目甲/第一阶段/项目进度.xlsx','项目文件/演示项目甲/第一阶段/会议纪要.md','项目文件/演示项目甲/第一阶段/图片素材/图片说明.pdf','项目文件/演示项目甲/第一阶段/文档资料/合作协议.docx','项目文件/演示项目甲/第一阶段/文档资料/历史版本/2026/合作协议.pdf','项目文件/演示项目甲/第二阶段/网站需求.docx','共享文件/工作安排.xlsx','个人文件/阅读笔记.md'];
 const entry = (p: string, isDir: boolean, i: number): Entry => ({ path: `${demoRoot}/${p}`, name: basename(p), parent: `${demoRoot}/${p.split('/').slice(0,-1).join('/')}`.replace(/\/$/,''), extension: isDir ? '' : p.split('.').at(-1)!, size: (i + 1) * 28149, modified: 1789862400 + i * 4800, isDir });
@@ -33,7 +33,7 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
   switch (command) {
     case 'file_preview': return previewDemo(String(args.path),Number(args.page)||1,Number(args.sheet)||0) as T;
     case 'cancel_file_preview': return undefined as T;
-    case 'bootstrap': return { settings, status, keys: { model:false, jev:false } } as T;
+    case 'bootstrap': return { settings, status, keys: { model:false } } as T;
     case 'assistant_workspace': return {path:'',readWrite:false,interactiveHtml:false,revision:0,needsReconfirmation:false,modelHost:''} as T;
     case 'index_status': return status as T;
     case 'list_dirs': return dirs.filter(d => cleanPath(d.parent) === cleanPath(String(args.path))) as T;

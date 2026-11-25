@@ -11,36 +11,25 @@ export interface OcrProfile {
 }
 export interface OcrRegion { page: number; x: number; y: number; width: number; height: number; fieldKey?: string | null }
 export interface OcrLine { text: string; page: number; score: number; box: number[][]; page_size?: [number, number] | null }
-export interface OcrJevCandidateLog {
-  id: string; originalLineIndex: number; originalText: string; maskedText: string;
-}
-export interface OcrJevQuestionLog {
-  questionId: string; fieldKey: string; instructions: string;
-  chosenId?: string | null; chosenText?: string | null; confidence?: number | null;
-}
-export interface OcrJevLog {
-  enabled: boolean; sent: boolean; success: boolean; error?: string | null; elapsedMs: number;
-  candidates: OcrJevCandidateLog[]; questions: OcrJevQuestionLog[]; rawResponse?: unknown;
-}
 export interface OcrDecisionLog {
   fieldKey: string; finalValue: string; finalSource: string; reviewRequired: boolean;
-  reviewReason?: string | null; jevCandidate?: string | null; jevConfidence?: number | null;
+  reviewReason?: string | null;
   localAttempted?: boolean | null; localCandidate?: string | null; localRuleMatched?: string | null;
 }
 export function localDecisionText(d:OcrDecisionLog):string {
   if(d.localCandidate)return d.localCandidate+(d.localRuleMatched?` [锚点:${d.localRuleMatched}]`:'');
-  if(d.localAttempted===false)return '（已有 Jev 结果，未执行本地回退）';
+  if(d.localAttempted===false)return '（当时未执行本地规则）';
   if(d.localAttempted===true)return '（已执行本地提取，未得到有效候选）';
   return '（历史记录未提供本地候选，执行情况未知）';
 }
 export interface OcrFileDiagnostics {
-  ocrLinesCount: number; ocrElapsedMs: number; jev: OcrJevLog; decisions: OcrDecisionLog[]; logs: string[];
+  ocrLinesCount: number; ocrElapsedMs: number; decisions: OcrDecisionLog[]; logs: string[];
   profileMatch?: OcrProfileMatch | null;
   timings?: OcrTimings | null;
 }
 export interface OcrTimings {
   engine: {modelLoadMs:number;renderMs:number;inferenceMs:number;detectMs:number;classifyMs:number;recognizeMs:number;workerCpuMs:number;pagesProcessed:number;requests:number} | null;
-  workerStartMs:number;fingerprintMs:number;profileMatchMs:number;extractMs:number;reusedPages:number;saveMs:number | null;
+  inferenceThreads?:number|null;reuseRecognitionMemory?:boolean;workerStartMs:number;fingerprintMs:number;profileMatchMs:number;extractMs:number;reusedPages:number;saveMs:number | null;
   regionFastPath?:boolean;regionFallback?:boolean;
   classificationFastPath?:boolean;classificationFallback?:boolean;
 }
@@ -61,14 +50,14 @@ export interface OcrFileResult {
 }
 export interface OcrWorkflowOptions {exportFormat:'none'|'txt'|'csv'|'json';exportDirectory:string;rename:'review'|'preview'|'apply';renameConfirmed:boolean}
 export interface OcrWorkflow {enabled:boolean;options:OcrWorkflowOptions;status:string;exportPath:string;renameBatchId:string;error:string}
-export interface OcrTask { id: string; created: number; status: string; useJev: boolean; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow;clearedFileIds?:string[] }
-export interface OcrTaskProgress {id:string;status:string;workflow:OcrWorkflow;files:OcrFileResult[];completeSnapshot:boolean}
+export interface OcrTask { id: string; created: number; status: string; concurrency?: number; batchElapsedMs?:number|null; profiles: OcrProfile[]; files: OcrFileResult[];autoMatch?:boolean;workflow?:OcrWorkflow;clearedFileIds?:string[] }
+export interface OcrTaskProgress {id:string;status:string;workflow:OcrWorkflow;files:OcrFileResult[];completeSnapshot:boolean;batchElapsedMs?:number|null}
 export function mergeOcrProgress(task:OcrTask,progress:OcrTaskProgress):OcrTask {
   if(task.id!==progress.id)return task;
   // A full refresh may have completed while an older progress request was in flight.
   if(!['queued','running'].includes(task.status)&&['queued','running'].includes(progress.status))return task;
   const changed=new Map(progress.files.map(file=>[file.id,file]));
-  return {...task,status:progress.status,workflow:progress.workflow,
+  return {...task,status:progress.status,workflow:progress.workflow,batchElapsedMs:progress.batchElapsedMs===undefined?task.batchElapsedMs:progress.batchElapsedMs,
     files:progress.completeSnapshot?progress.files:task.files.map(file=>changed.get(file.id)||file)};
 }
 export const defaultWorkflow:OcrWorkflowOptions={exportFormat:'none',exportDirectory:'',rename:'apply',renameConfirmed:false};
@@ -84,7 +73,7 @@ export function completedOcrFileIds(task:OcrTask,batches:OcrRenameBatch[]):strin
   return task.files.filter(f=>['ready','review'].includes(f.status)&&!f.error&&(f.status==='ready'&&!f.warning||f.reviewed)&&(!workflow?.enabled||workflow.options.rename==='review'||renamed.has(`${f.id}\0${f.path}`))).map(f=>f.id);
 }
 export const completedOcrTask=(task:OcrTask,batches:OcrRenameBatch[]):boolean=>task.status==='completed'&&(!task.workflow?.enabled||task.workflow.status==='completed')&&task.files.length>0&&completedOcrFileIds(task,batches).length===task.files.length;
-export interface OcrBootstrap { profiles: OcrProfile[]; tasks: OcrTask[]; batches: OcrRenameBatch[]; engineReady: boolean; jevReady: boolean; unavailableReason?: string | null }
+export interface OcrBootstrap { profiles: OcrProfile[]; tasks: OcrTask[]; batches: OcrRenameBatch[]; engineReady: boolean; recommendedConcurrency: number; recommendedSoloThreads?: number | null; unavailableReason?: string | null }
 export const newField = (): OcrFieldDefinition => ({key:'',prompt:'',kind:'text',multiple:false,maxItems:5,separator:'、',required:true,fallback:'',anchors:[],pattern:'',stripPrefixes:[],format:''});
 export const newProfile = (): OcrProfile => ({id:crypto.randomUUID(),name:'新配置',keywords:[],pages:'1',dpi:200,fields:[],filenamePattern:'{原文件名}',threshold:.75});
 

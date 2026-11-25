@@ -3,6 +3,7 @@
 No service credentials or HTTP clients belong here. Office layout conversion
 uses isolated local applications and disposable copies, never source writes.
 """
+import argparse
 import contextlib
 import json
 import os
@@ -13,11 +14,19 @@ import io
 import base64
 import math
 
-os.environ["OMP_NUM_THREADS"] = "2"
-os.environ["OPENBLAS_NUM_THREADS"] = "2"
 PROTOCOL = 1
 MAX_PIXELS = 24_000_000
 _protocol_output = None
+
+
+def worker_options(arguments):
+    parser = argparse.ArgumentParser()
+    threads = parser.add_mutually_exclusive_group()
+    threads.add_argument("--inference-threads", type=int, choices=range(1, 5))
+    threads.add_argument("--shared-cpu", dest="inference_threads", action="store_const",
+                         const=1, help=argparse.SUPPRESS)  # Older desktop builds.
+    parser.add_argument("--reuse-rec-memory", action="store_true")
+    return parser.parse_args(arguments)
 
 
 def isolate_protocol_output():
@@ -171,7 +180,40 @@ def recognize_images(engine, iterator, regions, request_id, timings, np):
             image.close()
 
 
-def main():
+def create_engine(reuse_recognition_memory, inference_threads=2):
+    import cv2
+    from rapidocr_onnxruntime import RapidOCR
+
+    cv2.setNumThreads(1)
+    options = dict(intra_op_num_threads=inference_threads, inter_op_num_threads=1)
+    if not reuse_recognition_memory:
+        return RapidOCR(**options)
+
+    # The pinned RapidOCR 1.4.4 disables the CPU arena in all three stages.
+    # Its recognizer constructs this session during initialization. Keep its
+    # model, providers and numeric options, and recycle recognition tensors.
+    from rapidocr_onnxruntime.ch_ppocr_rec import text_recognize
+    original_session = text_recognize.OrtInferSession
+
+    class RecognitionSession(original_session):
+        @staticmethod
+        def _init_sess_opts(config):
+            session_options = original_session._init_sess_opts(config)
+            session_options.enable_cpu_mem_arena = True
+            return session_options
+
+    # This process handles one request at a time. Scope the factory override
+    # to construction so detection, previews and later engines keep their own settings.
+    text_recognize.OrtInferSession = RecognitionSession
+    try:
+        return RapidOCR(**options)
+    finally:
+        text_recognize.OrtInferSession = original_session
+
+
+def main(inference_threads=2, reuse_recognition_memory=False):
+    os.environ["OMP_NUM_THREADS"] = str(inference_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(inference_threads)
     # Imports/init can be noisy: keep stdout exclusively for the wire protocol.
     engine = None
     for raw in sys.stdin:
@@ -222,11 +264,13 @@ def main():
             with contextlib.redirect_stdout(sys.stderr):
                 import numpy as np
                 if engine is None:
-                    from rapidocr_onnxruntime import RapidOCR
                     # The pinned wheel includes all ONNX model files; no downloads.
-                    engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
+                    engine = create_engine(reuse_recognition_memory, inference_threads)
             timings["modelLoadMs"] = (time.monotonic() - started) * 1000
-            emit(request_id, "ready", loadMs=round(timings["modelLoadMs"]))
+            session_options = engine.text_rec.session.session.get_session_options()
+            emit(request_id, "ready", loadMs=round(timings["modelLoadMs"]),
+                 inferenceThreads=session_options.intra_op_num_threads,
+                 reuseRecognitionMemory=session_options.enable_cpu_mem_arena)
             regions = request.get("regions", [])
             iterator = timed_images(images(path, request["pages"], dpi, set(request.get("skip", [])), regions), timings)
             normal_preprocess = engine.text_det.get_preprocess
@@ -251,7 +295,8 @@ def main():
 
 
 if __name__ == "__main__":
+    options = worker_options(sys.argv[1:])
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     isolate_protocol_output()
-    main()
+    main(options.inference_threads or 2, options.reuse_rec_memory)

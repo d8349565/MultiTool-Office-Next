@@ -27,7 +27,7 @@ pub fn validate_model_profile(profile:&ModelProfile)->Result<(),String>{
 pub struct Settings {
     pub schema_version: u32, pub revision: u64, pub roots: Vec<String>, pub theme: String,
     pub recursive: bool, pub filter: String, pub launchers: Vec<Launcher>,
-    pub model_url: String, pub model_id: String, pub jev_enabled: bool,
+    pub model_url: String, pub model_id: String,
     #[serde(default)] pub model_profiles: Vec<ModelProfile>,
     #[serde(default)] pub active_model_profile_id: Option<String>,
     #[serde(default)] pub model_connection_revision:u64,
@@ -71,7 +71,7 @@ fn default_auto_continue()->bool{true}
 fn default_continue_tokens()->u32{16384}
 fn default_reasoning()->String{"default".into()}
 impl Default for Settings {
-    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, jev_enabled: false, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: default_reasoning(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults() } }
+    fn default() -> Self { Self { schema_version: 1, revision: 0, roots: vec![], theme: "light".into(), recursive: true, filter: String::new(), launchers: vec![], model_url: String::new(), model_id: String::new(), model_profiles:vec![], active_model_profile_id:None,model_connection_revision:0, search_enabled: false, search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false, assistant_reasoning: default_reasoning(), translation_reasoning: default_reasoning(), model_context_tokens: 0, assistant_output_tokens: 0, translation_output_tokens: 0, model_request_timeout_secs: default_request_timeout(), model_first_response_timeout_secs:default_first_response_timeout(), model_idle_timeout_secs:default_idle_timeout(), model_retry_count: default_retry_count(), assistant_task_timeout_secs: default_task_timeout(), assistant_history_messages: default_history_messages(), assistant_history_chars: default_history_chars(), assistant_tool_rounds: default_tool_rounds(), assistant_search_limit: default_search_limit(), assistant_auto_continue: default_auto_continue(), assistant_continue_tokens: default_continue_tokens(), model_temperature: None, model_top_p: None, model_pricing: Default::default(), shortcuts: crate::shortcuts::defaults() } }
 }
 #[derive(Debug, PartialEq)]
 pub enum LauncherTarget { Local(PathBuf), Web(String) }
@@ -142,10 +142,30 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temp.persist(path).map_err(|e| e.to_string())?;
     Ok(())
 }
+fn decode_saved_settings(bytes: &[u8]) -> serde_json::Result<Settings> {
+    let mut value: Value = serde_json::from_slice(bytes)?;
+    if let Some(settings) = value.as_object_mut() {
+        settings.remove("jevEnabled");
+    }
+    serde_json::from_value(value)
+}
+#[test]
+fn previously_saved_scoring_switch_is_ignored_on_load_and_import() {
+    let directory = tempfile::tempdir().unwrap();
+    let current = Settings::default();
+    let mut legacy = json!(current);
+    legacy["jevEnabled"] = json!(true);
+    let path = directory.path().join("settings.json");
+    fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(load(directory.path()).unwrap(), current);
+    assert_eq!(import(&path, &current).unwrap(), current);
+    legacy["unknownOption"] = json!(true);
+    assert!(decode_saved_settings(&serde_json::to_vec(&legacy).unwrap()).is_err());
+}
 pub fn load(dir: &Path) -> Result<Settings, String> {
     let path = dir.join("settings.json");
     if !path.exists() { return Ok(Settings::default()); }
-    let s = serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?).map_err(|e| format!("配置文件损坏：{e}"))?;
+    let s = decode_saved_settings(&fs::read(path).map_err(|e| e.to_string())?).map_err(|e| format!("配置文件损坏：{e}"))?;
     validate(&s)?; Ok(s)
 }
 fn settings_lock(dir: &Path) -> Result<fs::File, String> {
@@ -184,7 +204,7 @@ pub fn patch(old: &Settings, changes: &Value) -> Result<Settings, String> {
 pub fn redacted(s: &Settings) -> Value { let mut v=serde_json::to_value(s).unwrap();let map=v.as_object_mut().unwrap();map.remove("modelUrl");map.remove("modelId");map.remove("modelProfiles");v["modelConfigured"]=json!(!s.model_url.is_empty());v }
 
 pub fn import(path: &Path, current: &Settings) -> Result<Settings, String> {
-    let mut next: Settings = serde_json::from_slice(&fs::read(path).map_err(|e| format!("无法读取配置文件：{e}"))?).map_err(|e| format!("配置文件格式无效：{e}"))?;
+    let mut next = decode_saved_settings(&fs::read(path).map_err(|e| format!("无法读取配置文件：{e}"))?).map_err(|e| format!("配置文件格式无效：{e}"))?;
     validate_new_parameters(&next,None)?;
     next.revision = current.revision;
     Ok(next)
@@ -235,7 +255,7 @@ mod tests {
                 Launcher { id: "local".into(), name: "常用文件".into(), path: dir.path().join("报价单.pdf").to_string_lossy().into_owned(), group: "文档".into() },
                 Launcher { id: "web".into(), name: "工作门户".into(), path: "https://example.com/office".into(), group: "网页".into() },
             ],
-            model_url: "https://example.com/v1".into(), model_id: "办公模型".into(), jev_enabled: true, search_enabled: true,search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false,
+            model_url: "https://example.com/v1".into(), model_id: "办公模型".into(), search_enabled: true,search_provider:default_search_provider(),deepseek_search_profile_id:None,deepseek_fetch_enabled:false,
             model_profiles:vec![], active_model_profile_id:None,
             model_connection_revision:0,
             assistant_reasoning: "medium".into(), translation_reasoning: "low".into(), model_context_tokens: 32000,

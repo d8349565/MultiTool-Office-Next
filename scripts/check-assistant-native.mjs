@@ -73,7 +73,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const origin='http://127.0.0.1:'+server.address().port;
 const portPicker=http.createServer();await new Promise(resolve=>portPicker.listen(0,'127.0.0.1',resolve));
 const debugPort=portPicker.address().port;await new Promise(resolve=>portPicker.close(resolve));
-const settings={schemaVersion:1,revision:0,roots:[],theme:'light',recursive:true,filter:'',launchers:[],modelUrl:origin+'/v1',modelId:'MiniMax-M3.1-Flash-Preview',jevEnabled:false,modelContextTokens:128000,assistantOutputTokens:4096,modelRequestTimeoutSecs:10,modelFirstResponseTimeoutSecs:10,modelIdleTimeoutSecs:10,modelRetryCount:0,assistantTaskTimeoutSecs:45};
+const settings={schemaVersion:1,revision:0,roots:[],theme:'light',recursive:true,filter:'',launchers:[],modelUrl:origin+'/v1',modelId:'MiniMax-M3.1-Flash-Preview',modelContextTokens:128000,assistantOutputTokens:4096,modelRequestTimeoutSecs:10,modelFirstResponseTimeoutSecs:10,modelIdleTimeoutSecs:10,modelRetryCount:0,assistantTaskTimeoutSecs:45};
 writeFileSync(join(data,'settings.json'),JSON.stringify(settings));
 const env={...process.env,RUSTUP_TOOLCHAIN:'stable-x86_64-pc-windows-gnu',CARGO_NET_OFFLINE:'true',PATH:join(root,'.tools/mingw64/bin')+';'+process.env.PATH,TAURI_CONFIG:JSON.stringify({identifier:'com.multitool.office.next.audit',productName:'Assistant Workflow Audit',build:{devUrl:origin+'/audit.html'}}),OFFICE_NEXT_TEST_DATA_DIR:data,OFFICE_NEXT_TEST_MODEL:'1',OFFICE_NEXT_TEST_WINDOW_HIDDEN:'1',WEBVIEW2_USER_DATA_FOLDER:join(folder,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-address=127.0.0.1 --remote-debugging-port='+debugPort,NO_PROXY:'127.0.0.1,localhost',HTTP_PROXY:'',HTTPS_PROXY:'',ALL_PROXY:''};
 class CDP{

@@ -9,7 +9,7 @@ import { money } from './assistantPricing';
 interface Grant {id:string;feature:string;label:string;service:string;categories:string[];masked:boolean}
 interface Activity extends Grant {time:number;status:string;billing?:import('./types').ServiceUsage}
 interface NetworkStatus {localOnly:boolean;setupStep:number;setupDismissed:boolean;grants:Grant[];activities:Activity[];pending:{id:string;grant:Grant;expiresAt:number}[];notice?:string|null}
-export interface ServiceStatus {modelKey:boolean;modelConfigured:boolean;tavilyKey:boolean;tavilyTestedAt:number|null;searchEnabled:boolean;searchProvider:'tavily'|'deepseek';searchProfileId:string|null;searchKey:boolean;searchTestedAt:number|null;deepseekOwnKey:boolean;deepseekProfiles:{id:string;name:string}[];jevKey:boolean}
+export interface ServiceStatus {modelKey:boolean;modelConfigured:boolean;tavilyKey:boolean;tavilyTestedAt:number|null;searchEnabled:boolean;searchProvider:'tavily'|'deepseek';searchProfileId:string|null;searchKey:boolean;searchTestedAt:number|null;deepseekOwnKey:boolean;deepseekProfiles:{id:string;name:string}[]}
 const statusNames:Record<string,string>={running:'正在请求',success:'成功',failed:'失败',blocked:'已阻止',cancelled:'已停止',interrupted:'已中断'};
 const NetworkContext=createContext<{status:NetworkStatus|null;error:string;refresh:()=>Promise<void>}>({status:null,error:'',refresh:async()=>{}});
 export const useNetwork=()=>useContext(NetworkContext);
@@ -47,7 +47,7 @@ export function NetworkSettings(){
   async function act(command:string,args?:Record<string,unknown>){setBusy(true);setError('');try{await api(command,args);setClearing(false);await refresh();}catch(e){setError(String(e));}finally{setBusy(false);}}
   return <section className="settings-section network-settings">
     <h3>联网控制</h3>{status?.notice&&<p role="alert" className="inline-error">{status.notice}</p>}<Switch checked={!!status?.localOnly} disabled={busy||!status} label="仅本地模式" onChange={(_,v)=>void act('network_local_mode',{enabled:v.checked})}/>
-    <p>开启后暂停应用内模型、Tavily / DeepSeek 搜索、网页抓取、Jev 和连接测试，并停止正在进行的请求。本地检索、预览、OCR 继续可用。已经发送的内容无法通过此开关收回。</p>
+    <p>开启后暂停应用内模型、Tavily / DeepSeek 搜索、网页抓取和连接测试，并停止正在进行的请求。本地检索、预览、OCR 继续可用。已经发送的内容无法通过此开关收回。</p>
     <h3>已授权的联网功能</h3>{!status?.grants.length&&<p className="muted">尚未授权。首次使用时会说明服务与数据范围。</p>}
     {status?.grants.map(g=><div className="network-grant" key={g.id}><div><strong>{g.label}</strong><span>{g.service}</span><small>{g.categories.join('；')}</small></div><Button type="button" disabled={busy} onClick={()=>void act('network_revoke',{id:g.id})}>撤销授权</Button></div>)}
     <div className="settings-budget-heading"><h3>联网活动</h3><Button type="button" disabled={busy} onClick={()=>setClearing(v=>!v)}>清空活动记录</Button></div>

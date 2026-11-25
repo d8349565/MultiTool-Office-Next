@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 
 #[test]
 fn naming_auto_replaces_illegal_characters_without_changing_ocr_values(){
@@ -81,7 +82,7 @@ fn contract_form_extracts_values_from_their_own_labels() {
         line("统一社会信用代码：91310115MA1H72XW99",843.0,463.0,526.0),
     ];
     let profile = OcrProfile {fields: contract_fields(), ..Default::default()};
-    let (fields, _) = extract(&lines,&profile,None,None,&mut vec![]);
+    let (fields, _) = extract(&lines,&profile,&mut vec![]);
     assert_eq!(fields["公司名称"].value,"北京未来智能科技有限公司");
     assert_eq!(fields["公司名称"].evidence,vec![5]);
     assert_eq!(fields["合同编号"].value,"HT-2025-0819");
@@ -108,7 +109,7 @@ fn region_does_not_bypass_a_configured_pattern() {
         regions: vec![OcrRegion {page:1,x:0.0,y:0.0,width:1.0,height:1.0,field_key:Some(field.key.clone())}],
         ..Default::default()
     };
-    let (fields, _) = extract(&[line("签订地点：北京市海淀区",100.0,100.0,350.0)],&profile,None,None,&mut vec![]);
+    let (fields, _) = extract(&[line("签订地点：北京市海淀区",100.0,100.0,350.0)],&profile,&mut vec![]);
     assert_eq!(fields["合同编号"].source,"missing");
     assert!(fields["合同编号"].review);
 }
@@ -120,27 +121,13 @@ fn local_diagnostics_record_region_fallback_without_an_anchor(){
         regions:vec![OcrRegion{page:1,x:0.5,y:0.15,width:0.4,height:0.02,field_key:Some("日期".into())}],..Default::default()
     };
     let lines=vec![line("报价日期",100.0,360.0,180.0),line("2026/10/28",900.0,360.0,220.0),line("报价有效期至",100.0,400.0,220.0),line("2027/12/31",900.0,400.0,220.0)];
-    let (fields,decisions)=extract(&lines,&profile,None,None,&mut vec![]);
+    let (fields,decisions)=extract(&lines,&profile,&mut vec![]);
     assert_eq!(fields["日期"].value,"2026/10/28");assert!(decisions[0].local_rule_matched.is_none());
     assert_eq!(serde_json::to_value(&decisions[0]).unwrap()["localAttempted"],true);
     let mut expiry_box=profile.clone();expiry_box.regions[0].y=0.17;
-    let (fields,decisions)=extract(&lines,&expiry_box,None,None,&mut vec![]);
+    let (fields,decisions)=extract(&lines,&expiry_box,&mut vec![]);
     assert_eq!(fields["日期"].source,"missing");assert!(fields["日期"].review);
     assert_eq!(serde_json::to_value(&decisions[0]).unwrap()["localAttempted"],true);
-}
-
-#[test]
-fn local_diagnostics_distinguish_jev_success_from_failed_local_extraction(){
-    let profile=OcrProfile{fields:vec![OcrFieldDefinition{key:"日期".into(),kind:"date".into(),anchors:vec!["报价日期".into()],..Default::default()}],..Default::default()};
-    let lines=vec![line("报价日期：2026/10/28",100.0,360.0,400.0)];
-    let plan=jev_body(&lines,&profile).unwrap();
-    let choice=plan.groups.keys().find_map(|key|key.strip_prefix("0:")).unwrap();
-    let mut response=json!({"answers":{}});response["answers"][&plan.questions[0].0]=json!({"choice":choice,"confidence":0.99});
-    let (fields,decisions)=extract(&lines,&profile,Some(&response),Some(&plan),&mut vec![]);
-    assert_eq!(fields["日期"].source,"jev");assert!(decisions[0].local_candidate.is_none());
-    let mut saved=serde_json::to_value(&decisions[0]).unwrap();assert_eq!(saved["localAttempted"],false);
-    saved.as_object_mut().unwrap().remove("localAttempted");
-    assert!(serde_json::from_value::<OcrDecisionLog>(saved).is_ok());
 }
 
 #[test]
@@ -151,40 +138,12 @@ fn adjacent_dates_keep_the_selected_document_date(){
         vec![line("报价日期",100.0,360.0,180.0),line("报价有效期至",100.0,400.0,220.0),line("2026/10/28",900.0,360.0,220.0),line("2027/12/31",900.0,400.0,220.0)],
         vec![line("报价日期",100.0,360.0,180.0),line("2026/10/28",350.0,360.0,200.0),line("有效期至",700.0,360.0,180.0),line("2027/12/31",950.0,360.0,200.0)],
     ]{
-        let (fields,_)=extract(&lines,&profile,None,None,&mut vec![]);
+        let (fields,_)=extract(&lines,&profile,&mut vec![]);
         assert_eq!(fields["日期"].value,"20261028");
-        let plan=jev_body(&lines,&profile).unwrap();
-        assert!(!plan.groups.is_empty(),"document date was removed before model selection");
-        assert!(plan.groups.values().flatten().all(|i|format_value(&lines[*i].text,&profile.fields[0]).as_deref()==Some("20261028")));
     }
     let mut expiry=profile.clone();expiry.fields[0].pattern=r"有效期至[:：]\s*(\d{4}/\d{1,2}/\d{1,2})".into();
     let lines=vec![line("报价日期：2026/10/28 报价有效期至：2027/12/31",100.0,360.0,800.0)];
-    assert_eq!(extract(&lines,&expiry,None,None,&mut vec![]).0["日期"].source,"missing");
-    assert!(jev_body(&lines,&expiry).unwrap().groups.is_empty());
-    let mut unanchored=profile;unanchored.fields[0].anchors.clear();unanchored.fields[0].pattern.clear();
-    let lines=vec![line("订单号 12345678 有效期至：2027/12/31",100.0,360.0,800.0)];
-    assert!(jev_body(&lines,&unanchored).unwrap().groups.is_empty());
-}
-
-#[test]
-fn product_candidates_after_clutter_are_scored_before_the_result_limit(){
-    let profile=OcrProfile{fields:vec![OcrFieldDefinition{key:"产品名称".into(),anchors:vec!["产品名称".into()],multiple:true,max_items:1,..Default::default()}],..Default::default()};
-    for (count,length) in [(240,2),(60,70)]{
-        let mut lines=vec![line("产品名称",100.0,100.0,250.0)];
-        for i in 0..count{
-            let mut item=line(&format!("补充资料{}{}",i,"甲乙".repeat(length)),100.0,200.0+(i%50)as f64*35.0,450.0);item.page=1+(i/50)as u32;lines.push(item);
-        }
-        let product_index=lines.len();lines.push(line("工业控制器",100.0,2200.0,250.0));
-        let plan=jev_body(&lines,&profile).unwrap();
-        assert!(plan.questions.iter().any(|(_,_,index)|*index==Some(product_index)),"product after {count} clutter lines was silently omitted");
-        let batches=jev_batches(&plan.body);
-        assert_eq!(batches.iter().map(|batch|batch["questions"].as_object().unwrap().len()).sum::<usize>(),plan.questions.len());
-        assert!(batches.iter().all(|batch|batch["questions"].as_object().unwrap().len()<=24));
-        let mut response=json!({"answers":{}});
-        for (id,_,index) in &plan.questions{response["answers"][id]=json!({"noul":if *index==Some(product_index){0.99}else{0.01}});}
-        let (fields,_)=extract(&lines,&profile,Some(&response),Some(&plan),&mut vec![]);
-        assert_eq!(fields["产品名称"].value,"工业控制器");
-    }
+    assert_eq!(extract(&lines,&expiry,&mut vec![]).0["日期"].source,"missing");
 }
 
 #[test]
@@ -198,11 +157,9 @@ fn real_product_table_keeps_multiple_values() {
     ];
     assert_eq!(local(&lines,&field),vec![(2,"工业控制器".into()),(4,"显示面板".into())]);
     let mut profile=OcrProfile{fields:vec![field],..Default::default()};profile.fields[0].max_items=1;
-    let plan=jev_body(&lines,&profile).unwrap();let mut response=json!({"answers":{}});
-    for (id,_,_) in &plan.questions{response["answers"][id]=json!({"noul":0.99});}
-    let mut logs=vec![];let (fields,_)=extract(&lines,&profile,Some(&response),Some(&plan),&mut logs);
+    let (fields,_) = extract(&lines,&profile,&mut Vec::new());
     assert_eq!(fields["产品名称"].value,"工业控制器");
-    assert!(logs.iter().any(|text|text.contains("已识别 2 个不同值")&&text.contains("最多保留 1 个")));
+
 }
 
 #[test]
@@ -211,8 +168,7 @@ fn customer_role_comes_from_anchors_even_with_a_generic_key() {
     assert!(is_rejected_candidate(None,&field,"供方（卖方）：上海卓越晨星电子科技有限公司"));
     let profile = OcrProfile {fields:vec![field],..Default::default()};
     let lines = vec![line("供方（卖方）：上海卓越晨星电子科技有限公司",100.0,100.0,450.0)];
-    let plan = jev_body(&lines,&profile).unwrap();
-    assert!(plan.groups.is_empty());
+    assert_eq!(extract(&lines,&profile,&mut vec![]).0[&profile.fields[0].key].source,"missing");
 }
 
 #[test]
@@ -252,7 +208,7 @@ fn replay_stored_contract_task() {
     let path=std::env::var("OFFICE_OCR_REPLAY_FILE").expect("需要指定任务 JSON 路径");
     let file:OcrFileResult=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let profile=file.profile.unwrap();
-    let (fields,_) = extract(&file.lines,&profile,None,None,&mut vec![]);
+    let (fields,_) = extract(&file.lines,&profile,&mut vec![]);
     assert_eq!(file.lines.len(),58);
     assert_eq!(fields["公司名称"].value,"北京未来智能科技有限公司");
     assert_eq!(fields["合同编号"].value,"HT-2025-0819");
@@ -312,7 +268,7 @@ fn checked_in_demo_files_match_expected_results() {
         worker.recognize(&file.path, profile, &[], &cancel, &mut OcrTimings::default(), false, |page| { lines.extend(page); Ok(()) }).unwrap();
         assert!(!lines.is_empty(), "{relative}: empty OCR result");
         assert_eq!(match_profile(&profiles, &lines).unwrap().id, profile.id, "{relative}: auto profile");
-        let (fields, _) = extract(&lines, profile, None, None, &mut vec![]);
+        let (fields, _) = extract(&lines, profile, &mut vec![]);
         for (key, value) in case["fields"].as_object().unwrap() {
             assert_eq!(fields[key].value, value.as_str().unwrap(), "{relative}: {key}; OCR={lines:?}");
             assert_eq!(fields[key].source, "local", "{relative}: {key}");

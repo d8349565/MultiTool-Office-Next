@@ -2,7 +2,12 @@ use super::model::*;
 use serde_json::{json,Value};
 use std::{io::{BufRead,BufReader,Write},path::Path,process::{Child,Command,Stdio},sync::{mpsc,atomic::{AtomicBool,Ordering}},time::{Duration,Instant}};
 
-pub struct Worker{child:Child,input:std::process::ChildStdin,rx:mpsc::Receiver<Result<Value,String>>,pending_preview:Option<String>}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RecognitionSettings {
+    pub inference_threads: u8,
+    pub reuse_recognition_memory: bool,
+}
+pub struct Worker{child:Child,input:std::process::ChildStdin,rx:mpsc::Receiver<Result<Value,String>>,pending_preview:Option<String>,pub(super) settings:RecognitionSettings}
 impl Worker{
     fn preview_response(&mut self,cancel:&AtomicBool,started:Instant)->Result<Value,crate::file_preview::PreviewError>{
         use crate::file_preview::PreviewError::{Cancelled,Fatal};
@@ -47,12 +52,18 @@ impl Worker{
         Ok(v)
     }
     pub fn spawn(exe:&Path)->Result<Self,String>{
-        let mut command=Command::new(exe);command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        Self::spawn_for_batch(exe,RecognitionSettings{inference_threads:2,reuse_recognition_memory:false})
+    }
+    pub(super) fn spawn_for_batch(exe:&Path,settings:RecognitionSettings)->Result<Self,String>{
+        let mut command=Command::new(exe);
+        command.arg("--inference-threads").arg(settings.inference_threads.to_string());
+        if settings.reuse_recognition_memory{command.arg("--reuse-rec-memory");}
+        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         #[cfg(windows)]{use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}
         let mut child=command.spawn().map_err(|e|format!("OCR 引擎启动失败：{e}"))?;
         let input=child.stdin.take().ok_or("OCR 输入管道不可用")?;let output=child.stdout.take().ok_or("OCR 输出管道不可用")?;
         let(tx,rx)=mpsc::channel();std::thread::spawn(move||{let mut reader=BufReader::new(output);loop{let mut data=Vec::new();let result=std::io::Read::take(&mut reader,8_000_001).read_until(b'\n',&mut data);match result{Ok(0)=>break,Ok(_)if data.len()>8_000_000=>{let _=tx.send(Err("OCR 单页输出过大".into()));break;},Ok(_)=>{if tx.send(serde_json::from_slice(&data).map_err(|_|"OCR 返回无效消息".into())).is_err(){break;}},Err(e)=>{let _=tx.send(Err(e.to_string()));break;}}}});
-        Ok(Self{child,input,rx,pending_preview:None})
+        Ok(Self{child,input,rx,pending_preview:None,settings})
     }
     pub fn recognize(&mut self,path:&str,p:&OcrProfile,skip:&[u32],cancel:&AtomicBool,timings:&mut OcrTimings,fast_regions:bool,mut page:impl FnMut(Vec<OcrLine>)->Result<(),String>)->Result<(),String>{
         // 用户画框即物理沙箱：完整下发用户圈选的区域，驱动底层执行图像物理切片，彻底阻断框外数据外泄并提升性能
@@ -72,7 +83,10 @@ impl Worker{
                         let measured:OcrEngineTimings=serde_json::from_value(v["timings"].take()).map_err(|_|"OCR 返回无效计时".to_owned())?;
                         timings.engine.get_or_insert_with(Default::default).add(measured);
                     }
-                    match v["kind"].as_str(){Some("done")=>return Ok(()),Some("error")=>return Err(v["error"].as_str().unwrap_or("OCR 失败").to_owned()),Some("page")=>{let lines:Vec<OcrLine>=serde_json::from_value(v["lines"].take()).map_err(|_|"OCR 行数据无效")?;if lines.iter().any(|l|l.page==0||!l.score.is_finite()||!(0.0..=1.0).contains(&l.score)||l.text.len()>100_000){return Err("OCR 行数据超出范围".into());}page(lines)?;},Some("ready")=>{},_=>return Err("未知 OCR 事件".into())}
+                    match v["kind"].as_str(){Some("done")=>return Ok(()),Some("error")=>return Err(v["error"].as_str().unwrap_or("OCR 失败").to_owned()),Some("page")=>{let lines:Vec<OcrLine>=serde_json::from_value(v["lines"].take()).map_err(|_|"OCR 行数据无效")?;if lines.iter().any(|l|l.page==0||!l.score.is_finite()||!(0.0..=1.0).contains(&l.score)||l.text.len()>100_000){return Err("OCR 行数据超出范围".into());}page(lines)?;},Some("ready")=>{
+                        timings.inference_threads=v["inferenceThreads"].as_u64().and_then(|n|u8::try_from(n).ok()).filter(|&n|n>0);
+                        timings.reuse_recognition_memory=v["reuseRecognitionMemory"].as_bool().unwrap_or(false);
+                    },_=>return Err("未知 OCR 事件".into())}
                 },
                 Ok(Err(e))=>return Err(e),Err(mpsc::RecvTimeoutError::Timeout)=>{},Err(_)=>return Err("OCR 引擎意外退出".into()),
             }

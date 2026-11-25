@@ -58,8 +58,8 @@ function Select-PackageToolchain {
 function Invoke-Package {
     if ($KeepVersion -and $CustomVersion) { throw '-KeepVersion 与 -CustomVersion 不能同时使用。' }
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-Host '开始构建 Windows 安装包' -ForegroundColor Cyan
-    Write-Host '[1/5] 检查环境与安装配置' -ForegroundColor Yellow
+    Write-Host '开始构建 Windows 安装版和免安装单文件版' -ForegroundColor Cyan
+    Write-Host '[1/6] 检查环境与安装配置' -ForegroundColor Yellow
     foreach ($command in @('node', 'npm.cmd', 'cargo', 'rustc')) {
         if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "缺少构建工具：$command，请先安装项目要求的开发环境。" }
     }
@@ -67,12 +67,12 @@ function Invoke-Package {
     Select-PackageToolchain
     Invoke-Checked 'node' @('scripts/check-installer.mjs') '安装配置检查失败'
 
-    Write-Host '[2/5] 检查或构建离线文字识别组件' -ForegroundColor Yellow
+    Write-Host '[2/6] 检查或构建离线文字识别组件' -ForegroundColor Yellow
     $ocrArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'build-ocr.ps1'))
     if ($ForceOcr) { $ocrArgs += '-Force' }
     Invoke-Checked 'powershell.exe' $ocrArgs '离线文字识别组件构建失败'
 
-    Write-Host '[3/5] 同步应用与锁文件版本' -ForegroundColor Yellow
+    Write-Host '[3/6] 同步应用与锁文件版本' -ForegroundColor Yellow
     $versionFiles = @('package.json', 'package-lock.json', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\Cargo.lock')
     $snapshots = @{}
     foreach ($file in $versionFiles) { $snapshots[$file] = [System.IO.File]::ReadAllBytes((Join-Path $projectDir $file)) }
@@ -86,11 +86,11 @@ function Invoke-Package {
         $bundleDir = Join-Path $projectDir 'src-tauri\target\release\bundle\nsis'
         $installer = Join-Path $bundleDir "$($config.productName)_${version}_x64-setup.exe"
         $previousWrite = if (Test-Path -LiteralPath $installer) { (Get-Item -LiteralPath $installer).LastWriteTimeUtc.Ticks } else { 0 }
-        Write-Host '[4/5] 编译应用并生成安装包（前端只编译一次）' -ForegroundColor Yellow
+        Write-Host '[4/6] 编译应用并生成安装包（前端只编译一次）' -ForegroundColor Yellow
         $buildStarted = [DateTime]::UtcNow
         Invoke-Checked (Join-Path $projectDir 'node_modules\.bin\tauri.cmd') @('build', '--bundles', 'nsis', '--', '--locked') '安装包构建失败，请检查上方编译日志及选中的工具链'
 
-        Write-Host '[5/5] 核验本次安装包' -ForegroundColor Yellow
+        Write-Host '[5/6] 核验本次安装包' -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "本次版本的安装包未生成：$installer" }
         $result = Get-Item -LiteralPath $installer
         if ($result.Length -eq 0 -or $result.LastWriteTimeUtc -lt $buildStarted -or $result.LastWriteTimeUtc.Ticks -eq $previousWrite) { throw '安装包为空或未在本次构建中更新，不能将旧产物报告为成功。' }
@@ -99,12 +99,25 @@ function Invoke-Package {
         $utf8 = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllText("$installer.sha256", "$hash  $($result.Name)`n", $utf8)
         [System.IO.File]::WriteAllText("$installer.json", ($report | ConvertTo-Json) + "`n", $utf8)
+        Write-Host '[6/6] 将同一份程序与离线 OCR 打入免安装单文件版' -ForegroundColor Yellow
+        $compiler = Join-Path $env:LOCALAPPDATA 'tauri\NSIS\makensis.exe'
+        if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
+            $compiler = (Get-Command makensis.exe -CommandType Application -ErrorAction Stop).Source
+        }
+        $releaseDir = Join-Path $projectDir 'src-tauri\target\release'
+        $portable = Join-Path $bundleDir "$($config.productName)_${version}_x64-portable.exe"
+        Invoke-Checked $compiler @('/V2','/INPUTCHARSET','UTF8',"/DAPPDIR=$releaseDir","/DOUTFILE=$portable","/DAPPVERSION=$version",(Join-Path $projectDir 'src-tauri\windows\portable.nsi')) '单文件版构建失败'
+        $portableFile = Get-Item -LiteralPath $portable
+        if ($portableFile.Length -eq 0 -or $portableFile.LastWriteTimeUtc -lt $buildStarted) { throw '单文件版为空或未在本次构建中更新。' }
+        $portableHash = Get-FileSha256 $portable
+        [System.IO.File]::WriteAllText("$portable.sha256", "$portableHash  $($portableFile.Name)`n", $utf8)
     } catch {
         # 失败时恢复发布前版本；依赖使用锁文件构建。
         foreach ($file in $versionFiles) { [System.IO.File]::WriteAllBytes((Join-Path $projectDir $file), $snapshots[$file]) }
         throw
     }
     Write-Host "安装包已生成：$installer" -ForegroundColor Green
+    Write-Host "单文件版已生成：$portable" -ForegroundColor Green
     Write-Host "版本：$version；大小：$([Math]::Round($result.Length / 1MB, 2)) MiB；耗时：$([Math]::Round($timer.Elapsed.TotalSeconds, 1)) 秒"
     Write-Host "SHA-256：$hash"
     if (-not $NoReveal) {

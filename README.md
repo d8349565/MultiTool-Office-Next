@@ -15,12 +15,12 @@ MultiTool Office Next (MTO) is a free, open-source toolbox for column-based file
 ## Installation
 
 1. Open the [latest release](https://github.com/d8349565/MultiTool-Office-Next/releases/latest).
-2. Download the Windows installer ending in `_x64-setup.exe` and run it. You do not need the source-code ZIP.
-3. Follow the installation wizard, then open **MultiTool Office Next**.
+2. For a Start menu entry, download the **installer** ending in `_x64-setup.exe`, follow the wizard, and open **MultiTool Office Next**.
+3. For a single download you can run directly, choose the **standalone executable** ending in `_x64-portable.exe`. It unpacks the application and components into a temporary folder and cleans up on normal exit from the tray. Both editions use the current Windows user's application settings and OCR task history.
 
-Requires **Windows x64 and Microsoft Edge WebView2**. The installer may download WebView2 if it is missing; OCR models are bundled with the installer. The app window uses the name **MultiTool Office**.
+Both editions require **Windows x64 and Microsoft Edge WebView2** and include the offline OCR models. The installer can help obtain a missing WebView2 runtime. The app window uses the name **MultiTool Office**.
 
-The app is free to use. Optional model, search, and scoring services may require provider accounts and paid API access. See the release notes for what the downloadable build includes; `main` may contain newer fixes.
+The app is free to use. Optional model and search services may require provider accounts and paid API access. See the release notes for what the downloadable build includes. The `main` branch may contain newer fixes.
 
 ## Quick start
 
@@ -76,6 +76,8 @@ Word and PowerPoint first use an installed local Office, WPS, or LibreOffice eng
 Excel previews have row, column, and content limits and use cached formula values; `.xls` previews show cell values. Use the original application for editing.
 
 ### Offline OCR and batch renaming
+
+In OCR settings, select automatic concurrency or choose 1–8 files at once. Automatic mode processes scans one file at a time and reuses one model when the app has at most 8 logical CPUs, the machine has at most 8 GiB of RAM, or less than 6 GiB of RAM is available. In this mode, 4 logical CPUs use 2 inference threads and 8 use 4. Larger machines can process several files in parallel. The text recognizer reuses working memory when enough RAM is available. Renames follow the input order, and the file list shows elapsed time for the batch.
 
 Import scanned PDFs or images, extract fields such as company, date, and document number, and assemble filenames using your rules.
 
@@ -144,10 +146,10 @@ You can reopen the setup guide from `配置引导` in the top bar or from Settin
 <summary>Connect a model and optional web search</summary>
 
 1. **Model:** create an API key on the [official DeepSeek platform](https://platform.deepseek.com/api_keys), or use another OpenAI-compatible service. In `模型参数` (Model parameters), check the endpoint and model, enter the key, test and save, then choose `使用此配置` (Use this configuration). Existing configurations are retained.
-2. **Web search:** in `联网与评分` (Network and scoring), select Tavily or DeepSeek. DeepSeek can reuse a saved official DeepSeek model profile or use a separate search key. Tavily requires its own key from the [Tavily platform](https://app.tavily.com/). After a successful test, enable search and choose `保存此模块` (Save this module). A successful search test does not configure an AI model.
+2. **Web search:** in `联网搜索` (Web search), select Tavily or DeepSeek. DeepSeek can reuse a saved official DeepSeek model profile or use a separate search key. Tavily requires its own key from the [Tavily platform](https://app.tavily.com/). After a successful test, enable search and choose `保存此模块` (Save this module). A successful search test does not configure an AI model.
 3. **Page content and costs:** DeepSeek search uses page content when available and otherwise uses summaries. Extra page fetching is off by default. DeepSeek Search / Fetch costs are included in session costs; review their prices in `费用计价` (Pricing). See the [search and billing guide](docs/deepseek-search.md) (Chinese).
 
-Connection tests send fixed test content, not your business files, and may incur provider charges. Invalid replacement keys do not replace existing valid keys. DeepSeek search-test costs appear in the test result and network activity. Optional Jev-assisted scoring has its own configuration.
+Connection tests send fixed test content, not your business files, and may incur provider charges. Invalid replacement keys do not replace existing valid keys. DeepSeek search-test costs appear in the test result and network activity.
 
 </details>
 
@@ -175,7 +177,6 @@ Use Settings → Keyboard Shortcuts to change or disable page, search, and quick
 | Default OCR | Reads selected PDFs or images and extracts text locally. |
 | AI assistant and AI profile drafting | Sends relevant input to the configured model service. Assistant requests can include chat history, images, role files, filenames, full paths, and document content you approved for reading. |
 | Tavily / DeepSeek search and optional fetching | Sends public queries or URLs to the selected provider and passes returned material to the model. A session that has accessed local workspace material cannot continue with public search or fetching. |
-| Optional Jev scoring | Sends candidate information. Sensitive numeric strings in OCR candidate lines are filtered first. The filter applies only to OCR candidate lines. |
 
 File-browser folders and the assistant's authorized read/create folder have separate permissions. API keys are stored in **Windows Credential Manager**. Conversations, OCR results, tasks, and generated files may remain on your PC until you clear them.
 
@@ -208,7 +209,7 @@ npm.cmd run ocr:build
 npm.cmd run desktop
 ```
 
-The desktop workspace should open. Use `npm.cmd run package:keep` to create a Windows installer using the current project version. Script details: [package.json](package.json) and [Windows build script](scripts/windows.ps1).
+The desktop workspace should open. Use `npm.cmd run package:keep` to create the Windows installer and standalone executable at the current project version. See [package.json](package.json) and the [Windows build script](scripts/windows.ps1).
 
 </details>
 

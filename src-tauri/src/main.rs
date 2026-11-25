@@ -52,7 +52,7 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
     let id=uuid::Uuid::new_v4().to_string();let value=json!({"id":id,"before":settings::redacted(old),"after":settings::redacted(&next)});
     let mut proposals=state.proposals.lock().unwrap();if proposals.len()>50{proposals.clear();}proposals.insert(id,next);value
 }
-#[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{let settings=state.settings.lock().unwrap().clone();let model_key=model_profiles::credential(settings.active_model_profile_id.as_deref());json!({"settings":settings,"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key(&model_key).and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"jev":ai::key("jev").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
+#[tauri::command] fn bootstrap(state:tauri::State<Arc<AppState>>)->Value{let settings=state.settings.lock().unwrap().clone();let model_key=model_profiles::credential(settings.active_model_profile_id.as_deref());json!({"settings":settings,"status":state.index.status.lock().unwrap().clone(),"keys":{"tavily":ai::key("tavily").and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok(),"model":ai::key(&model_key).and_then(|k|k.get_password().map_err(|e|e.to_string())).is_ok()}})}
 #[tauri::command] async fn list_dirs(state:tauri::State<'_,Arc<AppState>>,path:String)->Result<Vec<index::Entry>,String>{let idx=state.index.clone();tauri::async_runtime::spawn_blocking(move||idx.dirs(&path)).await.map_err(|e|e.to_string())?}
 #[tauri::command] async fn locate_entry(state:tauri::State<'_,Arc<AppState>>,path:String,is_dir:bool)->Result<Value,String>{
     let idx=state.index.clone();
@@ -106,13 +106,13 @@ fn make_proposal(state:&AppState,old:&settings::Settings,next:settings::Settings
     if approve {save_settings(state,app,next)}else{Ok(state.settings.lock().unwrap().clone())}
 }
 #[tauri::command] fn set_key(state:tauri::State<Arc<AppState>>,provider:String,secret:String)->Result<(),String>{
-    if !["tavily","deepseek-search","jev"].contains(&provider.as_str()){return Err("模型密钥请在模型连接中测试并保存".into());}
-    if provider!="jev"&&!secret.is_empty(){return Err("搜索密钥请通过测试并保存，避免替换有效配置".into());}
+    if !["tavily","deepseek-search"].contains(&provider.as_str()){return Err("模型密钥请在模型连接中测试并保存".into());}
+    if !secret.is_empty(){return Err("搜索密钥请通过测试并保存，避免替换有效配置".into());}
     let entry=ai::key(&provider)?;
     if secret.is_empty(){match entry.delete_credential(){Ok(())|Err(keyring::Error::NoEntry)=>{},Err(e)=>return Err(e.to_string())}}else{entry.set_password(&secret).map_err(|e|e.to_string())?;}
     let active=state.settings.lock().unwrap().clone();
     let current=provider=="tavily"&&active.search_provider=="tavily"||provider=="deepseek-search"&&active.search_provider=="deepseek"&&active.deepseek_search_profile_id.is_none();
-    for feature in if provider=="jev"{vec!["jev","ocr_jev"]}else if current{vec!["search","search_fetch","search_test"]}else{vec!["search_test"]}{network::invalidate_feature(feature)?;}Ok(())
+    for feature in if current{vec!["search","search_fetch","search_test"]}else{vec!["search_test"]}{network::invalidate_feature(feature)?;}Ok(())
 }
 #[tauri::command] fn import_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<settings::Settings,String>{settings::import(Path::new(&path),&state.settings.lock().unwrap())}
 #[tauri::command] fn export_settings(state:tauri::State<Arc<AppState>>,path:String)->Result<(),String>{settings::export(Path::new(&path),&state.settings.lock().unwrap())}
@@ -182,7 +182,7 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
 #[tauri::command] fn task_status(state:tauri::State<Arc<AppState>>,id:String)->Result<Value,String>{task_state::get(&state,&id)}
 #[tauri::command] fn assistant_context(state:tauri::State<Arc<AppState>>,session_id:String)->Result<Value,String>{serde_json::to_value(assistant_context::load(&state,&session_id)?).map_err(|e|e.to_string())}
 #[tauri::command] fn delete_assistant_session(state:tauri::State<Arc<AppState>>,session_id:String)->Result<(),String>{assistant_context::delete_session(&state,&session_id)}
-#[tauri::command] async fn ai_task(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandle,id:String,kind:String,text:String,context:Option<Value>,items:Option<Value>)->Result<Value,String>{
+#[tauri::command] async fn ai_task(state:tauri::State<'_,Arc<AppState>>,app:tauri::AppHandle,id:String,kind:String,text:String,context:Option<Value>)->Result<Value,String>{
     let state=state.inner().clone();let cancel=Arc::new(AtomicBool::new(false));let session=context.as_ref().and_then(|c|c["sessionId"].as_str()).unwrap_or(&id).to_owned();{
         let mut tasks=state.tasks.lock().unwrap();if tasks.contains_key(&id){return Err("此任务已在运行，请等待完成或取消后继续".into());}if tasks.len()>=4{return Err("同时最多处理 4 个任务，请等待完成或取消一个任务后再发送".into());}tasks.insert(id.clone(),cancel.clone());
         if kind=="agent"{
@@ -193,7 +193,6 @@ fn reveal_authorized(state:&AppState,paths:Vec<String>)->Result<Value,String>{le
     let start=Instant::now();let settings=state.settings.lock().unwrap().clone();
     let result=match kind.as_str(){
         "agent"=>{let budget=settings.assistant_task_timeout_secs;let c=cancel.clone();let mut context=context.filter(Value::is_object).unwrap_or(json!({}));context["nativeWorkspaceRevision"]=json!(state.workspace.revision());match tokio::time::timeout(std::time::Duration::from_secs(budget),ai::run_with_pi(state.clone(),text,context,cancel,app.clone(),id.clone())).await{Ok(_) if c.load(Ordering::Relaxed)=>Err("任务已取消".into()),Ok(v)=>v,Err(_)=>{c.store(true,Ordering::Relaxed);Err(format!("任务达到 {budget} 秒总预算"))}}},
-        "jev"=>if settings.jev_enabled {ai::jev(&text,items.unwrap_or(json!([])),&cancel).await}else{Err("请先在设置中启用 Jev 实验功能".into())},
         _=>Err("未知任务".into()),
     };
     state.tasks.lock().unwrap().remove(&id);

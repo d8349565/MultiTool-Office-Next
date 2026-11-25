@@ -9,7 +9,7 @@ static NETWORK: OnceLock<Network> = OnceLock::new();
 const RETENTION: u64 = 30 * 86400;
 
 #[derive(Clone, Copy)]
-pub enum Feature { Assistant, Translation, Todo, OcrConfig, OcrJev, Jev, ModelTest, Search, SearchTest, Fetch }
+pub enum Feature { Assistant, Translation, Todo, OcrConfig, ModelTest, Search, SearchTest, Fetch }
 impl Feature {
     fn info(self) -> (&'static str, &'static str, Vec<&'static str>, bool) {
         match self {
@@ -17,8 +17,6 @@ impl Feature {
             Self::Translation => ("translation", "翻译", vec!["用户提交的翻译文字"], false),
             Self::Todo => ("todo", "待办辅助", vec!["相关待办、灵感和辅助输入"], false),
             Self::OcrConfig => ("ocr_config", "AI 生成 OCR 配置", vec!["配置需求、提取字段和规则（不读取样本文档）"], false),
-            Self::OcrJev => ("ocr_jev", "OCR 联网辅助", vec!["过滤金额和长号码后的候选文本、字段判断说明"], true),
-            Self::Jev => ("jev", "文件候选评分", vec!["任务文字、候选名称和相对路径"], false),
             Self::ModelTest => ("model_test", "模型连接测试", vec!["固定测试消息和工具定义（不执行工具）"], false),
             Self::Search => ("search", "Tavily 联网搜索", vec!["公开搜索关键词（搜索摘要还会交给当前模型）"], false),
             Self::SearchTest => ("search_test", "Tavily 连接测试", vec!["固定公开关键词 Microsoft WebView2"], false),
@@ -176,7 +174,7 @@ pub fn service_status(state:tauri::State<Arc<crate::AppState>>,search_provider:O
     let credentials=crate::web_search::credential(&s,provider,profile).ok();
     let tested=credentials.as_ref().and_then(|(key,binding)|search_tested_at(provider,key,binding));
     let profiles:Vec<_>=crate::model_profiles::profiles(&s).into_iter().filter(|p|crate::web_search::official_deepseek(&p.model_url)&&has(&crate::model_profiles::credential(Some(&p.id))).is_some()).map(|p|json!({"id":p.id,"name":p.name})).collect();
-    Ok(json!({"modelKey":model,"modelConfigured":model&&!s.model_url.is_empty()&&!s.model_id.is_empty(),"tavilyKey":tavily.is_some(),"tavilyTestedAt":tavily.as_ref().and_then(|key|search_tested_at("tavily",key,"")),"searchEnabled":s.search_enabled,"searchProvider":provider,"searchProfileId":if provider=="deepseek"{profile}else{None},"searchKey":credentials.is_some(),"searchTestedAt":tested,"deepseekOwnKey":has("deepseek-search").is_some(),"deepseekProfiles":profiles,"jevKey":has("jev").is_some()}))
+    Ok(json!({"modelKey":model,"modelConfigured":model&&!s.model_url.is_empty()&&!s.model_id.is_empty(),"tavilyKey":tavily.is_some(),"tavilyTestedAt":tavily.as_ref().and_then(|key|search_tested_at("tavily",key,"")),"searchEnabled":s.search_enabled,"searchProvider":provider,"searchProfileId":if provider=="deepseek"{profile}else{None},"searchKey":credentials.is_some(),"searchTestedAt":tested,"deepseekOwnKey":has("deepseek-search").is_some(),"deepseekProfiles":profiles}))
 }
 
 #[cfg(test)]

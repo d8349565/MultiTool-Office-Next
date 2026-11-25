@@ -28,47 +28,12 @@ pub struct OcrLine {pub text:String,pub page:u32,pub score:f64,pub r#box:Vec<Vec
 pub struct OcrFieldResult {pub value:String,pub source:String,pub confidence:Option<f64>,pub evidence:Vec<usize>,pub review:bool}
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct OcrJevCandidateLog {
-    pub id: String,
-    pub original_line_index: usize,
-    pub original_text: String,
-    pub masked_text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct OcrJevQuestionLog {
-    pub question_id: String,
-    pub field_key: String,
-    pub instructions: String,
-    pub chosen_id: Option<String>,
-    pub chosen_text: Option<String>,
-    pub confidence: Option<f64>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct OcrJevLog {
-    pub enabled: bool,
-    pub sent: bool,
-    pub success: bool,
-    pub error: Option<String>,
-    pub elapsed_ms: u64,
-    pub candidates: Vec<OcrJevCandidateLog>,
-    pub questions: Vec<OcrJevQuestionLog>,
-    pub raw_response: Option<serde_json::Value>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 pub struct OcrDecisionLog {
     pub field_key: String,
     pub final_value: String,
     pub final_source: String,
     pub review_required: bool,
     pub review_reason: Option<String>,
-    pub jev_candidate: Option<String>,
-    pub jev_confidence: Option<f64>,
     #[serde(default)] pub local_attempted: Option<bool>,
     pub local_candidate: Option<String>,
     pub local_rule_matched: Option<String>,
@@ -79,7 +44,6 @@ pub struct OcrDecisionLog {
 pub struct OcrFileDiagnostics {
     pub ocr_lines_count: usize,
     pub ocr_elapsed_ms: u64,
-    pub jev: OcrJevLog,
     pub decisions: Vec<OcrDecisionLog>,
     pub logs: Vec<String>,
     #[serde(default)] pub profile_match: Option<OcrProfileMatch>,
@@ -105,7 +69,7 @@ impl OcrEngineTimings {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all="camelCase", default)]
 pub struct OcrTimings {
-    pub engine:Option<OcrEngineTimings>, pub worker_start_ms:u64, pub fingerprint_ms:u64,
+    pub engine:Option<OcrEngineTimings>, pub inference_threads:Option<u8>, pub reuse_recognition_memory:bool, pub worker_start_ms:u64, pub fingerprint_ms:u64,
     pub profile_match_ms:u64, pub extract_ms:u64, pub reused_pages:u32,
     pub region_fast_path:bool, pub region_fallback:bool,
     pub classification_fast_path:bool, pub classification_fallback:bool,
@@ -117,7 +81,7 @@ pub struct OcrTimings {
 #[serde(rename_all="camelCase")]
 pub struct OcrTaskProgress {
     pub id:String, pub status:String, pub workflow:OcrWorkflow,
-    pub files:Vec<OcrFileResult>, pub complete_snapshot:bool,
+    pub files:Vec<OcrFileResult>, pub complete_snapshot:bool, pub batch_elapsed_ms:Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -169,7 +133,7 @@ pub struct OcrFileResult {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrTask {pub id:String,pub created:u64,pub status:String,pub use_jev:bool,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>,#[serde(default)]pub auto_match:bool,#[serde(default)]pub workflow:OcrWorkflow,#[serde(default)]pub cleared_file_ids:Vec<String>}
+pub struct OcrTask {pub id:String,pub created:u64,pub status:String,#[serde(default)]pub concurrency:usize,#[serde(default)]pub batch_elapsed_ms:Option<u64>,pub profiles:Vec<OcrProfile>,pub files:Vec<OcrFileResult>,#[serde(default)]pub auto_match:bool,#[serde(default)]pub workflow:OcrWorkflow,#[serde(default)]pub cleared_file_ids:Vec<String>}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all="camelCase", default)]
 pub struct OcrWorkflowOptions {pub export_format:String,pub export_directory:String,pub rename:String,pub rename_confirmed:bool}
@@ -178,7 +142,7 @@ pub struct OcrWorkflowOptions {pub export_format:String,pub export_directory:Str
 pub struct OcrWorkflow {pub enabled:bool,pub options:OcrWorkflowOptions,pub status:String,pub export_path:String,pub rename_batch_id:String,pub error:String,pub export_attempt:u32,pub export_sha256:String}
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct OcrBootstrap {pub profiles:Vec<OcrProfile>,pub tasks:Vec<OcrTask>,pub batches:Vec<OcrRenameBatch>,pub engine_ready:bool,pub jev_ready:bool,pub unavailable_reason:Option<String>}
+pub struct OcrBootstrap {pub profiles:Vec<OcrProfile>,pub tasks:Vec<OcrTask>,pub batches:Vec<OcrRenameBatch>,pub engine_ready:bool,pub recommended_concurrency:usize,pub recommended_solo_threads:Option<u8>,pub unavailable_reason:Option<String>}
 #[derive(Clone, Debug, Serialize)]
 pub struct OcrImportResult {pub files:Vec<String>,pub errors:Vec<String>}
 #[derive(Clone, Debug, Serialize, Deserialize)]

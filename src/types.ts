@@ -6,7 +6,7 @@ export interface PricingConfig { rules:PricingRule[]; holidays:Record<string,str
 export interface Entry { path: string; name: string; parent: string; extension: string; size: number; modified: number; created?: number | null; isDir: boolean; businessDate?: string | null; dateSource?: string; matchReason?: string }
 export interface Launcher { id: string; name: string; path: string; group: string }
 export interface ModelProfile {id:string;name:string;modelUrl:string;modelId:string;testedAt?:number|null;credentialRevision?:number}
-export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; jevEnabled: boolean; searchEnabled?: boolean; searchProvider?:'tavily'|'deepseek';deepseekSearchProfileId?:string|null;deepseekFetchEnabled?:boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
+export interface Settings { schemaVersion: number; revision: number; roots: string[]; theme: 'light' | 'dark' | 'system'; recursive: boolean; filter: string; launchers: Launcher[]; modelUrl: string; modelId: string; searchEnabled?: boolean; searchProvider?:'tavily'|'deepseek';deepseekSearchProfileId?:string|null;deepseekFetchEnabled?:boolean; assistantReasoning?: ReasoningEffort; translationReasoning?: ReasoningEffort;
   assistantOutputTokens?: number; translationOutputTokens?: number; modelRequestTimeoutSecs?: number; modelRetryCount?: number; assistantTaskTimeoutSecs?: number;
   assistantHistoryMessages?: number; assistantHistoryChars?: number; assistantToolRounds?: number; assistantSearchLimit?: number; assistantAutoContinue?: boolean; assistantContinueTokens?: number;
   modelContextTokens?: number;
@@ -28,8 +28,8 @@ export interface TaskContext { schemaVersion:number;version:number;sessionId:str
 export interface TaskAction {type:'next_page'|'scope_answer'|'resume_task'|'retry_task';taskId?:string;resultSetId?:string;offset?:number;scope?:'current'|'workspace'|'assistant';operation?:string}
 export interface DeliveryTable {columns:{key:string;label:string}[];rows:{path:string;values:string[];notice?:string|null}[];total:number;resultSetId:string}
 export interface Activity { id: string; kind: 'reasoning' | 'note' | 'tool'; status: 'running' | 'completed' | 'failed' | 'interrupted'; text?: string; tool?: string; args?: unknown; result?: unknown; elapsedMs?: number }
-export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; storageWarning?:string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; answers?: Record<string, { choice?: string; confidence?: number; score?: number }>; usage?: unknown; serviceUsage?:ServiceUsage[]; model?: string }
-export interface Bootstrap { settings: Settings; status: Status; keys: { model: boolean; jev: boolean; tavily?: boolean } }
+export interface AIResult { id?:string; status?:TaskStatus; route?:string; fault?:TaskFault; warning?: string; storageWarning?:string; taskContext?:TaskContext;delivery?:DeliveryTable|null;deadlineAt?:number;activities?: Activity[]; text?: string; trace?: { tool: string; result: unknown }[]; proposals?: Proposal[]; usage?: unknown; serviceUsage?:ServiceUsage[]; model?: string }
+export interface Bootstrap { settings: Settings; status: Status; keys: { model: boolean; tavily?: boolean } }
 export interface AssistantWorkspace {path:string;readWrite:boolean;interactiveHtml:boolean;revision:number;needsReconfirmation:boolean;modelHost:string}
 export interface FileApproval {id:string;taskId:string;kind:'read'|'create';filename:string;format:string;preview:string;size:number;directory:string;modelHost:string;interactiveHtml:boolean;expiresAt:number}
 

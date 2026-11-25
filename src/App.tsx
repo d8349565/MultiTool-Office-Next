@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, lazy, Suspense, type CSSProperties } from 'react';
 import { FluentProvider, webDarkTheme, webLightTheme, Button, Checkbox, type Theme } from '@fluentui/react-components';
-import { IconContext, FolderSimple, MagnifyingGlass, Command, Sparkle, GearSix, Info, CaretRight, ArrowSquareOut, Copy, ArrowClockwise, Plus, FileText, X, ArrowLeft, ArrowRight, SquaresFour, ArrowUpRight, FunnelSimple, Check, HardDrives, Sun, Moon, CheckSquare, PencilSimple, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { IconContext, FolderSimple, MagnifyingGlass, Command, Sparkle, GearSix, Info, CaretRight, ArrowSquareOut, Copy, ArrowClockwise, Plus, FileText, X, ArrowLeft, ArrowRight, SquaresFour, ArrowUpRight, FunnelSimple, HardDrives, Sun, Moon, CheckSquare, PencilSimple, ArrowCounterClockwise } from '@phosphor-icons/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { listen } from '@tauri-apps/api/event';
 import { api, copy, pick, demo, desktop } from './api';
-import type { Settings, Status, Bootstrap, Entry, Results, AIResult, Proposal } from './types';
+import type { Settings, Status, Bootstrap, Entry, Results, Proposal } from './types';
 import { basename, cleanPath, selectLevel, locateTrail, samePath, relativePath, sizeLabel, isWithin, openActionKey, renamedPath } from './domain';
 import { DirectoryPanel, Empty, IconButton, Modal, Skeleton, Splitter } from './components';
 import { ProposalDiff } from './ProposalDiff';
@@ -94,7 +94,6 @@ export default function App(){
   const [about,setAbout]=useState(false);
   const [renameEntry,setRenameEntry]=useState<Entry|null>(null),[renameHistory,setRenameHistory]=useState(false);
   const openSettings=(target?:string)=>setSettingsTab(target&&isSettingsModule(target)?target:pageModuleMap[page]||'workspace');
-  const [jevTask,setJevTask]=useState(''),[jevResult,setJevResult]=useState<AIResult|null>(null);
   const [ocrIncoming,setOcrIncoming]=useState<string[]>([]),[ocrVisited,setOcrVisited]=useState(false),[todoVisited,setTodoVisited]=useState(false);
   const [todoReminder,setTodoReminder]=useState<{id:string}|null>(null);
   useEffect(()=>{if(page==='ocr')setOcrVisited(true);if(page==='todo')setTodoVisited(true);},[page]);
@@ -217,7 +216,6 @@ export default function App(){
       setFileBusy(true);
       setFileError('');
       if(!locating.current)setSelectedPaths(new Set());
-      setJevResult(null);
     }
     void api<Results>('search',{query:{query:q,root:q?undefined:current,recursive:q?true:recursive,filter:f,extension,after:after?Math.floor(new Date(`${after}T00:00:00`).getTime()/1000):undefined,offset,limit:100}}).then(result=>{
       if(!active)return;
@@ -282,7 +280,6 @@ export default function App(){
   const openEntry=(e:Entry,reveal=false)=>void openAction(e.path,e.name,reveal,async()=>{await api('open_path',{path:e.path,reveal});if(!reveal)recent.opened(e);});
   async function launchTool(id:string,reveal=false){const launcher=settings?.launchers.find(l=>l.id===id);if(!launcher)return false;return openAction(launcher.path,launcher.name,reveal,()=>api(reveal?'reveal_launcher':'launch',{id,expectedPath:launcher.path}));}
   const copyValue=(s:string)=>void run(async()=>{await copy(s);setNotice('已复制');});
-  async function evaluateJev(){const id=crypto.randomUUID();setJevTask(id);setJevResult(null);try{const result=await api<AIResult>('ai_task',{id,kind:'jev',text:q,items:files.items.slice(0,20).map(e=>({name:e.name,path:relativePath(e.path,settings?.roots.find(r=>isWithin(e.path,r))||root)}))});setJevResult(result);}catch(e){setNotice(`${e}；保留本地搜索结果`);}finally{setJevTask('');}}
   function beginRename(entry:Entry){preview.close();if(!desktop){setNotice('安全改名请在 Windows 桌面版使用。');return;}setRenameEntry(entry);}
   function renamed(record:RenameRecord){
     const from=record.status==='undone'?record.target:record.original,to=record.status==='undone'?record.original:record.target;
@@ -377,18 +374,15 @@ export default function App(){
                   <span className="file-scope" title={q?scopeLabel:current}>{scopeLabel}</span>
                 </div>
                 <div className="file-panel-controls">
-                  {q&&settings.jevEnabled&&<Button size="small" appearance="subtle" disabled={!!jevTask} icon={<Sparkle/>} onClick={()=>void evaluateJev()}>{jevTask?'正在评分':'JEV 实验评分'}</Button>}
                   <Checkbox size="medium" checked={!!q||recursive} title={q?'搜索始终包含所有工作目录的子文件夹':undefined} disabled={!!q} onChange={(_,d)=>setRecursive(!!d.checked)} label="包含子文件夹"/>
                 </div>
               </div>
-              {jevResult&&<div className="jev-result"><Check size={14}/>Jev 建议：{jevResult.answers?.intent?.choice||'已评分'}，仅供参考<IconButton label="关闭评分" onClick={()=>setJevResult(null)}><X/></IconButton></div>}
               <div className="file-list" ref={fileList} onWheel={()=>{fileInteraction.current=true;}} onPointerDown={()=>{fileInteraction.current=true;}} onKeyDown={()=>{fileInteraction.current=true;}} onScroll={e=>{if(!fileBusy&&fileInteraction.current)scrollMemory.current.set(fileScope,e.currentTarget.scrollTop);}}>
                 {!resultsReady||fileBusy?<Skeleton/>:fileError?<div className="inline-error">{fileError}</div>:!files.items.length?<Empty title={status.scanning?'索引中，稍后显示文件':'没有匹配的文件'} detail={q||f?'试试更短的关键词或清除筛选':'可选择其他目录，或关闭范围限制'}/>:
                   <div style={{height:virtual.getTotalSize(),position:'relative'}}>
                     {virtual.getVirtualItems().map(v=>{
                       const e=files.items[v.index];
                       const isSelected=selectedPaths.has(fileSelectionKey(e));
-                      const score=jevResult?.answers?.[`file_${v.index}`]?.score;
                       return <div {...dragProps(e)} className={`file-row ${isSelected?'selected':''}`} data-index={v.index}
                         ref={virtual.measureElement} key={e.path} style={{position:'absolute',top:0,left:0,width:'100%',transform:`translateY(${v.start}px)`}}
                         tabIndex={0} role="button" aria-pressed={isSelected} aria-busy={pendingActions.has(openActionKey(e.path))||pendingActions.has(openActionKey(e.path,true))} aria-label={e.name} title={e.path}
@@ -411,7 +405,6 @@ export default function App(){
                           <span>{sizeLabel(e.size)}</span>
                           <span>{new Date(e.modified*1000).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'})}</span>
                         </div>
-                        {jevResult&&<span className="file-score">{score!=null&&<span className="score" title="仅根据名称与相对路径评分">{score.toFixed(1)}</span>}</span>}
                       </div>;
                     })}
                   </div>}
@@ -448,7 +441,7 @@ export default function App(){
           </div>}
         </div>
         <div className="tools-page" hidden={page!=='tools'}><ToolsWorkbench launchers={settings.launchers} pendingActions={pendingActions} onLaunch={id=>launchTool(id)} onOpenFolder={id=>launchTool(id,true)} onCopyPath={copyValue} onOpenSettings={tab=>openSettings(tab||'tools')}/></div>
-        {(ocrVisited||page==='ocr')&&<Suspense fallback={<Skeleton/>}><OcrWorkbench visible={page==='ocr'} incoming={ocrIncoming} onDiagnose={request=>{setDiagnosticRequest(request);setAssistant(true);}} onConsumed={done=>setOcrIncoming(current=>current.filter(path=>!done.includes(path)))} onSettings={()=>openSettings('integrations')}/></Suspense>}
+        {(ocrVisited||page==='ocr')&&<Suspense fallback={<Skeleton/>}><OcrWorkbench visible={page==='ocr'} incoming={ocrIncoming} onDiagnose={request=>{setDiagnosticRequest(request);setAssistant(true);}} onConsumed={done=>setOcrIncoming(current=>current.filter(path=>!done.includes(path)))}/></Suspense>}
         {(todoVisited||page==='todo')&&<Suspense fallback={<Skeleton/>}><TodoWorkbench visible={page==='todo'} reminderRequest={todoReminder}/></Suspense>}
       </main>
       <footer className="statusbar"><span><span className="status-dot"/>本地工作台</span><span>{root?basename(root):'添加目录即可开始'}<span className="status-divider"/>{status.scanning?'正在同步索引':'文件信息保存在本机'}</span><span className="statusbar-right"><button onClick={()=>setQuick(true)} title={quickShortcutHint}>快捷面板 {shortcuts.quick&&<kbd>{shortcutText(shortcuts.quick)}</kbd>}</button><IconButton label={dark?'切换浅色':'切换深色'} onClick={()=>void run(async()=>saved(await api<Settings>('save_settings',{next:{...settings,theme:dark?'light':'dark'}})))}>{dark?<Sun/>:<Moon/>}</IconButton></span></footer>

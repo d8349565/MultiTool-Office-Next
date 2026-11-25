@@ -82,7 +82,7 @@ fn prepare_update(current:&Settings,original:&ModelProfile,profile:&ModelProfile
     let mut updated=profile.clone();updated.tested_at=None;updated.credential_revision=previous.credential_revision;
     if new_secret{updated.credential_revision=updated.credential_revision.checked_add(1).ok_or("密钥版本超出范围，请新增配置")?;}
     if current.active_model_profile_id.as_deref().unwrap_or("legacy")==profile.id{next.model_url=profile.model_url.clone();next.model_id=profile.model_id.clone();}
-    if next.deepseek_search_profile_id.as_deref()==Some(profile.id.as_str())&&!crate::web_search::official_deepseek(&profile.model_url){return Err("联网搜索正在复用此配置，请先在“联网与评分”中更换密钥来源，再修改服务地址".into());}
+    if next.deepseek_search_profile_id.as_deref()==Some(profile.id.as_str())&&!crate::web_search::official_deepseek(&profile.model_url){return Err("联网搜索正在复用此配置，请先在“联网搜索”中更换密钥来源，再修改服务地址".into());}
     *next.model_profiles.iter_mut().find(|p|p.id==profile.id).unwrap()=updated;
     settings::validate(&next)?;Ok(next)
 }

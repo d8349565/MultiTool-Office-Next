@@ -39,5 +39,9 @@ if ([regex]::Matches($cargoLock, $lockPattern).Count -ne 1) { throw '原生锁�
 $contents['src-tauri\Cargo.lock'] = [regex]::Replace($cargoLock, $lockPattern, '${1}"' + $CustomVersion + '"')
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 # 先完成所有校验，再写入；其他依赖版本保持原值。
-foreach ($file in $contents.Keys) { [System.IO.File]::WriteAllText((Join-Path $projectDir $file), $contents[$file], $utf8) }
+foreach ($file in $contents.Keys) {
+    $path = Join-Path $projectDir $file
+    if ([string]::Equals([System.IO.File]::ReadAllText($path), $contents[$file], [StringComparison]::Ordinal)) { continue }
+    [System.IO.File]::WriteAllText($path, $contents[$file], $utf8)
+}
 Write-Host "应用及两类锁文件版本已同步：$CustomVersion" -ForegroundColor Green

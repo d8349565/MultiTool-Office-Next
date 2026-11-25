@@ -11,11 +11,12 @@ import { OcrRegions } from './OcrRegions';
 import { OcrRenameDialog, renameMessage } from './OcrRenameDialog';
 import { OcrDiagnosticShare, type OcrDiagnosticRequest } from './OcrDiagnosticShare';
 
-const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',jev:'Jev',manual:'人工修正',missing:'未识别',relocated:'路径已变化，请重新导入'};
+const labels:Record<string,string>={queued:'排队中',running:'正在识别',completed:'已结束',ready:'已就绪',review:'需复核',failed:'失败',cancelled:'已取消',interrupted:'已中断',pending:'待执行',done:'已改名',undone:'已撤销',conflict:'冲突',local:'本地规则',manual:'人工修正',missing:'未识别',relocated:'路径已变化，请重新导入'};
 const active=(t?:OcrTask)=>!!t&&['running','queued'].includes(t.status);
 const preferenceKey=desktop?'ocr-task-options':'ocr-demo-task-options';
-function taskPreferences():{profileId:string;workflow:OcrWorkflowOptions}{
-  try{const value=JSON.parse(localStorage.getItem(preferenceKey)||'{}');return {profileId:typeof value.profileId==='string'?value.profileId:'auto',workflow:{...defaultWorkflow,exportFormat:['none','txt','csv','json'].includes(value.workflow?.exportFormat)?value.workflow.exportFormat:'none',exportDirectory:typeof value.workflow?.exportDirectory==='string'?value.workflow.exportDirectory:''}};}catch{return {profileId:'auto',workflow:{...defaultWorkflow}};}
+const concurrentFileCounts=[1,2,3,4,5,6,7,8];
+function taskPreferences():{profileId:string;workflow:OcrWorkflowOptions;concurrency:number}{
+  try{const value=JSON.parse(localStorage.getItem(preferenceKey)||'{}');return {concurrency:concurrentFileCounts.includes(value.concurrency)?value.concurrency:0,profileId:typeof value.profileId==='string'?value.profileId:'auto',workflow:{...defaultWorkflow,exportFormat:['none','txt','csv','json'].includes(value.workflow?.exportFormat)?value.workflow.exportFormat:'none',exportDirectory:typeof value.workflow?.exportDirectory==='string'?value.workflow.exportDirectory:''}};}catch{return {profileId:'auto',workflow:{...defaultWorkflow},concurrency:0};}
 }
 const download=(name:string,text:string)=>{const mime=name.endsWith('.json')?'application/json':name.endsWith('.csv')?'text/csv':'text/plain';const url=URL.createObjectURL(new Blob([text],{type:`${mime};charset=utf-8`}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 const exportOptions=[
@@ -23,13 +24,12 @@ const exportOptions=[
   {format:'csv',label:'字段表格 (CSV)',title:'导出文件名及提取出的结构化字段表格，支持 Excel 打开 (.csv)'},
   {format:'json',label:'完整数据 (JSON)',title:'导出包含识别坐标、提取字段与诊断日志的完整任务数据 (.json)'},
 ] as const;
-export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onDiagnose}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onSettings:()=>void;onDiagnose?:(request:OcrDiagnosticRequest)=>void}){
-  const [data,setData]=useState<OcrBootstrap>({profiles:[],tasks:[],batches:[],engineReady:false,jevReady:false});
+export default function OcrWorkbench({visible,incoming,onConsumed,onDiagnose}:{visible:boolean;incoming:string[];onConsumed:(paths:string[])=>void;onDiagnose?:(request:OcrDiagnosticRequest)=>void}){
+  const [data,setData]=useState<OcrBootstrap>({profiles:[],tasks:[],batches:[],engineReady:false,recommendedConcurrency:1});
   const [resultFilter,setResultFilter]=useState('all');
   const [preferences]=useState(taskPreferences),[workflow,setWorkflow]=useState<OcrWorkflowOptions>(()=>preferences.workflow),[settingsOpen,setSettingsOpen]=useState(false),[taskHistoryOpen,setTaskHistoryOpen]=useState(false);
-  const [paths,setPaths]=useState<string[]>([]),[profileId,setProfileId]=useState(()=>preferences.profileId),[useJev,setUseJev]=useState<boolean>(()=>{
-    try{return localStorage.getItem('ocr_use_jev')==='true';}catch{return false;}
-  });
+  const [paths,setPaths]=useState<string[]>([]),[profileId,setProfileId]=useState(()=>preferences.profileId);
+  const [concurrency,setConcurrency]=useState(preferences.concurrency);
   const [uniformRows,setUniformRows]=useState<boolean>(()=>{
     try{return localStorage.getItem('ocr_uniform_rows')!=='false';}catch{return true;}
   });
@@ -78,7 +78,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
     void listen('ocr-profiles-changed',()=>{void refresh().catch(e=>setError(String(e)));}).then(unlisten=>{if(disposed)unlisten();else stop=unlisten;}).catch(e=>setError(String(e)));
     return()=>{disposed=true;stop?.();};
   },[refresh]);
-  useEffect(()=>{try{localStorage.setItem(preferenceKey,JSON.stringify({profileId,workflow}));}catch{setError('任务选项无法保存，下次启动需重新设置。');}},[profileId,workflow]);
+  useEffect(()=>{try{localStorage.setItem(preferenceKey,JSON.stringify({profileId,workflow,concurrency}));}catch{setError('任务选项无法保存，下次启动需重新设置。');}},[profileId,workflow,concurrency]);
   const run=async(fn:()=>Promise<void>)=>{if(operation.current)return;operation.current=true;setBusy(true);setError('');try{await fn();}catch(e){setError(String(e));}finally{operation.current=false;setBusy(false);}};
   const importPaths=useCallback(async(values:string[])=>{
     const result=await api<{files:string[];errors:string[]}>('ocr_import_files',{paths:values});
@@ -103,7 +103,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
     const toRun=targetPaths||paths;
     if(chosenProfile!=='auto'&&!data.profiles.some(p=>p.id===chosenProfile))throw new Error('所选配置已删除，请重新选择识别配置。');
     if(!data.profiles.length)throw new Error('请先新建或导入识别配置。');
-    const id=await api<string>('ocr_start_task',{paths:toRun,profileId:chosenProfile,useJev,retryId:retryId||null,retryFileIds:retryFileIds||null,workflow:options||null});
+    const id=await api<string>('ocr_start_task',{paths:toRun,profileId:chosenProfile,concurrency,retryId:retryId||null,retryFileIds:retryFileIds||null,workflow:options||null});
     setTaskId(id);setFileId('');setChecked([]);if(!retryId)setPaths([]);await refresh();
   }
   function triggerStart(targetPaths?:string[],oneClick=false){
@@ -173,7 +173,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
     <section className="ocr-toolbar" aria-label="OCR 文件与配置">
       <div className="ocr-toolbar-import"><Button icon={<Files/>} disabled={busy} onClick={()=>void run(()=>pickFiles(false))}>添加文件</Button><Button icon={<FolderOpen/>} disabled={busy} onClick={()=>void run(()=>pickFiles(true))}>添加文件夹</Button></div>
       <label className="ocr-profile-select">识别配置<select aria-label="识别配置" value={profileId} onChange={e=>setProfileId(e.target.value)}>{profileOptions}</select></label>
-      <div className="ocr-toolbar-settings">{(useJev||workflow.exportFormat!=='none')&&<span className="ocr-settings-summary">{[useJev?'Jev 已启用':'',workflow.exportFormat!=='none'?`自动导出 ${workflow.exportFormat.toUpperCase()}`:''].filter(Boolean).join(' · ')}</span>}<Button appearance="subtle" icon={<SlidersHorizontal aria-hidden="true"/>} aria-haspopup="dialog" onClick={()=>setSettingsOpen(true)}>识别设置</Button></div>
+      <div className="ocr-toolbar-settings">{(workflow.exportFormat!=='none')&&<span className="ocr-settings-summary">自动导出 {workflow.exportFormat.toUpperCase()}</span>}<Button appearance="subtle" icon={<SlidersHorizontal aria-hidden="true"/>} aria-haspopup="dialog" onClick={()=>setSettingsOpen(true)}>识别设置</Button></div>
     </section>
     <input className="sr-only" aria-label="导入 OCR 配置文件" ref={importInput} type="file" accept=".json,.yaml,.yml" onChange={e=>{const f=e.target.files?.[0];if(f)void run(()=>importProfiles(f));e.target.value='';}}/>
     {(data.unavailableReason||!data.engineReady)&&<div className="ocr-setup-alert" role="alert">{data.unavailableReason?`OCR 暂不可用：${data.unavailableReason}`:'本地 OCR 引擎未安装。'}</div>}
@@ -226,7 +226,7 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
       ):(
         <section className="ocr-results" aria-label="OCR 结果">
           <header>
-            <div><h2>文件清单 <span className="muted">{listedFiles.length} 个文件 · {labels[task.status]}{clearedIds.size>0?` · 已清除 ${clearedIds.size} 项`:''}</span></h2>{active(task)&&<progress aria-label="OCR 进度" max={task.files.length} value={task.files.filter(f=>!['queued','running'].includes(f.status)).length}/>}</div>
+            <div><h2>文件清单 <span className="muted">{listedFiles.length} 个文件 · {labels[task.status]}{!active(task)&&task.batchElapsedMs!=null&&<span title="批次实际处理时间，包括自动导出与改名。继续后续步骤时累计，排队和等待复核时间除外。"> · 整批用时 {(task.batchElapsedMs/1000).toFixed(1)} 秒</span>}{clearedIds.size>0?` · 已清除 ${clearedIds.size} 项`:''}</span></h2>{active(task)&&<progress aria-label="OCR 进度" max={task.files.length} value={task.files.filter(f=>!['queued','running'].includes(f.status)).length}/>}</div>
             <div className="ocr-buttons">
               <label className="ocr-result-filter"><span className="sr-only">结果范围</span><select aria-label="结果范围" value={resultFilter} onChange={e=>{setResultFilter(e.target.value);setChecked([]);setFileId('');}}><option value="all">全部结果</option><option value="review">待复核</option><option value="failed">识别失败</option><option value="interrupted">中断或取消</option></select></label>
               <Button icon={<Trash aria-hidden="true"/>} disabled={busy||active(task)||!clearableCount} title={active(task)?'任务结束后可清除已完成项':'从清单移除已完成项，保留待复核、失败、中断及未完成后续步骤的项目；原始结果与改名记录保留，可恢复显示'} onClick={()=>void run(()=>clearCompleted())}>清除已完成{clearableCount?` · ${clearableCount}`:''}</Button>
@@ -302,9 +302,14 @@ export default function OcrWorkbench({visible,incoming,onConsumed,onSettings,onD
         {profileId==='auto'&&<><p className="ocr-policy">从 {data.profiles.filter(p=>p.keywords.some(k=>k.trim())).length} 个已保存且有自动匹配关键词的配置中，按首页逐文件匹配，再按选中配置提取。配置名称和附加标题不参与匹配；无唯一匹配时保留待复核，可在详情查看原因并更换配置仅重试该文件。</p>{data.profiles.some(p=>!p.keywords.some(k=>k.trim()))&&<details className="ocr-task-options"><summary>查看未设置关键词的配置</summary><p className="muted">{data.profiles.filter(p=>!p.keywords.some(k=>k.trim())).map(p=>p.name).join('、')}：可手动选择使用；如需自动匹配，请选择该配置 → 编辑配置 → 填写自动匹配关键词并保存。</p></details>}</>}
       </section>
       <section className="ocr-setting-section">
-        <h3>字段判断</h3>
-        <Checkbox label="优先使用 Jev 判断字段" checked={useJev} onChange={(_,v)=>{const c=!!v.checked;setUseJev(c);try{localStorage.setItem('ocr_use_jev',String(c));}catch{}}}/>
-        <p className="ocr-policy">{useJev?'已启用 Jev：仅向模型发送数字脱敏后的候选文字；页面图片、数值原文留在本机。':'默认使用本地 OCR、定位标签、正则与格式规则；启用 Jev 后，Jev 判断说明才参与语义判断。'}{useJev&&!data.jevReady&&<> 尚未配置 Jev 密钥，字段将使用本地规则。<button className="text-button" onClick={()=>{setSettingsOpen(false);onSettings();}}>前往设置</button></>}</p>
+        <h3>批量识别</h3>
+        <label className="ocr-profile-select">同时识别文件数<select value={concurrency} onChange={e=>setConcurrency(Number(e.target.value))}>
+          <option value={0}>自动（本机推荐 {data.recommendedConcurrency} 个）</option>
+          {concurrentFileCounts.map(n=><option key={n} value={n}>{n} 个文件</option>)}
+        </select></label>
+        <p className="ocr-policy">{concurrency===0&&data.recommendedSoloThreads
+          ? `本机适合逐份识别，整批复用一套模型，每份使用 ${data.recommendedSoloThreads} 个推理线程。`
+          : '同一批次可同时识别多个文件，每份文件按页顺序识别。'}改名按清单顺序执行。</p>
       </section>
       <section className="ocr-setting-section">
         <h3>一键任务</h3>
@@ -348,7 +353,7 @@ function ProfileMatchDetail({file}:{file:OcrFileResult}){
 }
 
 function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:OcrFileResult;disabled:boolean;onSave:(values:Record<string,string>,name:string,reviewed:boolean)=>Promise<void>;onOpen:(reveal:boolean)=>void;onClose:()=>void;onDiagnose?:()=>void}){
-  const [tab,setTab]=useState<'fields'|'decisions'|'outbound'|'logs'|'lines'>('fields');
+  const [tab,setTab]=useState<'fields'|'decisions'|'logs'|'lines'>('fields');
   const [values,setValues]=useState(Object.fromEntries(Object.entries(file.fields).map(([k,v])=>[k,v.value])));
   const [name,setName]=useState(file.proposedName);
   const [nameEdited,setNameEdited]=useState(false);
@@ -360,7 +365,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
 
   const editable=['ready','review'].includes(file.status);
   const diag=file.diagnostics;
-  const jev=diag?.jev;
+
 
   const copy=(key:string,text:string)=>{
     void copyText(text).then(()=>{
@@ -413,15 +418,6 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
           <button
             type="button"
             role="tab"
-            aria-selected={tab==='outbound'}
-            className={tab==='outbound'?'active':''}
-            onClick={()=>setTab('outbound')}
-          >
-            出站审查与 Prompt {jev?.sent&&<span className="ocr-dot focus"/>}
-          </button>
-          <button
-            type="button"
-            role="tab"
             aria-selected={tab==='logs'}
             className={tab==='logs'?'active':''}
             onClick={()=>setTab('logs')}
@@ -458,11 +454,9 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                   <div className="ocr-field-meta">
                     <span className={`ocr-source-tag ${v.source}`}>{labels[v.source]||v.source}</span>
                     <span title={v.source==='local'?'此分数只表示 OCR 文字识别质量，不表示字段归属一定正确。':undefined}>
-                      {v.source==='jev'
-                        ?(v.confidence===null?'无模型分数':`置信度 ${(v.confidence*100).toFixed(0)}%`)
-                        :(v.source==='local'
+                      {v.source==='local'
                           ?(v.confidence===null?'本地规则':`OCR 文字置信度 ${(v.confidence*100).toFixed(0)}%`)
-                          :(v.confidence===null?'':`置信度 ${(v.confidence*100).toFixed(0)}%`))}
+                          :(v.confidence===null?'':`置信度 ${(v.confidence*100).toFixed(0)}%`)}
                     </span>
                     {v.evidence.length>0&&<span>来源行: {v.evidence.map(i=>i+1).join('、')}</span>}
                   </div>
@@ -519,10 +513,6 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                     </div>
                     <div className="ocr-decision-candidates">
                       <div className="ocr-cand-line">
-                        <span className="cand-label">Jev 模型:</span>
-                        <span>{d.jevCandidate?`${d.jevCandidate} ${d.jevConfidence!==null&&d.jevConfidence!==undefined?`(${(d.jevConfidence*100).toFixed(0)}%)`:''}`:'（未给出有效候选）'}</span>
-                      </div>
-                      <div className="ocr-cand-line">
                         <span className="cand-label">本地规则:</span>
                         <span>{localDecisionText(d)}</span>
                       </div>
@@ -541,93 +531,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
           </div>
         )}
 
-        {tab==='outbound'&&(
-          <div className="ocr-outbound-view">
-            <div className="ocr-outbound-header">
-              <div className="ocr-diag-badge-row">
-                <span className={`ocr-badge ${jev?.enabled?(jev?.success?'success':jev?.sent?'danger':'warning'):'muted'}`}>
-                  {jev?.enabled?(jev?.sent?(jev?.success?`Jev 调用成功 · 耗时 ${jev?.elapsedMs}ms`:`Jev 调用失败 · 耗时 ${jev?.elapsedMs}ms`):'Jev 未发送'):'未启用 Jev'}
-                </span>
-                <span className="ocr-badge muted">模型版本: jev-1.13.0</span>
-                <span className="ocr-badge muted">OCR 耗时: {diag?.ocrElapsedMs?`${diag.ocrElapsedMs}ms`:'—'}</span>
-              </div>
-            </div>
-
-            {jev?.error&&<p className="inline-error" role="alert" style={{marginBottom:10}}>{jev.error}</p>}
-            {copyError&&<p className="inline-error" role="alert" style={{marginBottom:10}}>{copyError}</p>}
-
-            <div className="ocr-outbound-split">
-              <div className="ocr-outbound-col">
-                <div className="ocr-outbound-col-header">
-                  <div>
-                    <h4>出站脱敏候选行（共 {jev?.candidates?.length||0} 行）</h4>
-                    <p className="ocr-diag-desc" style={{fontSize:11,color:'var(--muted)',margin:0}}>
-                      图片与敏感数字绝不出站，已全自动脱敏为 [数值] 占位符：
-                    </p>
-                  </div>
-                  <IconButton
-                    label="复制脱敏候选行内容"
-                    onClick={()=>{
-                      const text = jev?.candidates?.length
-                        ? jev.candidates.map(c=>`[${c.id}] ${c.maskedText}\n(对应原文档第 ${c.originalLineIndex+1} 行: ${c.originalText})`).join('\n\n')
-                        : '无候选数据';
-                      copy('candidates', text);
-                    }}
-                  >
-                    {copied==='candidates'?<Check style={{color:'var(--focus)'}}/>:<Copy/>}
-                  </IconButton>
-                </div>
-                <div className="ocr-scroll-box">
-                  {jev?.candidates&&jev.candidates.length>0?jev.candidates.map(c=>(
-                    <div key={c.id} className="ocr-code-line" style={{marginBottom:8,paddingBottom:6,borderBottom:'1px dashed var(--line)'}}>
-                      <div>
-                        <span className="ocr-opaque-id" style={{color:'var(--focus)',fontWeight:600}}>[{c.id}]</span>{' '}
-                        <span className="ocr-masked-text">{c.maskedText}</span>
-                      </div>
-                      <small className="ocr-orig-hint" style={{display:'block',color:'var(--muted)',fontSize:10,marginTop:2}}>
-                        对应原文档第 {c.originalLineIndex+1} 行：{c.originalText}
-                      </small>
-                    </div>
-                  )):<p className="muted" style={{padding:'20px 0',textAlign:'center'}}>无出站候选数据</p>}
-                </div>
-              </div>
-
-              <div className="ocr-outbound-col">
-                <div className="ocr-outbound-col-header">
-                  <div>
-                    <h4>向模型提交的问询 Prompt（共 {jev?.questions?.length||0} 项）</h4>
-                    <p className="ocr-diag-desc" style={{fontSize:11,color:'var(--muted)',margin:0}}>
-                      结构化 Prompt 问询指令及模型判定结果：
-                    </p>
-                  </div>
-                  <IconButton
-                    label="复制问询 Prompt 内容"
-                    onClick={()=>{
-                      const text = jev?.questions?.length
-                        ? jev.questions.map(q=>`【${q.fieldKey}】(ID: ${q.questionId})\n问询指令: ${q.instructions}\n判定采纳: ${q.chosenText||q.chosenId||'无'} ${q.confidence!==null&&q.confidence!==undefined?`(${(q.confidence*100).toFixed(0)}%)`:''}`).join('\n\n---\n\n')
-                        : '无问询说明';
-                      copy('questions', text);
-                    }}
-                  >
-                    {copied==='questions'?<Check style={{color:'var(--focus)'}}/>:<Copy/>}
-                  </IconButton>
-                </div>
-                <div className="ocr-scroll-box">
-                  {jev?.questions&&jev.questions.length>0?jev.questions.map((q,idx)=>(
-                    <div key={idx} className="ocr-q-item" style={{marginBottom:10,paddingBottom:8,borderBottom:'1px dashed var(--line)'}}>
-                      <div style={{fontWeight:600,color:'var(--text)'}}>【{q.fieldKey}】 <span className="muted" style={{fontWeight:'normal',fontSize:10}}>ID: {q.questionId}</span></div>
-                      <p style={{margin:'4px 0',whiteSpace:'pre-wrap',color:'var(--muted)'}}>{q.instructions}</p>
-                      <div style={{fontSize:11,color:'var(--focus)',fontWeight:500}}>
-                        判定采纳: {q.chosenText||q.chosenId||'无'} {q.confidence!==null&&q.confidence!==undefined?`(${(q.confidence*100).toFixed(0)}%)`:''}
-                      </div>
-                    </div>
-                  )):<p className="muted" style={{padding:'20px 0',textAlign:'center'}}>无问询指令</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {copyError&&<p className="inline-error" role="alert">{copyError}</p>}
         {tab==='logs'&&diag?.profileMatch&&diag.profileMatch.outcome!=='matched'?(
           <div className="ocr-steps-panel">
             <p role="status">此文件停在首页配置匹配，尚未执行字段提取、命名或自动改名。</p>
@@ -637,50 +541,41 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
         ):tab==='logs'&&(
           <div className="ocr-steps-panel">
             {(()=>{
-              const totalElapsed = (file.elapsedMs || ((diag?.ocrElapsedMs || 0) + (jev?.elapsedMs || 0)) || 1)+(diag?.timings?.saveMs||0);
+              const totalElapsed = (file.elapsedMs || (diag?.ocrElapsedMs || 0) || 1)+(diag?.timings?.saveMs||0);
               const ocrMs = diag?.ocrElapsedMs || 0;
-              const jevMs = jev?.elapsedMs || 0;
-              const otherMs = Math.max(0, totalElapsed - ocrMs - jevMs);
+              const otherMs = Math.max(0, totalElapsed - ocrMs);
               const ruleMs = diag?.timings?.extractMs;
               const ocrPct = Math.max(0, Math.min(100, Math.round((ocrMs / totalElapsed) * 100)));
-              const jevPct = Math.max(0, Math.min(100, Math.round((jevMs / totalElapsed) * 100)));
-              const otherPct = Math.max(0, 100 - ocrPct - jevPct);
+              const otherPct = Math.max(0, 100 - ocrPct);
 
               const step1Logs = diag?.logs?.filter(l => l.includes('处理文件') || l.includes('OCR') || l.includes('指纹')) || [];
-              const step2Logs = diag?.logs?.filter(l => l.includes('构建 Jev') || l.includes('候选') || l.includes('脱敏')) || [];
-              const step3Logs = diag?.logs?.filter(l => l.includes('Jev') || l.includes('questions') || l.includes('choice') || l.includes('noul') || l.includes('q_')) || [];
-              const step4Logs = diag?.logs?.filter(l => l.includes('拟命名') || l.includes('处理完成') || l.includes('提取') || l.includes('规则')) || [];
+              const step2Logs = diag?.logs?.filter(l => l.includes('拟命名') || l.includes('处理完成') || l.includes('提取') || l.includes('规则')) || [];
 
               return (
                 <>
                   {/* 耗时可视化看板 */}
                   <div className="ocr-timing-dashboard">
                     <div className="ocr-timing-head">
-                      <span className="ocr-timing-title">⏱ 全流程耗时可视化分析</span>
-                      <span className="muted" style={{fontSize:11}}>总耗时：<strong>{(totalElapsed / 1000).toFixed(2)}s</strong></span>
+                      <span className="ocr-timing-title">本文件分阶段耗时</span>
+                      <span className="muted" style={{fontSize:11}}>本文件耗时：<strong>{(totalElapsed / 1000).toFixed(2)}s</strong></span>
                     </div>
 
-                    <div className="ocr-timeline-track" title={`本地OCR: ${ocrMs}ms (${ocrPct}%), AI推理: ${jevMs}ms (${jevPct}%), 其他处理: ${otherMs}ms (${otherPct}%)`}>
+                    <div className="ocr-timeline-track" title={`本地OCR: ${ocrMs}ms (${ocrPct}%), 其他处理: ${otherMs}ms (${otherPct}%)`}>
                       <div className="ocr-timeline-seg ocr-seg-ocr" style={{width: `${ocrPct}%`}}/>
-                      <div className="ocr-timeline-seg ocr-seg-jev" style={{width: `${jevPct}%`}}/>
                       <div className="ocr-timeline-seg ocr-seg-rule" style={{width: `${otherPct}%`}}/>
                     </div>
 
                     <div className="ocr-timing-metrics">
                       <div className="ocr-timing-metric-item">
-                        <span><span className="ocr-timing-dot ocr-dot-ocr"/>1. 本地离线 OCR 识别</span>
+                        <span><span className="ocr-timing-dot ocr-dot-ocr"/>本地离线 OCR 识别</span>
                         <strong>{ocrMs}ms ({ocrPct}%)</strong>
-                      </div>
-                      <div className="ocr-timing-metric-item">
-                        <span><span className="ocr-timing-dot ocr-dot-jev"/>3. AI 语义模型推理</span>
-                        <strong>{jevMs}ms ({jevPct}%)</strong>
                       </div>
                       <div className="ocr-timing-metric-item">
                         <span><span className="ocr-timing-dot ocr-dot-rule"/>文件核对、提取等其他处理</span>
                         <strong>{otherMs}ms ({otherPct}%)</strong>
                       </div>
                       <div className="ocr-timing-metric-item">
-                        <span><span className="ocr-timing-dot ocr-dot-total"/>全流程执行总用时</span>
+                        <span><span className="ocr-timing-dot ocr-dot-total"/>本文件处理用时</span>
                         <strong>{totalElapsed}ms</strong>
                       </div>
                     </div>
@@ -695,7 +590,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                           ['字段提取与拟命名',diag.timings.extractMs],['结果保存（本次运行）',diag.timings.saveMs],
                         ] as const).map(([label,ms])=><div className="ocr-timing-metric-item" key={label}><span>{label}</span><strong>{ms==null?'未记录':`${ms}ms`}</strong></div>)}
                       </div>
-                      {diag.timings.engine&&<p className="muted">实际识别 {diag.timings.engine.pagesProcessed} 页 · 复用 {diag.timings.reusedPages} 页 · OCR 进程累计 CPU 时间 {diag.timings.engine.workerCpuMs}ms</p>}
+                      {diag.timings.engine&&<p className="muted">实际识别 {diag.timings.engine.pagesProcessed} 页 · 复用 {diag.timings.reusedPages} 页{diag.timings.inferenceThreads!=null&&` · 本文件使用 ${diag.timings.inferenceThreads} 个推理线程`} · OCR 进程累计 CPU 时间 {diag.timings.engine.workerCpuMs}ms</p>}
                       {diag.timings.regionFastPath&&<p className="muted">{diag.timings.regionFallback?'区域快速检测后，因字段缺失或置信度不足，已按原检测精度重新识别。':'已使用区域快速检测；方向判断与文字识别保留原清晰度。'}</p>}
                       {diag.timings.classificationFastPath&&<p className="muted">{diag.timings.classificationFallback?'首页上部未匹配，已补充完整首页探测。':'唯一候选配置已在首页上部命中。'}</p>}
                       <p className="muted">分阶段计时包含在对应处理耗时中；CPU 时间是各线程工作时间之和，不计入总耗时。保存耗时仅本次运行可见，有记录时计入总耗时。</p>
@@ -727,7 +622,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                           </div>
                           <div className="ocr-step-summary-item">
                             <span>文本提取成果</span>
-                            <span>共提取 <strong>{file.lines.length}</strong> 行文本 · 平均准确度 {(file.lines.length ? (file.lines.reduce((a,b)=>a+b.score,0)/file.lines.length*100).toFixed(0) : 0)}%</span>
+                            <span>共提取 <strong>{file.lines.length}</strong> 行文本 · 平均文字置信度 {(file.lines.length ? (file.lines.reduce((a,b)=>a+b.score,0)/file.lines.length*100).toFixed(0) : 0)}%</span>
                           </div>
                           <div className="ocr-step-summary-item">
                             <span>数据防篡改校验</span>
@@ -750,91 +645,7 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                     <div className="ocr-step-card">
                       <div className="ocr-step-card-header">
                         <div className="ocr-step-left">
-                          <span className="ocr-step-badge ocr-type-mask">步骤 2 · 隐私沙箱防护</span>
-                          <span className="ocr-step-title">商业机密脱敏与出站候选构建</span>
-                        </div>
-                        <div className="ocr-step-right">
-                          <span className="ocr-step-time" style={{color:'#b45309'}}>耗时 &lt; 10ms</span>
-                        </div>
-                      </div>
-                      <div className="ocr-step-card-body">
-                        <div className="ocr-step-summary-grid">
-                          <div className="ocr-step-summary-item">
-                            <span>沙箱物理熔断机制</span>
-                            <span>已启动画框安全沙箱，框外图像与金额绝对不出站</span>
-                          </div>
-                          <div className="ocr-step-summary-item">
-                            <span>脱敏候选提炼</span>
-                            <span>从 {file.lines.length} 行文本中整理出 <strong>{jev?.candidates?.length || 0}</strong> 个脱敏候选</span>
-                          </div>
-                          <div className="ocr-step-summary-item">
-                            <span>定向问询组装</span>
-                            <span>生成 <strong>{jev?.questions?.length || 0}</strong> 项针对提取字段的 Prompt 问询题目</span>
-                          </div>
-                          <div className="ocr-step-summary-item">
-                            <span>脱敏合规审计</span>
-                            <span>单价、总价、银行账户等敏感数字已全部置换为 [数值] 占位符</span>
-                          </div>
-                        </div>
-
-                        {step2Logs.length > 0 && (
-                          <details className="ocr-step-raw-toggle">
-                            <summary>展开查看步骤 2 执行细节（{step2Logs.length} 条记录）</summary>
-                            <ul className="ocr-step-raw-list">
-                              {step2Logs.map((l, i) => <li key={i}>{l}</li>)}
-                            </ul>
-                          </details>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 步骤 3 */}
-                    <div className="ocr-step-card">
-                      <div className="ocr-step-card-header">
-                        <div className="ocr-step-left">
-                          <span className="ocr-step-badge ocr-type-ai">步骤 3 · AI 语义决策</span>
-                          <span className="ocr-step-title">大模型语义推理与候选打分</span>
-                        </div>
-                        <div className="ocr-step-right">
-                          <span className="ocr-step-time" style={{color:'#1d4ed8'}}>耗时 {jevMs}ms</span>
-                        </div>
-                      </div>
-                      <div className="ocr-step-card-body">
-                        <div className="ocr-step-summary-grid">
-                          <div className="ocr-step-summary-item">
-                            <span>推理决策模型</span>
-                            <span>TypeSafe Jev System One (v1.13.0)</span>
-                          </div>
-                          <div className="ocr-step-summary-item">
-                            <span>推理状态</span>
-                            <span>{jev?.enabled ? (jev?.success ? '调用成功，完成多候选语义打分' : (jev?.sent ? `调用异常: ${jev?.error || '网络错误'}（已平滑降级使用本地规则）` : '未发送问询')) : '未启用 Jev（使用纯本地规则）'}</span>
-                          </div>
-                          <div className="ocr-step-summary-item" style={{gridColumn:'1 / -1'}}>
-                            <span>关键判定结论摘要</span>
-                            <span>
-                              {diag?.decisions && diag.decisions.length > 0
-                                ? diag.decisions.map(d => `${d.fieldKey}: ${d.jevCandidate || d.finalValue || '未识别'}`).join(' ； ')
-                                : (jev?.questions && jev.questions.length > 0 ? jev.questions.map(q => `${q.fieldKey}: ${q.chosenText || q.chosenId || '无'}`).join(' ； ') : '无字段判定')}
-                            </span>
-                          </div>
-                        </div>
-
-                        {step3Logs.length > 0 && (
-                          <details className="ocr-step-raw-toggle">
-                            <summary>展开查看步骤 3 执行细节（{step3Logs.length} 条记录）</summary>
-                            <ul className="ocr-step-raw-list">
-                              {step3Logs.map((l, i) => <li key={i}>{l}</li>)}
-                            </ul>
-                          </details>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 步骤 4 */}
-                    <div className="ocr-step-card">
-                      <div className="ocr-step-card-header">
-                        <div className="ocr-step-left">
-                          <span className="ocr-step-badge ocr-type-rule">步骤 4 · 命名规整与质检</span>
+                          <span className="ocr-step-badge ocr-type-rule">步骤 2 · 命名规整与质检</span>
                           <span className="ocr-step-title">综合裁决、格式校验与拟重命名</span>
                         </div>
                         <div className="ocr-step-right">
@@ -857,11 +668,11 @@ function ResultDetail({file,disabled,onSave,onOpen,onClose,onDiagnose}:{file:Ocr
                           </div>
                         </div>
 
-                        {step4Logs.length > 0 && (
+                        {step2Logs.length > 0 && (
                           <details className="ocr-step-raw-toggle">
-                            <summary>展开查看步骤 4 执行细节（{step4Logs.length} 条记录）</summary>
+                            <summary>展开查看步骤 2 执行细节（{step2Logs.length} 条记录）</summary>
                             <ul className="ocr-step-raw-list">
-                              {step4Logs.map((l, i) => <li key={i}>{l}</li>)}
+                              {step2Logs.map((l, i) => <li key={i}>{l}</li>)}
                             </ul>
                           </details>
                         )}
@@ -975,13 +786,13 @@ function ProfileEditor({value:p,busy,error,notice,onChange,onClose,onSave,onDele
             <div className="ocr-section-heading"><h3>{f.key||'新字段'}</h3><Button size="small" appearance="subtle" icon={<Trash/>} onClick={()=>{onChange(updateProfileField(p,index,null));setFieldIndex(Math.max(0,index-1));}}>移除字段</Button></div>
             <div className="ocr-form-grid"><label className="ocr-field">字段名称<input aria-label={`字段名称 ${index+1}`} value={f.key} onChange={e=>field({key:e.target.value})}/></label><label className="ocr-field">字段类型<select aria-label="字段类型" value={f.kind} onChange={e=>field({kind:e.target.value as OcrFieldDefinition['kind'],format:''})}><option value="text">文字</option><option value="date">日期</option><option value="number">数字 / 金额</option></select></label></div>
             <div className="ocr-buttons"><Checkbox label="必填" checked={f.required} onChange={(_,v)=>field({required:!!v.checked})}/><Checkbox label="多个值" checked={f.multiple} onChange={(_,v)=>field({multiple:!!v.checked})}/>{f.multiple&&<><label>最多保留 <input className="ocr-small-number" type="number" min={1} max={20} value={f.maxItems} onChange={e=>field({maxItems:Number(e.target.value)})}/></label><label>分隔符 <input className="ocr-small-number" value={f.separator} onChange={e=>field({separator:e.target.value})}/></label></>}</div>
-            <section className="ocr-field-rules"><h4>本地提取规则</h4><p className="muted">默认使用；启用 Jev 后，未获得结果时回退到这些规则。</p><div className="ocr-form-grid">
+            <section className="ocr-field-rules"><h4>本地提取规则</h4><div className="ocr-form-grid">
               <label className="ocr-field">定位标签（逗号分隔）<input value={f.anchors.join(',')} onChange={e=>field({anchors:list(e.target.value)})}/></label><label className="ocr-field">清理前缀（逗号分隔）<input value={f.stripPrefixes.join(',')} onChange={e=>field({stripPrefixes:list(e.target.value)})}/></label>
               <label className="ocr-field">未识别时的显示值<input value={f.fallback} onChange={e=>field({fallback:e.target.value})}/></label>
               {f.kind==='date'&&<label className="ocr-field">日期格式<select value={f.format} onChange={e=>field({format:e.target.value})}><option value="">YYYYMMDD</option><option value="%Y%m%d">YYYYMMDD</option><option value="%Y-%m-%d">YYYY-MM-DD</option><option value="%Y/%m/%d">YYYY/MM/DD</option><option value="%Y年%m月%d日">YYYY年MM月DD日</option></select></label>}
               {f.kind==='number'&&<label className="ocr-field">保留小数位<select value={f.format} onChange={e=>field({format:e.target.value})}><option value="">保持原值</option>{[0,1,2,3,4,5,6].map(n=><option value={String(n)} key={n}>{n} 位</option>)}</select></label>}
             </div></section>
-            <details className="ocr-editor-details"><summary>高级提取规则{f.pattern||f.prompt?' · 已配置':''}</summary><div className="ocr-form-grid"><label className="ocr-field">正则表达式<input value={f.pattern} onChange={e=>field({pattern:e.target.value})} placeholder="优先取第一个捕获组"/></label><label className="ocr-field">Jev 判断说明<input aria-label={`字段说明 ${index+1}`} value={f.prompt} onChange={e=>field({prompt:e.target.value})}/><small>仅在识别设置中启用 Jev 时生效。</small></label></div></details>
+            <details className="ocr-editor-details"><summary>高级提取规则{f.pattern||f.prompt?' · 已配置':''}</summary><div className="ocr-form-grid"><label className="ocr-field">正则表达式<input value={f.pattern} onChange={e=>field({pattern:e.target.value})} placeholder="优先取第一个捕获组"/></label><label className="ocr-field">字段说明<input aria-label={`字段说明 ${index+1}`} value={f.prompt} onChange={e=>field({prompt:e.target.value})}/><small>填写“排除型号”会过滤含“型号”的候选文字。</small></label></div></details>
           </section>}
         </div>}
         {!p.fields.length&&<div className="ocr-editor-empty"><h3>添加你需要的字段</h3><p className="muted">例如客户名称、产品名称、日期。也可以使用 AI 生成草稿；不设置字段时，仅识别和导出文字。</p></div>}
@@ -995,7 +806,6 @@ function ProfileEditor({value:p,busy,error,notice,onChange,onClose,onSave,onDele
         <section className="ocr-profile-section"><h3>识别与复核</h3><div className="ocr-form-grid ocr-recognition-grid"><label className="ocr-field">识别页范围<input aria-label="页范围" value={p.pages} onChange={e=>set({pages:e.target.value})} placeholder="all 或 1-3,5"/><small>all 表示全部页面，也可填写 1-3,5。框选指定页面时会同步更新。</small></label><label className="ocr-field">渲染清晰度（DPI）<input type="number" min={100} max={400} value={p.dpi} onChange={e=>set({dpi:Number(e.target.value)})}/><small>范围 100–400，默认 200。</small></label><label className="ocr-field">低于此分数需复核<input type="number" min={0} max={1} step={.05} value={p.threshold} onChange={e=>set({threshold:Number(e.target.value)})}/><small>也用于自动匹配：低于此分数的首页关键词不计入命中数。请先查看匹配诊断再调整。</small></label></div></section>
         <section className="ocr-profile-section"><h3>文件命名</h3><label className="ocr-field">命名格式<input aria-label="命名格式" value={p.filenamePattern} onChange={e=>set({filenamePattern:e.target.value})}/><small>可用：{'{原文件名}'} {p.fields.filter(item=>item.key).map(item=>`{${item.key}}`).join(' ')}；保留原扩展名。</small></label></section>
         <details className="ocr-editor-details"><summary>版式专有词{p.extraTitles?.length||p.noiseMarkers?.length||p.extraHeaders?.length?' · 已配置':''}</summary><p className="muted">仅影响当前配置，不写入通用规则。</p><div className="ocr-form-grid"><label className="ocr-field">附加标题（逗号分隔）<input value={(p.extraTitles||[]).join(',')} onChange={e=>set({extraTitles:list(e.target.value)})}/></label><label className="ocr-field">排除词（逗号分隔）<input value={(p.noiseMarkers||[]).join(',')} onChange={e=>set({noiseMarkers:list(e.target.value)})}/></label><label className="ocr-field">补充表头（逗号分隔）<input value={(p.extraHeaders||[]).join(',')} onChange={e=>set({extraHeaders:list(e.target.value)})}/></label></div></details>
-        <p className="ocr-policy">发送给 Jev 的单价、金额及其他数字会强制脱敏，不能通过配置关闭。需要比较原始数值时，请配置本地规则并复核结果。</p>
       </div>
     </fieldset>
     <footer className="ocr-editor-footer"><div className="ocr-buttons"><Button size="small" appearance="subtle" disabled={busy} icon={<Copy/>} onClick={()=>set({...structuredClone(p),id:crypto.randomUUID(),name:`${p.name} 副本`})}>复制为新配置</Button><Button size="small" appearance="subtle" className="ocr-delete-toggle" disabled={busy} onClick={()=>setConfirmDelete(v=>!v)}>{confirmDelete?'取消删除':'删除配置'}</Button></div><span className="muted">修改后需保存</span><div className="ocr-buttons"><Button disabled={busy} onClick={onClose}>取消</Button><Button disabled={busy} appearance="primary" icon={<Check aria-hidden="true"/>} onClick={onSave}>{busy?'处理中…':'保存配置'}</Button></div></footer>

@@ -22,7 +22,7 @@ assert.equal(profiles.length,1);assert.equal(manifest.cases.length,10);
 const folder=mkdtempSync(join(root,'test-results/ocr-native-'));
 const data=join(folder,'data');mkdirSync(join(data,'workspace/ocr'),{recursive:true});
 copyFileSync(join(base,'profiles.json'),join(data,'workspace/ocr/profiles.json'));
-writeFileSync(join(data,'settings.json'),JSON.stringify({schemaVersion:1,revision:0,roots:[],theme:'light',recursive:true,filter:'',launchers:[],modelUrl:'http://127.0.0.1:19290/v1',modelId:'unused-offline-test',jevEnabled:false}));
+writeFileSync(join(data,'settings.json'),JSON.stringify({schemaVersion:1,revision:0,roots:[],theme:'light',recursive:true,filter:'',launchers:[],modelUrl:'http://127.0.0.1:19290/v1',modelId:'unused-offline-test',...(baseline?{jevEnabled:false}:{})}));
 const outDir=join(folder,'exports');mkdirSync(outDir);mkdirSync(join(folder,'webview'));
 const report={baseline,folder,profileSha256:manifest.profile_sha256,runs:[],checks:[]};
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -70,7 +70,7 @@ try{
   for(const [round,mode] of controlsOnly?[]:Array.from({length:repeats},(_,round)=>[[round,'manual'],[round,'auto']]).flat()){
     const paths=copiedCases(`${mode}-${round}`);const started=performance.now();const imported=await invoke('ocr_import_files',{paths});assert.deepEqual(imported.errors,[]);
     const workflow=mode==='auto'?{exportFormat:'csv',exportDirectory:outDir,rename:'apply',renameConfirmed:true}:null;
-    const id=await invoke('ocr_start_task',{paths:imported.files,profileId:mode==='auto'?'auto':profiles[0].id,useJev:false,retryId:null,retryFileIds:null,workflow});
+    const id=await invoke('ocr_start_task',{paths:imported.files,profileId:mode==='auto'?'auto':profiles[0].id,...(baseline?{useJev:false}:{}),retryId:null,retryFileIds:null,workflow});
     const {snapshot,bytes}=await waitTask(id);const wallMs=performance.now()-started;const accuracy=verify(snapshot);
     writeFileSync(join(folder,`${mode}-${round}-task.json`),JSON.stringify(snapshot,null,2));
     report.runs.push({round,mode,wallMs,progressBytes:bytes,...accuracy,workerCpuMs:snapshot.files.reduce((sum,f)=>sum+(f.diagnostics?.timings?.engine?.workerCpuMs||0),0),
@@ -87,7 +87,7 @@ try{
     const strict={...profiles[0],id:'acceptance-strict-confidence',name:'虚构验收：严格复核',threshold:1};
     await invoke('ocr_save_profile',{profile:strict});
     const paths=copiedCases('confidence');const imported=await invoke('ocr_import_files',{paths:[paths[0]]});
-    const id=await invoke('ocr_start_task',{paths:imported.files,profileId:strict.id,useJev:false,retryId:null,retryFileIds:null,workflow:null});
+    const id=await invoke('ocr_start_task',{paths:imported.files,profileId:strict.id,...(baseline?{useJev:false}:{}),retryId:null,retryFileIds:null,workflow:null});
     const result=(await waitTask(id)).snapshot.files[0];
     assert.equal(result.status,'review');assert.equal(result.diagnostics.timings.regionFallback,true);
     assert.equal(result.diagnostics.timings.engine.requests,2);
@@ -95,22 +95,22 @@ try{
     assert.equal(sha(paths[0]),manifest.cases[0].sha256);report.checks.push('low confidence re-runs precise detection and retains correct fields for review');
     await invoke('ocr_delete_profile',{id:strict.id});
     await invoke('ocr_save_profile',{profile:{...profiles[0],keywords:[manifest.cases[0].expected_products[0]]}});
-    const fallbackId=await invoke('ocr_start_task',{paths:imported.files,profileId:'auto',useJev:false,retryId:null,retryFileIds:null,workflow:null});
+    const fallbackId=await invoke('ocr_start_task',{paths:imported.files,profileId:'auto',...(baseline?{useJev:false}:{}),retryId:null,retryFileIds:null,workflow:null});
     const fallback=(await waitTask(fallbackId)).snapshot.files[0];
     assert.equal(fallback.status,'ready');assert.equal(fallback.diagnostics.timings.classificationFallback,true);
     for(const [key,value] of Object.entries(manifest.cases[0].expected_fields))assert.equal(fallback.fields[key].value,value);
     report.checks.push('keyword below header falls back to full first page and matches correctly');
     await invoke('ocr_save_profile',{profile:profiles[0]});
     await invoke('ocr_save_profile',{profile:{...profiles[0],id:'acceptance-competitor',name:'虚构验收：冲突候选',keywords:['客户名称']}});
-    const tiedId=await invoke('ocr_start_task',{paths:imported.files,profileId:'auto',useJev:false,retryId:null,retryFileIds:null,workflow:null});
+    const tiedId=await invoke('ocr_start_task',{paths:imported.files,profileId:'auto',...(baseline?{useJev:false}:{}),retryId:null,retryFileIds:null,workflow:null});
     const tied=(await waitTask(tiedId)).snapshot.files[0];
     assert.equal(tied.status,'review');assert.equal(tied.profile,null);assert.equal(tied.diagnostics.profileMatch.outcome,'tied');
     assert.equal(tied.diagnostics.timings.classificationFastPath,false);report.checks.push('multiple candidates retain full-page conflict detection and require review');
   }
   const cancelPath=copiedCases('cancel')[0];const imported=await invoke('ocr_import_files',{paths:[cancelPath]});
-  const id=await invoke('ocr_start_task',{paths:imported.files,profileId:profiles[0].id,useJev:false,retryId:null,retryFileIds:null,workflow:null});await invoke('ocr_cancel_task',{id});
+  const id=await invoke('ocr_start_task',{paths:imported.files,profileId:profiles[0].id,...(baseline?{useJev:false}:{}),retryId:null,retryFileIds:null,workflow:null});await invoke('ocr_cancel_task',{id});
   const cancelled=(await waitTask(id)).snapshot;assert.equal(cancelled.status,'cancelled');
-  const retry=await invoke('ocr_start_task',{paths:[],profileId:profiles[0].id,useJev:false,retryId:id,retryFileIds:null,workflow:null});
+  const retry=await invoke('ocr_start_task',{paths:[],profileId:profiles[0].id,...(baseline?{useJev:false}:{}),retryId:id,retryFileIds:null,workflow:null});
   assert.equal((await waitTask(retry)).snapshot.files[0].status,'ready');assert.equal(sha(cancelPath),manifest.cases[0].sha256);report.checks.push('cancel and retry preserve file bytes');
   report.passed=true;
 }catch(error){report.passed=false;report.error=String(error);process.exitCode=1;console.error(error);}

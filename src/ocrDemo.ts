@@ -1,6 +1,6 @@
 // 仅供浏览器合成演示，名称和金额均为示例数据，桌面识别不使用这些内容。
 import { completedOcrFileIds, completedOcrTask, newField, newProfile, type OcrBootstrap, type OcrProfile, type OcrTask, type OcrRenameBatch, type OcrFieldDefinition, type OcrLine, type OcrFileResult } from './ocrTypes';
-const state:OcrBootstrap={profiles:[{...newProfile(),id:'text',name:'仅识别文字',pages:'all'},{...newProfile(),id:'quote',name:'报价单',fields:[{...newField(),key:'客户名称',prompt:'找采购方',anchors:['客户']}],filenamePattern:'{客户名称}',keywords:['报价']}],tasks:[],batches:[],engineReady:true,jevReady:false};
+const state:OcrBootstrap={profiles:[{...newProfile(),id:'text',name:'仅识别文字',pages:'all'},{...newProfile(),id:'quote',name:'报价单',fields:[{...newField(),key:'客户名称',prompt:'找采购方',anchors:['客户']}],filenamePattern:'{客户名称}',keywords:['报价']}],tasks:[],batches:[],engineReady:true,recommendedConcurrency:1};
 
 /**
  * 单据样本：覆盖报价、合同、对账、送货四类常见办公单据。
@@ -34,16 +34,15 @@ const 构造行=(样本:单据样本,path:string):OcrLine[]=>{
 };
 /** 需复核状态由识别置信度与配置阈值真实推导，而不是靠文件名后缀伪造。 */
 const 需复核=(lines:OcrLine[],p:OcrProfile):boolean=>lines.some(l=>l.score<p.threshold);
-const 脱敏=(text:string):string=>text.replace(/([\d,]+\.\d{2})\s*元/,'[价格已脱敏] 元');
 /** 拟命名遵循配置命名格式，取不到值时回落到“未识别”，与桌面版一致。 */
 const 生成拟命名=(p:OcrProfile,path:string,fields:Record<string,{value:string}>):string=>{
   const stem=p.filenamePattern.replace(/\{([^{}]+)\}/g,(_,key)=>key==='原文件名'?path.split('/').at(-1)!.replace(/\.[^.]+$/,''):fields[key]?.value||'未识别');
   return `${stem}.${path.split('.').at(-1)}`;
 };
-function 构造文件(p:OcrProfile,path:string,useJev:boolean):OcrFileResult{
+function 构造文件(p:OcrProfile,path:string):OcrFileResult{
   const 样本=匹配单据(path),lines=构造行(样本,path);
   const fields=Object.fromEntries(p.fields.map(f=>[f.key,{value:字段取值(f,样本),source:'local',confidence:null,evidence:[0],review:false}])) as OcrFileResult['fields'];
-  return{id:crypto.randomUUID(),path,originalName:path.split('/').at(-1)!,status:需复核(lines,p)?'review':'ready',error:'',profile:p,lines,fields,proposedName:生成拟命名(p,path,fields),reviewed:false,elapsedMs:123,warning:'浏览器合成演示，未读取或修改本机文件。',diagnostics:{ocrLinesCount:lines.length,ocrElapsedMs:80,jev:{enabled:useJev,sent:useJev,success:useJev,elapsedMs:45,candidates:lines.map((l,i)=>({id:`c${'ab'[i]||'c'+i}`,originalLineIndex:i,originalText:l.text,maskedText:脱敏(l.text)})),questions:p.fields.map((f,idx)=>({questionId:`q_${idx}`,fieldKey:f.key,instructions:`选择【${f.key}】`,chosenId:'ca',chosenText:`第 1 行: ${lines[0]?.text||''}`,confidence:0.95}))},decisions:p.fields.map(f=>({fieldKey:f.key,finalValue:fields[f.key].value,finalSource:'local',reviewRequired:false,localCandidate:fields[f.key].value,localRuleMatched:样本.行[0]?.[0]||''})),logs:['演示模式生成模拟识别日志',`OCR 识别耗时 80ms，共 ${lines.length} 行`,'字段抽取完成']}};
+  return{id:crypto.randomUUID(),path,originalName:path.split('/').at(-1)!,status:需复核(lines,p)?'review':'ready',error:'',profile:p,lines,fields,proposedName:生成拟命名(p,path,fields),reviewed:false,elapsedMs:123,warning:'浏览器合成演示，未读取或修改本机文件。',diagnostics:{ocrLinesCount:lines.length,ocrElapsedMs:80,decisions:p.fields.map(f=>({fieldKey:f.key,finalValue:fields[f.key].value,finalSource:'local',reviewRequired:false,localCandidate:fields[f.key].value,localRuleMatched:样本.行[0]?.[0]||''})),logs:['演示模式生成模拟识别日志',`OCR 识别耗时 80ms，共 ${lines.length} 行`,'字段抽取完成']}};
 }
 export async function ocrDemo(command:string,args:Record<string,unknown>):Promise<unknown>{
   switch(command){
@@ -62,13 +61,13 @@ export async function ocrDemo(command:string,args:Record<string,unknown>):Promis
       const paths=old?old.files.filter(f=>Array.isArray(args.retryFileIds)?args.retryFileIds.includes(f.id):['failed','cancelled','interrupted'].includes(f.status)).map(f=>f.path):args.paths as string[];
       if(!paths.length)throw new Error('没有可处理的文件。');
       const files=paths.map(path=>{
-        if(args.profileId!=='auto')return 构造文件(profiles[0],path,!!args.useJev);
+        if(args.profileId!=='auto')return 构造文件(profiles[0],path);
         const sample=匹配单据(path),lines=构造行(sample,path),text=sample.id+'\n'+lines.map(l=>l.text).join('\n');
         const ranked=profiles.map(p=>({p,score:lines[0].score>=p.threshold?[...new Set(p.keywords.map(k=>k.trim()).filter(Boolean))].filter(k=>text.includes(k)).length:0})).sort((a,b)=>b.score-a.score);
-        if(ranked[0]?.score&&ranked[0].score!==(ranked[1]?.score||0))return 构造文件(ranked[0].p,path,!!args.useJev);
-        return {...构造文件(profiles[0],path,false),profile:null,fields:{},proposedName:'',status:'review',warning:'未命中唯一配置，请更换配置后仅重新处理此文件。'};
+        if(ranked[0]?.score&&ranked[0].score!==(ranked[1]?.score||0))return 构造文件(ranked[0].p,path);
+        return {...构造文件(profiles[0],path),profile:null,fields:{},proposedName:'',status:'review',warning:'未命中唯一配置，请更换配置后仅重新处理此文件。'};
       });
-      const t:OcrTask={id:crypto.randomUUID(),created:Date.now()/1000,status:'completed',useJev:!!args.useJev,profiles,files,autoMatch:args.profileId==='auto',workflow:options?{enabled:true,options,status:files.some(f=>f.status==='review')?'review':'completed',exportPath:'',renameBatchId:'',error:''}:undefined};state.tasks.unshift(t);return t.id;
+      const t:OcrTask={id:crypto.randomUUID(),created:Date.now()/1000,status:'completed',concurrency:Number(args.concurrency)||0,profiles,files,autoMatch:args.profileId==='auto',workflow:options?{enabled:true,options,status:files.some(f=>f.status==='review')?'review':'completed',exportPath:'',renameBatchId:'',error:''}:undefined};state.tasks.unshift(t);return t.id;
     }
     case 'ocr_get_task':return state.tasks.find(t=>t.id===args.id);
     case 'ocr_delete_task':state.tasks=state.tasks.filter(t=>t.id!==args.id);return;

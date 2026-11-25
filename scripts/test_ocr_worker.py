@@ -16,10 +16,31 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "ocr-worker"))
-from worker import rgb_image
+from worker import create_engine, rgb_image, worker_options
 
 
 class WorkerRecognitionTest(unittest.TestCase):
+    def test_explicit_thread_counts_and_legacy_switch(self):
+        for count in (1, 2, 3, 4):
+            opts = worker_options(["--inference-threads", str(count), "--reuse-rec-memory"])
+            self.assertEqual(opts.inference_threads, count)
+            self.assertTrue(opts.reuse_rec_memory)
+        self.assertEqual(worker_options(["--shared-cpu"]).inference_threads, 1)
+
+    def test_memory_reuse_only_changes_the_recognizer_session(self):
+        from rapidocr_onnxruntime.ch_ppocr_rec import text_recognize
+        original = text_recognize.OrtInferSession
+        for reuse in (True, False):
+            threads = min(4 if reuse else 2, os.cpu_count() or 1)
+            engine = create_engine(reuse, threads)
+            self.assertIs(text_recognize.OrtInferSession, original)
+            options = engine.text_rec.session.session.get_session_options()
+            self.assertEqual(options.intra_op_num_threads, threads)
+            self.assertEqual(options.enable_cpu_mem_arena, reuse)
+            self.assertFalse(engine.text_det.infer.session.get_session_options().enable_cpu_mem_arena)
+            self.assertFalse(engine.text_cls.infer.session.get_session_options().enable_cpu_mem_arena)
+            del engine
+
     def test_rgb_reuse_preserves_pixels_and_other_modes_still_convert(self):
         image = Image.new("RGB", (3, 2), (20, 40, 60))
         self.assertIs(rgb_image(image), image)
